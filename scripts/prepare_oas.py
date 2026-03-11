@@ -22,6 +22,15 @@ TRUTHY = {"T", "TRUE", "1", "YES", "Y"}
 FALSY = {"F", "FALSE", "0", "NO", "N"}
 AA_ONLY = re.compile(r"[^A-Z]") # cleans data
 
+VARIABLE_REGION_AA_COLUMNS = [
+    "fwr1_aa",
+    "cdr1_aa",
+    "fwr2_aa",
+    "cdr2_aa",
+    "fwr3_aa",
+    "cdr3_aa",
+    "fwr4_aa",
+]
 
 def open_text(path: Path) -> TextIO: # convenience wrapper
     if path.suffix == ".gz":
