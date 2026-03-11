@@ -8,8 +8,7 @@ from typing import Dict, Iterable, List
 class AminoAcidTokenizer:
     """Simple fixed-vocabulary tokenizer for antibody amino-acid sequences.
 
-    The vocabulary is deliberately small and explicit so you can understand
-    exactly what is going into the model.
+    The vocabulary is deliberately small and explicit in order to facilitate easier v1/test batch
     """
 
     pad_token: str = "[PAD]"

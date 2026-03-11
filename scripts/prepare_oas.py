@@ -74,10 +74,10 @@ def clean_aa_sequence(seq: str) -> str:
 
 def choose_aa_sequence(row: Dict[str, str]) -> str:
     candidates = [
-        row.get("sequence_alignment_aa"),
         row.get("v_sequence_alignment_aa"),
+        row.get("sequence_alignment_aa"),
         row.get("sequence_aa"),
-        row.get("sequence"),
+        row.get("sequence"), #trying different candidate names
     ]
     for cand in candidates:
         cleaned = clean_aa_sequence(cand or "")
@@ -113,7 +113,7 @@ def extract_basic_metadata(metadata: Dict[str, object]) -> Dict[str, object]:
 
 def deterministic_split(sequence: str, n_val_percent: int = 10) -> str:
     h = hashlib.sha1(sequence.encode("utf-8")).hexdigest()
-    bucket = int(h[:8], 16) % 100
+    bucket = int(h[:8], 16) % 100 #hashing
     return "val" if bucket < n_val_percent else "train"
 
 
