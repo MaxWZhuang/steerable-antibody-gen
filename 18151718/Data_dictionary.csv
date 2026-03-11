@@ -1,0 +1,57 @@
+Column_name,Description,Data_type,Controlled_terms / Allowed_values,Unit
+Source,Original source database,string,"SAbDab, OAS, PDB, SKEMPI, etc.",每
+Update_Date,Source release or access date,string,YYYY-MM,每
+PDB_ID,Protein Data Bank identifier,string,4-character PDB code or NA,每
+PDB_ID_Changed,Whether PDB ID was updated,string,Updated ID or No,每
+Experimental_Method,Structure determination method,string,"X-RAY DIFFRACTION, ELECTRON MICROSCOPY, SOLUTION NMR, etc.",每
+Structure_Title,Structure title from PDB,string,Free text,每
+Complex_Structure,Whether structure is a complex,boolean,"TRUE, FALSE",每
+Ab_or_Nano,Antibody/nanobody type,string,"Antibody, VHH, scFv, BJ",每
+Source_Organism,Source organism,string,Controlled taxonomy,每
+H/L_Chain Entity ID,Chain entity identifier,integer,≡0,每
+H/L_Chain Asym ID,Asymmetric unit ID,string,PDB Asym IDs,每
+H/L_Chain Auth Asym ID,Author-assigned asym ID,string,Free text,每
+H/L_Chain Database Name,External database name,string,"GenBank, UniProt, etc.",每
+H/L_Chain Accession Code(s),External accession IDs,string,Database identifiers,每
+H/L_Chain Sequence Cluster ID,Sequence cluster identifier,string,Internal cluster IDs,每
+H/L_Chain Sequence Cluster Identity Threshold,Clustering identity threshold,float,0每1,每
+H/L_Chain Macromolecule Name,Macromolecule description,string,Free text,每
+Ag_Entity ID,Antigen entity ID,integer,≡0,每
+Ag_Asym ID,Antigen asym ID,string,PDB Asym IDs,每
+Ag_Auth Asym ID,Author-assigned antigen ID,string,Free text,每
+Ag_Database Name,Antigen database,string,"UniProt, PDB",每
+Ag_Accession Code(s),Antigen accession code,string,Database identifiers,每
+Ag_Name,Antigen name,string,Free text,每
+Ag_Seq,Antigen amino acid sequence,string,IUPAC AA codes,每
+Ag_Source Organism,Antigen organism,string,Controlled taxonomy,每
+Ab/Nano_mutation,Mutation annotation,string,Positional notation,每
+Ab/Nano_H_Chain AA,Heavy-chain sequence,string,IUPAC AA codes,每
+Ab/Nano_L_Chain AA,Light-chain sequence,string,IUPAC AA codes or NA,每
+Ab/Nano_CDR H1,Heavy-chain CDR1,string,AA sequence,每
+Ab/Nano_CDR H2,Heavy-chain CDR2,string,AA sequence,每
+Ab/Nano_CDR H3,Heavy-chain CDR3,string,AA sequence,每
+Ab/Nano_CDR L1,Light-chain CDR1,string,AA sequence or NA,每
+Ab/Nano_CDR L2,Light-chain CDR2,string,AA sequence or NA,每
+Ab/Nano_CDR L3,Light-chain CDR3,string,AA sequence or NA,每
+CDR Nomenclature,CDR definition scheme,string,"IMGT, Kabat, Chothia",每
+Affinity_Kd (M),Dissociation constant,float,≡0,M
+忖Gbinding (kJ/mol),Binding free energy,float,Real values,kJ/mol
+Affinity_Method,Affinity assay,string,"SPR, ITC, ELISA, KinExA",每
+Reason_Code,Missingness reason,string,"not_reported, conflicting, inferred",每
+Predicted_or_Not,Experimental or predicted,string,"real, predicted",每
+Provenance,Source and processing trace,string,Pipe-separated tags,每
+,,,,
+Abbreviation,Definition,,,
+mAbs,Monoclonal antibodies,,,
+Fab,Fragment antigen binding,,,
+VHH,Single-domain antibody (nanobody),,,
+H2L2,Conventional antibody with two heavy and two light chains,,,
+scFv,Single-chain variable fragment,,,
+BJ,Bence Jones-type light-chain dimer,,,
+CDR,Complementarity-determining region,,,
+SASA,Solvent-accessible surface area,,,
+Kd,The Dissociation Constant between the antibody/nanobody and the antigen,,,
+忖G,Binding free energy,,,
+RMSD,Root Mean Square Deviation,,,
+TM-score,Template Modeling score,,,
+OASis,Observed Antibody Space identity score,,,
