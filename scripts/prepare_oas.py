@@ -154,7 +154,7 @@ def keep_record(record: Dict[str, object], min_length: int, max_length: int) -> 
         return False
     if record.get("stop_codon") is True:
         return False
-    if record.get("locus") not in {"IGH", "IGK", "IGL"}:
+    if record.get("locus").upper not in {"H", "K", "L"}:
         return False
     return True
 
@@ -228,7 +228,7 @@ def main() -> None:
                         stats["stop_codon"] += 1
                         continue
 
-                    if record.get("locus") not in {"IGH", "IGK", "IGL"}:
+                    if record.get("locus").upper not in {"H", "K", "L"}:
                         stats["bad_locus"] += 1
                         continue
 
