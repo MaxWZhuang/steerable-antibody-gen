@@ -7,7 +7,7 @@ import hashlib # deterministic train/validation splitting
 import json # parsing metadata + writing output recrods
 import re # sequence cleaning
 from pathlib import Path #filesystem handling easier
-from typing import Dict, Iterable, Iterator, Optional, TextIO
+from typing import Dict, Iterable, Iterator, Optional, TextIO, Tuple
 
 from tqdm import tqdm # progress bars while processing files
 
@@ -232,18 +232,34 @@ def extract_basic_metadeta(metadata: Dict[str, object]) -> Dict[str, object]:
         "total_sequences_in_file": lowered.get("total sequences"),
     }
 
-def choose_aa_sequence(row: Dict[str, str]) -> str:
-    candidates = [
-        row.get("v_sequence_alignment_aa"),
-        row.get("sequence_alignment_aa"),
-        row.get("sequence_aa"),
-        row.get("sequence"), #trying different candidate names
-    ]
-    for cand in candidates:
-        cleaned = clean_aa_sequence(cand or "")
-        if cleaned:
-            return cleaned
-    return ""
+def build_variable_aa(row: Dict[str, str]) -> Tuple[str, str]:
+    """
+    We prefer sequence_alignment_aa because it contains the FULL variable-domain AA sequence.
+    This is as opposed to v_sequence_alignment_aa because that only uses the V-segment 
+    portion and can exclude the full heavy-chain CDR3/FWR4.
+    If sequence_alignment_aa is missing, we reconstruct from FR/CDR pieces.
+
+    Args:
+        row (Dict[str, str]): _description_
+
+    Returns:
+        Tuple[str, str]: (full_variable_domain_aa, source_field_used)
+    """
+    seq_alignment_aa = clean_aa_sequence(row.get("sequence_alignment_aa"))
+    if seq_alignment_aa:
+        return seq_alignment_aa, "sequence_alignment_aa"
+
+    parts = [clean_aa_sequence(row.get(col)) for col in VARIABLE_REGION_AA_COLUMNS]
+    if all(parts):
+        return "".join(parts), "frcdr_concat"
+
+    # Fallback only if needed
+    v_only = clean_aa_sequence(row.get("v_sequence_alignment_aa"))
+    if v_only:
+        return v_only, "v_sequence_alignment_aa"
+
+    return "", "missing"
+
 
 
 def choose_cdr3_aa(row: Dict[str, str]) -> str:
