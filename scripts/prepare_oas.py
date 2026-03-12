@@ -109,13 +109,69 @@ def normalize_bool(value: object) -> Optional[bool]: # cleaning truthy, falsey
         return False
     return None
 
+def safe_int(value: object, default: Optional[int] = None) -> Optional[int]:
+    """
+    Handles conversion to integers safely with error catching.
 
+    Args:
+        value (object): Any string attempted to return
+        default (Optional[int], optional): Backup value (null imputation). Defaults to None.
+
+    Returns:
+        Optional[int]: Integer representation of the string
+    """
+    if value is None:
+        return default
+    text = str(value).strip()
+    if text == "":
+        return default
+    try: 
+        return int(text)
+    except ValueError:
+        return default
+    
+    
 def clean_aa_sequence(seq: str) -> str:
-    seq = (seq or "").upper().replace(" ", "") # remove spaces, error-catching
+    """
+    Normalize amino-acid strings:
+    - uppercase
+    - remove spaces / punctuation / non-letters
+    - keep only accepted AA symbols
+
+    Args:
+        seq (str): Sequence
+
+    Returns:
+        str: Cleaned sequence (as explained above)
+    """
+    seq = str(seq or "").upper().replace(" ", "") # remove spaces, error-catching
     seq = AA_ONLY.sub("", seq) # remove anything that is not an uppercase letter
     return "".join(ch for ch in seq if ch in VALID_AA) # list comprehension, joining to valid aa seq
 
+def normalize_locus(raw_locus: object) -> str: 
+    """
+    Map OAS-style single-letter loci onto more explicit immunoglobulin locus names.
+    - Maps H/IGH -> IGH
+    - Maps K/IGK -> IGK
+    - Maps L/IGL -> IGL
+    
+    Fallback: returns other
 
+    Args:
+        raw_locus (object): _description_
+
+    Returns:
+        str: _description_
+    """
+    locus = str(raw_locus or "").strip().upper()
+    if locus in {"H", "IGH"}:
+        return "IGH"
+    if locus in {"K", "IGK"}:
+        return "IGK"
+    if locus in {"L", "IGL"}:
+        return "IGL"
+    return "OTHER"
+    
 def choose_aa_sequence(row: Dict[str, str]) -> str:
     candidates = [
         row.get("v_sequence_alignment_aa"),
