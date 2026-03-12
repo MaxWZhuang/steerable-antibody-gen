@@ -187,7 +187,51 @@ def chain_group_from_locus(locus: str) -> str:
     if locus in {"IGK", "IGL"}:
         return "light"
     return "other"
-    
+
+def deterministic_split(key: str, val_percent: int = 10) -> str:
+    """
+    Creates train/val/split in dataset stably. Key should include locus so splitting is chain-aware.
+
+    Args:
+        sequence (str): Includes locus
+        val_percent (int, optional): Percent of training data that goes to validation. Defaults to 10.
+
+    Returns:
+        str: "val" or "train"
+    """
+    h = hashlib.sha1(key.encode("utf-8")).hexdigest()
+    bucket = int(h[:8], 16) % 100 #hashing
+    return "val" if bucket < val_percent else "train"
+
+def extract_basic_metadeta(metadata: Dict[str, object]) -> Dict[str, object]:
+    """
+    Normalize the file-level metadeta into a smaller, predicted schema. Renaming, essentially
+
+    Args:
+        metadata (Dict[str, object]): Original metadata
+
+    Returns:
+        Dict[str, object]: New metadata
+    """
+    lowered = {str(k).lower(): v for k, v in metadata.items()}
+    return {
+        "run": lowered.get("run"),
+        "link": lowered.get("link"),
+        "author": lowered.get("author"),
+        "species": lowered.get("species"),
+        "bsource": lowered.get("bsource"),
+        "btype": lowered.get("btype"),
+        "vaccine": lowered.get("vaccine"),
+        "disease": lowered.get("disease"),
+        "age": lowered.get("age"),
+        "subject": lowered.get("subject"),
+        "longitudinal": lowered.get("longitudinal"),
+        "declared_chain": lowered.get("chain"),
+        "declared_isotype": lowered.get("isotype"),
+        "unique_sequences_in_file": lowered.get("unique sequences"),
+        "total_sequences_in_file": lowered.get("total sequences"),
+    }
+
 def choose_aa_sequence(row: Dict[str, str]) -> str:
     candidates = [
         row.get("v_sequence_alignment_aa"),
@@ -212,25 +256,6 @@ def choose_cdr3_aa(row: Dict[str, str]) -> str:
         if cleaned:
             return cleaned
     return ""
-
-
-def extract_basic_metadata(metadata: Dict[str, object]) -> Dict[str, object]:
-    lowered = {str(k).lower(): v for k, v in metadata.items()}
-    return {
-        "species": lowered.get("species"),
-        "author": lowered.get("author"),
-        "subject": lowered.get("subject"),
-        "disease": lowered.get("disease"),
-        "vaccine": lowered.get("vaccine"),
-        "bsource": lowered.get("bsource") or lowered.get("b-cell source"),
-        "run": lowered.get("run"),
-    }
-
-
-def deterministic_split(sequence: str, n_val_percent: int = 10) -> str:
-    h = hashlib.sha1(sequence.encode("utf-8")).hexdigest()
-    bucket = int(h[:8], 16) % 100 #hashing
-    return "val" if bucket < n_val_percent else "train"
 
 
 def iter_oas_records(path: Path) -> Iterator[Dict[str, object]]:
