@@ -171,6 +171,22 @@ def normalize_locus(raw_locus: object) -> str:
     if locus in {"L", "IGL"}:
         return "IGL"
     return "OTHER"
+
+def chain_group_from_locus(locus: str) -> str:
+    """
+    Simplification of appropriate locus types to type of chain (Heavy or Light)
+
+    Args:
+        locus (str): normalized locus
+
+    Returns:
+        str: "heavy" or "light" or "other"
+    """
+    if locus == "IGH":
+        return "heavy"
+    if locus in {"IGK", "IGL"}:
+        return "light"
+    return "other"
     
 def choose_aa_sequence(row: Dict[str, str]) -> str:
     candidates = [
