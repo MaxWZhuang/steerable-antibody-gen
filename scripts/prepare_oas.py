@@ -260,60 +260,145 @@ def build_variable_aa(row: Dict[str, str]) -> Tuple[str, str]:
 
     return "", "missing"
 
+def extract_region_aas(row: Dict[str, str]) -> Dict[str, str]:
+    """
+    Annotates and retrieves each region's aa sequence.
 
+    Args:
+        row (Dict[str, str]): original 
 
-def choose_cdr3_aa(row: Dict[str, str]) -> str:
+    Returns:
+        Dict[str, str]: labelled, stratified data
+    """
+    out: Dict[str, str] = {}
+    for col in VARIABLE_REGION_AA_COLUMNS:
+        out[col] = clean_aa_sequence(row.get(col))
+    return out
+
+def choose_nt_sequence(row: Dict[str, str]) -> str:
+    """
+    Preserve the original nucleotide rearrangement sequence if available.
+    """
     candidates = [
-        row.get("cdr3_aa"),
-        row.get("junction_aa"),
+        row.get("sequence_alignment"),
+        row.get("sequence"),
+        row.get("junction"),
     ]
     for cand in candidates:
-        cleaned = clean_aa_sequence(cand or "")
-        if cleaned:
-            return cleaned
+        text = str(cand or "").upper().replace(" ", "")
+        text = re.sub(r"[^ACGTN]", "", text)
+        if text:
+            return text
     return ""
+
+def keep_record(
+    record: Dict[str, object],
+    min_heavy: int,
+    max_heavy: int,
+    min_light: int,
+    max_light: int,
+    require_complete_vdj: bool = False,
+) -> Tuple[bool, str]:
+    """
+    Returns (keep, reason_if_dropped).
+    """
+    locus = str(record.get("locus", "OTHER"))
+    seq = str(record.get("sequence") or "")
+
+    if not seq:
+        return False, "empty_sequence"
+
+    if locus == "IGH":
+        if len(seq) < min_heavy or len(seq) > max_heavy:
+            return False, "length_out_of_range"
+    elif locus in {"IGK", "IGL"}:
+        if len(seq) < min_light or len(seq) > max_light:
+            return False, "length_out_of_range"
+    else:
+        return False, "bad_locus"
+
+    if record.get("productive") is False:
+        return False, "non_productive"
+
+    if record.get("vj_in_frame") is False:
+        return False, "out_of_frame"
+
+    if record.get("stop_codon") is True:
+        return False, "stop_codon"
+
+    if record.get("v_frameshift") is True:
+        return False, "v_frameshift"
+
+    if require_complete_vdj and record.get("complete_vdj") is not True:
+        return False, "incomplete_vdj"
+
+    return True, "kept"
 
 
 def iter_oas_records(path: Path) -> Iterator[Dict[str, object]]:
     delimiter = detect_delimiter(path)
+
     with open_text(path) as f:
         metadata = parse_metadata_line(f.readline())
     basic_meta = extract_basic_metadata(metadata)
 
     with open_text(path) as f:
-        _ = f.readline()
+        _ = f.readline()  # skip metadata line
         reader = csv.DictReader(f, delimiter=delimiter)
         for row in reader:
-            yield {
+            locus = normalize_locus(row.get("locus"))
+            chain_group = chain_group_from_locus(locus)
+            variable_aa, sequence_source = build_variable_aa(row)
+            region_aas = extract_region_aas(row)
+
+            record = {
                 **basic_meta,
-                "source_file": str(path.name),
-                "locus": (row.get("locus") or "").strip().upper(),
+                "source_file": path.name,
+
+                # Core sequence fields
+                "sequence": variable_aa,         # keep trainer compatibility
+                "variable_aa": variable_aa,      # explicit name for clarity
+                "sequence_source": sequence_source,
+                "sequence_nt": choose_nt_sequence(row),
+
+                # Chain identity
+                "locus": locus,
+                "chain_group": chain_group,
+
+                # Productivity / QC flags
                 "productive": normalize_bool(row.get("productive")),
                 "vj_in_frame": normalize_bool(row.get("vj_in_frame")),
+                "v_frameshift": normalize_bool(row.get("v_frameshift")),
                 "stop_codon": normalize_bool(row.get("stop_codon")),
+                "complete_vdj": normalize_bool(row.get("complete_vdj")),
+                "rev_comp": normalize_bool(row.get("rev_comp")),
+
+                # Gene calls
                 "v_call": row.get("v_call"),
                 "d_call": row.get("d_call"),
                 "j_call": row.get("j_call"),
-                "cdr3_aa": choose_cdr3_aa(row),
-                "sequence": choose_aa_sequence(row),
+
+                # Region-level AA annotations
+                **region_aas,
+                "cdr3_aa": clean_aa_sequence(row.get("cdr3_aa")),
+                "junction_aa": clean_aa_sequence(row.get("junction_aa")),
+
+                # Useful numerical metadata
+                "redundancy": safe_int(row.get("Redundancy"), default=1),
+                "junction_length": safe_int(row.get("junction_length")),
+                "junction_aa_length": safe_int(row.get("junction_aa_length")),
+
+                # Identity metrics if present
+                "v_identity": row.get("v_identity"),
+                "d_identity": row.get("d_identity"),
+                "j_identity": row.get("j_identity"),
+
+                # ANARCI
+                "anarci_numbering": row.get("ANARCI_numbering"),
+                "anarci_status": row.get("ANARCI_status"),
             }
 
-
-def keep_record(record: Dict[str, object], min_length: int, max_length: int) -> bool:
-    seq = str(record.get("sequence") or "")
-    if not seq:
-        return False
-    if len(seq) < min_length or len(seq) > max_length:
-        return False
-    if record.get("productive") is False:
-        return False
-    if record.get("vj_in_frame") is False:
-        return False
-    if record.get("stop_codon") is True:
-        return False
-    if record.get("locus").upper not in {"H", "K", "L"}:
-        return False
-    return True
+            yield record
 
 
 def write_jsonl_gz(records: Iterable[Dict[str, object]], output_path: Path) -> None:
