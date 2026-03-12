@@ -12,6 +12,9 @@ from typing import Dict, Iterable, Iterator, Optional, TextIO
 from tqdm import tqdm # progress bars while processing files
 
 VALID_AA = set("ACDEFGHIKLMNPQRSTVWYBXZOU") 
+
+AA_ONLY = re.compile(r"[^A-Z]")
+
 # alphabet of allowed amino-acid symbols:
 # 20 canonical amino acids 
 # X = unknown residue
@@ -20,7 +23,6 @@ VALID_AA = set("ACDEFGHIKLMNPQRSTVWYBXZOU")
 
 TRUTHY = {"T", "TRUE", "1", "YES", "Y"}
 FALSY = {"F", "FALSE", "0", "NO", "N"}
-AA_ONLY = re.compile(r"[^A-Z]") # cleans data
 
 VARIABLE_REGION_AA_COLUMNS = [
     "fwr1_aa",
@@ -39,6 +41,16 @@ def open_text(path: Path) -> TextIO: # convenience wrapper
 
 
 def parse_metadata_line(line: str) -> Dict[str, object]:
+    """
+    OAS data will place metadeta in the first line. Parser if possible, 
+    else preserves the raw line
+
+    Args:
+        line (str): First line
+
+    Returns:
+        Dict[str, object]: Returns Dict in format of {"raw_metadeta": line}
+    """
     line = line.strip() # remove leading/trailing whitespace
     if not line:
         return {} # if empty, return null
@@ -54,17 +66,40 @@ def parse_metadata_line(line: str) -> Dict[str, object]:
 
 
 def detect_delimiter(path: Path) -> str:
-    # guesses which one the table is (comma-sep, tab-sep, semicolon-sep)
+    """
+    
+    First skips the metadeta line, then sniff the delimiter from a few table lines
+    Eg: Guesses the kind of table is (comma-sep, tab-sep, semicolon-sep)
+
+    Args:
+        path (Path): Path to OAS file
+
+    Returns:
+        str: type of delimiter from [, or \t or ;]
+    """
+    delimiter_options = "m/t;"
     with open_text(path) as f:
         _ = f.readline() #skip first line, metadata
         sample = "".join(f.readline() for _ in range(5)) # read first 5 lines
     try:
-        return csv.Sniffer().sniff(sample, delimiters=",\t;").delimiter # infer delimiter
+        return csv.Sniffer().sniff(sample, delimiters=delimiter_options).delimiter # infer delimiter
     except csv.Error:
         return "\t" if "\t" in sample else ","
 
 
 def normalize_bool(value: object) -> Optional[bool]: # cleaning truthy, falsey
+    """
+    Simply boolean normalizer (data cleaning): 
+    1. if it's in the Truthy set defined above, return True
+    2. If it's in the Falsey set defined above, return False
+    3. If it's not in either one of them, return None
+
+    Args:
+        value (object): Any kind of object
+
+    Returns:
+        Optional[bool]: Potentially returns True/False, can also return None
+    """
     if value is None:
         return None
     value = str(value).strip().upper()
