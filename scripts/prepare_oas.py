@@ -340,7 +340,7 @@ def iter_oas_records(path: Path) -> Iterator[Dict[str, object]]:
 
     with open_text(path) as f:
         metadata = parse_metadata_line(f.readline())
-    basic_meta = extract_basic_metadata(metadata)
+    basic_meta = extract_basic_metadeta(metadata)
 
     with open_text(path) as f:
         _ = f.readline()  # skip metadata line
@@ -400,103 +400,150 @@ def iter_oas_records(path: Path) -> Iterator[Dict[str, object]]:
 
             yield record
 
+class JsonlGzWriter:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.handle = gzip.open(self.path, "wt", encoding="utf-8")
 
-def write_jsonl_gz(records: Iterable[Dict[str, object]], output_path: Path) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with gzip.open(output_path, "wt", encoding="utf-8") as out:
-        for record in records:
-            out.write(json.dumps(record) + "\n")
+    def write(self, record: Dict[str, object]) -> None:
+        self.handle.write(json.dumps(record) + "\n")
+
+    def close(self) -> None:
+        self.handle.close()
+        
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Preprocess raw OAS data-units into JSONL.")
-    parser.add_argument("--input-dir", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--stats-output", type=Path, default=None)
-    parser.add_argument("--min-length", type=int, default=70)
-    parser.add_argument("--max-length", type=int, default=180)
-    parser.add_argument("--max-files", type=int, default=None)
-    parser.add_argument("--max-records", type=int, default=None)
+    parser = argparse.ArgumentParser(
+        description="Schema-aware OAS preprocessor for variable-domain antibody LM pretraining."
+    )
+    parser.add_argument("--input-dir", type=Path, required=True, help="Directory containing raw OAS .csv.gz files")
+    parser.add_argument("--output-dir", type=Path, required=True, help="Directory to write processed outputs")
+    parser.add_argument("--stats-output", type=Path, default=None, help="Optional JSON stats file")
+    parser.add_argument("--max-files", type=int, default=None, help="Process only the first N files")
+    parser.add_argument("--max-records", type=int, default=None, help="Stop after writing N kept records total")
+    parser.add_argument("--val-percent", type=int, default=10, help="Validation percent")
+    parser.add_argument("--min-heavy", type=int, default=80, help="Minimum full variable-domain AA length for heavy chains")
+    parser.add_argument("--max-heavy", type=int, default=180, help="Maximum full variable-domain AA length for heavy chains")
+    parser.add_argument("--min-light", type=int, default=70, help="Minimum full variable-domain AA length for light chains")
+    parser.add_argument("--max-light", type=int, default=160, help="Maximum full variable-domain AA length for light chains")
+    parser.add_argument("--require-complete-vdj", action="store_true", help="Drop rows not explicitly marked complete_vdj")
     args = parser.parse_args()
 
     input_files = sorted(
-        [p for p in args.input_dir.rglob("*") if p.is_file() and (p.suffix == ".gz" or p.suffix == ".csv")]
+        [p for p in args.input_dir.rglob("*") if p.is_file() and p.suffix in {".gz", ".csv"}]
     )
     if args.max_files is not None:
         input_files = input_files[: args.max_files]
 
     if not input_files:
-        raise FileNotFoundError(f"No OAS files found under {args.input_dir}")
+        raise FileNotFoundError(f"No .csv or .csv.gz files found under {args.input_dir}")
+
+    writers = {
+        "all": JsonlGzWriter(args.output_dir / "oas_all.jsonl.gz"),
+        "IGH": JsonlGzWriter(args.output_dir / "oas_igh.jsonl.gz"),
+        "IGK": JsonlGzWriter(args.output_dir / "oas_igk.jsonl.gz"),
+        "IGL": JsonlGzWriter(args.output_dir / "oas_igl.jsonl.gz"),
+    }
 
     seen = set()
+
     stats = {
         "files_seen": 0,
         "records_seen": 0,
         "records_kept": 0,
         "duplicates_dropped": 0,
-        "too_short_or_long": 0,
-        "non_productive": 0,
-        "out_of_frame": 0,
-        "stop_codon": 0,
-        "bad_locus": 0,
-        "empty_sequence": 0,
+        "drop_reasons": Counter(),
+        "kept_by_locus": Counter(),
+        "kept_by_split": Counter(),
+        "sequence_source_counts": Counter(),
+        "redundancy_sum_by_locus": Counter(),
     }
 
-    def filtered_records() -> Iterator[Dict[str, object]]:
-        for path in tqdm(input_files, desc="Parsing OAS files"):
+    try:
+        for path in input_files:
             stats["files_seen"] += 1
+
             try:
                 for record in iter_oas_records(path):
                     stats["records_seen"] += 1
 
-                    seq = str(record.get("sequence") or "")
-                    if not seq:
-                        stats["empty_sequence"] += 1
+                    keep, reason = keep_record(
+                        record,
+                        min_heavy=args.min_heavy,
+                        max_heavy=args.max_heavy,
+                        min_light=args.min_light,
+                        max_light=args.max_light,
+                        require_complete_vdj=args.require_complete_vdj,
+                    )
+                    if not keep:
+                        stats["drop_reasons"][reason] += 1
                         continue
 
-                    if len(seq) < args.min_length or len(seq) > args.max_length:
-                        stats["too_short_or_long"] += 1
-                        continue
+                    locus = str(record["locus"])
+                    seq = str(record["sequence"])
 
-                    if record.get("productive") is False:
-                        stats["non_productive"] += 1
-                        continue
-
-                    if record.get("vj_in_frame") is False:
-                        stats["out_of_frame"] += 1
-                        continue
-
-                    if record.get("stop_codon") is True:
-                        stats["stop_codon"] += 1
-                        continue
-
-                    if record.get("locus").upper not in {"H", "K", "L"}:
-                        stats["bad_locus"] += 1
-                        continue
-
-                    if seq in seen:
+                    # Dedupe within locus, not globally across all chains.
+                    dedupe_key = (locus, seq)
+                    if dedupe_key in seen:
                         stats["duplicates_dropped"] += 1
                         continue
-                    seen.add(seq)
+                    seen.add(dedupe_key)
+
+                    split_key = f"{locus}:{seq}"
+                    split = deterministic_split(split_key, val_percent=args.val_percent)
 
                     record["length"] = len(seq)
-                    record["split"] = deterministic_split(seq)
+                    record["split"] = split
+
+                    writers["all"].write(record)
+                    if locus in writers:
+                        writers[locus].write(record)
+
                     stats["records_kept"] += 1
-                    yield record
+                    stats["kept_by_locus"][locus] += 1
+                    stats["kept_by_split"][split] += 1
+                    stats["sequence_source_counts"][str(record["sequence_source"])] += 1
+                    stats["redundancy_sum_by_locus"][locus] += int(record.get("redundancy") or 1)
 
                     if args.max_records is not None and stats["records_kept"] >= args.max_records:
-                        return
-            except Exception as exc:
-                print(f"[WARN] Failed to parse {path}: {exc}")
+                        raise StopIteration
 
-    write_jsonl_gz(filtered_records(), args.output)
-    print(f"Wrote processed dataset to {args.output}")
+            except StopIteration:
+                break
+            except Exception as exc:
+                print(f"[WARN] Failed while parsing {path}: {exc}")
+
+    finally:
+        for writer in writers.values():
+            writer.close()
+
+    # Convert Counters to normal dicts for JSON serialization
+    serializable_stats = {
+        "files_seen": stats["files_seen"],
+        "records_seen": stats["records_seen"],
+        "records_kept": stats["records_kept"],
+        "duplicates_dropped": stats["duplicates_dropped"],
+        "drop_reasons": dict(stats["drop_reasons"]),
+        "kept_by_locus": dict(stats["kept_by_locus"]),
+        "kept_by_split": dict(stats["kept_by_split"]),
+        "sequence_source_counts": dict(stats["sequence_source_counts"]),
+        "redundancy_sum_by_locus": dict(stats["redundancy_sum_by_locus"]),
+        "outputs": {
+            "all": str(args.output_dir / "oas_all.jsonl.gz"),
+            "IGH": str(args.output_dir / "oas_igh.jsonl.gz"),
+            "IGK": str(args.output_dir / "oas_igk.jsonl.gz"),
+            "IGL": str(args.output_dir / "oas_igl.jsonl.gz"),
+        },
+    }
 
     if args.stats_output is not None:
         args.stats_output.parent.mkdir(parents=True, exist_ok=True)
         with open(args.stats_output, "w", encoding="utf-8") as f:
-            json.dump(stats, f, indent=2)
-        print(f"Wrote stats to {args.stats_output}")
+            json.dump(serializable_stats, f, indent=2)
+
+    print(json.dumps(serializable_stats, indent=2))
 
 
 if __name__ == "__main__":
