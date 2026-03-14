@@ -24,19 +24,58 @@ class OASSequenceRecord:
 
 
 def parse_possible_json_metadata(line: str) -> Dict[str, Any] | None:
-    stripped = line.strip()
+    if not line:
+        return None
+
+    stripped = line.lstrip("\ufeff").strip()
     if not stripped:
         return None
+
     if stripped.startswith("#"):
-        stripped = stripped.lstrip("#").strip()
-    if not stripped.startswith("{"):
-        return None
+        stripped = stripped[1:].strip()
+
+    candidates: list[str] = [stripped]
+
+    # If the line is a CSV-quoted single field like:
+    # "{""Run"": ""SRR3099049"", ...}"
+    # this will unwrap it to:
+    # {"Run": "SRR3099049", ...}
     try:
-        parsed = json.loads(stripped)
-        if isinstance(parsed, dict):
-            return parsed
-    except json.JSONDecodeError:
-        return None
+        row = next(csv.reader([stripped]))
+        if len(row) == 1:
+            candidates.append(row[0].strip())
+    except Exception:
+        pass
+
+    # Additional fallbacks
+    expanded: list[str] = []
+    for c in candidates:
+        expanded.append(c)
+
+        if c.startswith('"') and c.endswith('"'):
+            inner = c[1:-1]
+            expanded.append(inner)
+            expanded.append(inner.replace('""', '"'))
+
+        expanded.append(c.replace('""', '"'))
+
+    seen = set()
+    for c in expanded:
+        c = c.strip()
+        if c in seen:
+            continue
+        seen.add(c)
+
+        if not c.startswith("{"):
+            continue
+
+        try:
+            parsed = json.loads(c)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            continue
+
     return None
 
 
@@ -49,6 +88,7 @@ def open_text_maybe_gzip(path: Path):
 def read_oas_table(path: Path) -> tuple[Dict[str, Any], pd.DataFrame]:
     with open_text_maybe_gzip(path) as f:
         first_line = f.readline()
+        print("FIRST LINE RAW:", repr(first_line[:300]))
         metadata = parse_possible_json_metadata(first_line)
         if metadata is not None:
             remaining = f.read()

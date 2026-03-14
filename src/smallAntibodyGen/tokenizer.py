@@ -8,17 +8,20 @@ from typing import Dict, Iterable, List
 class AminoAcidTokenizer:
     """Simple fixed-vocabulary tokenizer for antibody amino-acid sequences.
 
-    The vocabulary is deliberately small and explicit in order to facilitate easier v1/test batch
+    The vocabulary is deliberately small and explicit to make best use of natural amino-acid meaning.
     """
-
-    pad_token: str = "[PAD]"
-    cls_token: str = "[CLS]"
-    eos_token: str = "[EOS]"
-    sep_token: str = "[SEP]"
+    
+    #special tokens below 
+    
+    pad_token: str = "[PAD]" #pads to local maximum
+    cls_token: str = "[CLS]" #beginning/global summary token
+    eos_token: str = "[EOS]" #end-of-sequence token
+    sep_token: str = "[SEP]" 
     mask_token: str = "[MASK]"
-    unk_token: str = "[UNK]"
+    unk_token: str = "[UNK]" # unknown-residue
+    
     chain_tokens: List[str] = field(
-        default_factory=lambda: ["[IGH]", "[IGK]", "[IGL]", "[OTHER_CHAIN]"]
+        default_factory=lambda: ["[IGH]", "[IGK]", "[IGL]", "[OTHER_CHAIN]"] # class definition, default_factory to initalize the mutable state
     )
 
     def __post_init__(self) -> None:
