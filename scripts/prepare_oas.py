@@ -1,128 +1,261 @@
-#!/usr/bin/env python3
-from __future__ import annotations
+from __future__ import annotations #type hints become more clean
 
-import argparse
-import gzip
-import hashlib
-import json
-import sys
+import argparse # allows script to be run from command line
+import csv # read delimited tables (oas raw files --> structured tables)
+import gzip # read + write compressed files like .gz
+import hashlib # deterministic train/validation splitting
+import json # parsing metadata + writing output recrods
+import re # sequence cleaning
+from pathlib import Path #filesystem handling easier
 from collections import Counter
-from pathlib import Path
-from typing import Any, Dict, Iterator, Optional, Tuple
+from typing import Dict, Iterable, Iterator, Optional, TextIO, Tuple
 
-import pandas as pd
+from tqdm import tqdm # progress bars while processing files
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+VALID_AA = set("ACDEFGHIKLMNPQRSTVWYBXZOU") 
 
-from smallAntibodyGen.data.oas import read_oas_table
-from smallAntibodyGen.tokenizer import AminoAcidTokenizer
+AA_ONLY = re.compile(r"[^A-Z]")
 
+# alphabet of allowed amino-acid symbols:
+# 20 canonical amino acids 
+# X = unknown residue
+# B, Z = ambiguity codes
+# U, 0 = rare amino acids
 
-VALID_AA = set("ACDEFGHIKLMNPQRSTVWYBXZOU")
+TRUTHY = {"T", "TRUE", "1", "YES", "Y"}
+FALSY = {"F", "FALSE", "0", "NO", "N"}
 
+VARIABLE_REGION_AA_COLUMNS = [
+    "fwr1_aa",
+    "cdr1_aa",
+    "fwr2_aa",
+    "cdr2_aa",
+    "fwr3_aa",
+    "cdr3_aa",
+    "fwr4_aa",
+]
 
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        description="Prepare raw OAS files into chain-aware, pretokenized JSONL for MLM training."
-    )
-    p.add_argument("--input-dir", type=Path, required=True)
-    p.add_argument("--output-dir", type=Path, required=True)
-    p.add_argument("--stats-output", type=Path, default=None)
-    p.add_argument("--max-files", type=int, default=None)
-    p.add_argument("--max-records", type=int, default=None)
-    p.add_argument("--val-percent", type=int, default=10)
-
-    # chain-specific length filters in amino acids
-    p.add_argument("--min-heavy", type=int, default=80)
-    p.add_argument("--max-heavy", type=int, default=180)
-    p.add_argument("--min-light", type=int, default=70)
-    p.add_argument("--max-light", type=int, default=160)
-    p.add_argument("--min-nano", type=int, default=70)
-    p.add_argument("--max-nano", type=int, default=150)
-
-    # tokenization
-    p.add_argument("--token-max-length", type=int, default=192)
-
-    # strictness
-    p.add_argument("--require-complete-vdj", action="store_true")
-    p.add_argument("--drop-ambiguous-cdr3-span", action="store_true")
-
-    return p.parse_args()
+def open_text(path: Path) -> TextIO: # convenience wrapper
+    if path.suffix == ".gz":
+        return gzip.open(path, "rt", encoding="utf-8", errors="ignore")
+    return open(path, "r", encoding="utf-8", errors="ignore")
 
 
-def normalize_bool(value: Any) -> Optional[bool]:
-    if value is None or pd.isna(value):
+def parse_metadata_line(line: str) -> Dict[str, object]:
+    """
+    OAS data will place metadeta in the first line. Parser if possible, 
+    else preserves the raw line. Tries two different formats (if line is CSV-quoted single field, will unwrap) with potential
+    other fallbacks as necessary
+
+    Args:
+        line (str): First line
+
+    Returns:
+        Dict[str, object]: Returns Dict in format of {"raw_metadeta": line}
+    """
+    if not line:
         return None
-    text = str(value).strip().lower()
-    if text in {"t", "true", "1", "yes"}:
-        return True
-    if text in {"f", "false", "0", "no"}:
-        return False
+
+    stripped = line.lstrip("\ufeff").strip()
+    if not stripped:
+        return None
+
+    if stripped.startswith("#"):
+        stripped = stripped[1:].strip()
+
+    candidates: list[str] = [stripped]
+
+    # If the line is a CSV-quoted single field like:
+    # "{""Run"": ""SRR3099049"", ...}"
+    # this will unwrap it to:
+    # {"Run": "SRR3099049", ...}
+    try:
+        row = next(csv.reader([stripped]))
+        if len(row) == 1:
+            candidates.append(row[0].strip())
+    except Exception:
+        pass
+
+    # Additional fallbacks
+    expanded: list[str] = []
+    for c in candidates:
+        expanded.append(c)
+
+        if c.startswith('"') and c.endswith('"'):
+            inner = c[1:-1]
+            expanded.append(inner)
+            expanded.append(inner.replace('""', '"'))
+
+        expanded.append(c.replace('""', '"'))
+
+    seen = set()
+    for c in expanded:
+        c = c.strip()
+        if c in seen:
+            continue
+        seen.add(c)
+
+        if not c.startswith("{"):
+            continue
+
+        try:
+            parsed = json.loads(c)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            continue
+
     return None
 
 
-def safe_int(value: Any, default: Optional[int] = None) -> Optional[int]:
-    if value is None or pd.isna(value):
+def detect_delimiter(path: Path) -> str:
+    """
+    
+    First skips the metadeta line, then sniff the delimiter from a few table lines
+    Eg: Guesses the kind of table is (comma-sep, tab-sep, semicolon-sep)
+
+    Args:
+        path (Path): Path to OAS file
+
+    Returns:
+        str: type of delimiter from [, or \t or ;]
+    """
+    delimiter_options = "m/t;"
+    with open_text(path) as f:
+        _ = f.readline() #skip first line, metadata
+        sample = "".join(f.readline() for _ in range(5)) # read first 5 lines
+    try:
+        return csv.Sniffer().sniff(sample, delimiters=delimiter_options).delimiter # infer delimiter
+    except csv.Error:
+        return "\t" if "\t" in sample else ","
+
+
+def normalize_bool(value: object) -> Optional[bool]: # cleaning truthy, falsey
+    """
+    Simply boolean normalizer (data cleaning): 
+    1. if it's in the Truthy set defined above, return True
+    2. If it's in the Falsey set defined above, return False
+    3. If it's not in either one of them, return None
+
+    Args:
+        value (object): Any kind of object
+
+    Returns:
+        Optional[bool]: Potentially returns True/False, can also return None
+    """
+    if value is None:
+        return None
+    value = str(value).strip().upper()
+    if value in TRUTHY:
+        return True
+    if value in FALSY:
+        return False
+    return None
+
+def safe_int(value: object, default: Optional[int] = None) -> Optional[int]:
+    """
+    Handles conversion to integers safely with error catching.
+
+    Args:
+        value (object): Any string attempted to return
+        default (Optional[int], optional): Backup value (null imputation). Defaults to None.
+
+    Returns:
+        Optional[int]: Integer representation of the string
+    """
+    if value is None:
         return default
     text = str(value).strip()
     if text == "":
         return default
-    try:
+    try: 
         return int(text)
     except ValueError:
         return default
-
-
-def clean_aa_sequence(seq: Any) -> str:
-    if seq is None or pd.isna(seq):
-        return ""
-    text = str(seq).upper()
-    text = "".join(ch for ch in text if ch.isalpha())
-    text = "".join(ch for ch in text if ch in VALID_AA)
-    return text
-
-
-def normalize_locus(row: pd.Series, metadata: Dict[str, Any]) -> str:
+    
+    
+def clean_aa_sequence(seq: str) -> str:
     """
-    Preserve chain identity explicitly:
-    H / IGH -> IGH
-    K / IGK -> IGK
-    L / IGL -> IGL
-    VHH / NANO / NANOBODY -> VHH
+    Normalize amino-acid strings:
+    - uppercase
+    - remove spaces / punctuation / non-letters
+    - keep only accepted AA symbols
+
+    Args:
+        seq (str): Sequence
+
+    Returns:
+        str: Cleaned sequence (as explained above)
     """
-    candidates = [
-        row.get("locus"),
-        row.get("chain"),
-        metadata.get("Chain"),
-        metadata.get("chain"),
-    ]
-    for item in candidates:
-        if item is None or pd.isna(item):
-            continue
-        text = str(item).strip().upper()
-        if text in {"IGH", "VH", "H", "HEAVY"}:
-            return "IGH"
-        if text in {"IGK", "K", "KAPPA"}:
-            return "IGK"
-        if text in {"IGL", "L", "LAMBDA"}:
-            return "IGL"
-        if text in {"VHH", "NANO", "NANOBODY"}:
-            return "VHH"
+    seq = str(seq or "").upper().replace(" ", "") # remove spaces, error-catching
+    seq = AA_ONLY.sub("", seq) # remove anything that is not an uppercase letter
+    return "".join(ch for ch in seq if ch in VALID_AA) # list comprehension, joining to valid aa seq
+
+def normalize_locus(raw_locus: object) -> str: 
+    """
+    Map OAS-style single-letter loci onto more explicit immunoglobulin locus names.
+    - Maps H/IGH -> IGH
+    - Maps K/IGK -> IGK
+    - Maps L/IGL -> IGL
+    
+    Fallback: returns other
+
+    Args:
+        raw_locus (object): _description_
+
+    Returns:
+        str: _description_
+    """
+    locus = str(raw_locus or "").strip().upper()
+    if locus in {"H", "IGH"}:
+        return "IGH"
+    if locus in {"K", "IGK"}:
+        return "IGK"
+    if locus in {"L", "IGL"}:
+        return "IGL"
     return "OTHER"
 
-
 def chain_group_from_locus(locus: str) -> str:
+    """
+    Simplification of appropriate locus types to type of chain (Heavy or Light)
+
+    Args:
+        locus (str): normalized locus
+
+    Returns:
+        str: "heavy" or "light" or "other"
+    """
     if locus == "IGH":
         return "heavy"
     if locus in {"IGK", "IGL"}:
         return "light"
-    if locus == "VHH":
-        return "nano"
     return "other"
 
+def deterministic_split(key: str, val_percent: int = 10) -> str:
+    """
+    Creates train/val/split in dataset stably. Key should include locus so splitting is chain-aware.
 
-def extract_basic_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
+    Args:
+        sequence (str): Includes locus
+        val_percent (int, optional): Percent of training data that goes to validation. Defaults to 10.
+
+    Returns:
+        str: "val" or "train"
+    """
+    h = hashlib.sha1(key.encode("utf-8")).hexdigest()
+    bucket = int(h[:8], 16) % 100 #hashing
+    return "val" if bucket < val_percent else "train"
+
+def extract_basic_metadeta(metadata: Dict[str, object]) -> Dict[str, object]:
+    """
+    Normalize the file-level metadeta into a smaller, predicted schema. Renaming, essentially
+
+    Args:
+        metadata (Dict[str, object]): Original metadata
+
+    Returns:
+        Dict[str, object]: New metadata
+    """
     lowered = {str(k).lower(): v for k, v in metadata.items()}
     return {
         "run": lowered.get("run"),
@@ -142,119 +275,173 @@ def extract_basic_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
         "total_sequences_in_file": lowered.get("total sequences"),
     }
 
-
-def build_variable_aa(row: pd.Series) -> Tuple[str, str]:
+def build_variable_aa(row: Dict[str, str]) -> Tuple[str, str]:
     """
-    Prefer the full variable-domain AA sequence.
-    sequence_alignment_aa is usually the correct primary field.
+    We prefer sequence_alignment_aa because it contains the FULL variable-domain AA sequence.
+    This is as opposed to v_sequence_alignment_aa because that only uses the V-segment 
+    portion and can exclude the full heavy-chain CDR3/FWR4.
+    If sequence_alignment_aa is missing, we reconstruct from FR/CDR pieces.
+
+    Args:
+        row (Dict[str, str]): _description_
+
+    Returns:
+        Tuple[str, str]: (full_variable_domain_aa, source_field_used)
     """
     seq_alignment_aa = clean_aa_sequence(row.get("sequence_alignment_aa"))
     if seq_alignment_aa:
         return seq_alignment_aa, "sequence_alignment_aa"
 
-    frcdr_cols = [
-        "fwr1_aa", "cdr1_aa", "fwr2_aa", "cdr2_aa",
-        "fwr3_aa", "cdr3_aa", "fwr4_aa",
-    ]
-    frcdr_parts = [clean_aa_sequence(row.get(col)) for col in frcdr_cols]
-    if all(frcdr_parts):
-        return "".join(frcdr_parts), "frcdr_concat"
+    parts = [clean_aa_sequence(row.get(col)) for col in VARIABLE_REGION_AA_COLUMNS]
+    if all(parts):
+        return "".join(parts), "frcdr_concat"
 
-    v_seq_aa = clean_aa_sequence(row.get("v_sequence_alignment_aa"))
-    if v_seq_aa:
-        return v_seq_aa, "v_sequence_alignment_aa"
-
-    seq_aa = clean_aa_sequence(row.get("sequence_aa"))
-    if seq_aa:
-        return seq_aa, "sequence_aa"
-
-    raw_seq = clean_aa_sequence(row.get("sequence"))
-    if raw_seq:
-        return raw_seq, "sequence"
+    # Fallback only if needed
+    v_only = clean_aa_sequence(row.get("v_sequence_alignment_aa"))
+    if v_only:
+        return v_only, "v_sequence_alignment_aa"
 
     return "", "missing"
 
-
-def locate_cdr3_span(
-    variable_aa: str,
-    cdr3_aa: str,
-    drop_ambiguous: bool = False,
-) -> Tuple[Optional[int], Optional[int]]:
+def extract_region_aas(row: Dict[str, str]) -> Dict[str, str]:
     """
-    Return zero-based [start, end) amino-acid coordinates of cdr3_aa inside variable_aa.
+    Annotates and retrieves each region's aa sequence.
 
-    If not found, return (None, None).
-    If found multiple times:
-        - return (None, None) if drop_ambiguous is True
-        - otherwise return the first match
+    Args:
+        row (Dict[str, str]): original 
+
+    Returns:
+        Dict[str, str]: labelled, stratified data
     """
-    if not variable_aa or not cdr3_aa:
-        return None, None
+    out: Dict[str, str] = {}
+    for col in VARIABLE_REGION_AA_COLUMNS:
+        out[col] = clean_aa_sequence(row.get(col))
+    return out
 
-    starts = []
-    start = variable_aa.find(cdr3_aa)
-    while start != -1:
-        starts.append(start)
-        start = variable_aa.find(cdr3_aa, start + 1)
-
-    if len(starts) == 0:
-        return None, None
-    if len(starts) > 1 and drop_ambiguous:
-        return None, None
-
-    s = starts[0]
-    e = s + len(cdr3_aa)
-    return s, e
-
-
-def deterministic_split(key: str, val_percent: int = 10) -> str:
-    h = hashlib.sha1(key.encode("utf-8")).hexdigest()
-    bucket = int(h[:8], 16) % 100
-    return "val" if bucket < val_percent else "train"
-
+def choose_nt_sequence(row: Dict[str, str]) -> str:
+    """
+    Preserve the original nucleotide rearrangement sequence if available.
+    """
+    candidates = [
+        row.get("sequence_alignment"),
+        row.get("sequence"),
+        row.get("junction"),
+    ]
+    for cand in candidates:
+        text = str(cand or "").upper().replace(" ", "")
+        text = re.sub(r"[^ACGTN]", "", text)
+        if text:
+            return text
+    return ""
 
 def keep_record(
-    locus: str,
-    seq: str,
-    productive: Optional[bool],
-    vj_in_frame: Optional[bool],
-    stop_codon: Optional[bool],
-    v_frameshift: Optional[bool],
-    complete_vdj: Optional[bool],
-    args: argparse.Namespace,
+    record: Dict[str, object],
+    min_heavy: int,
+    max_heavy: int,
+    min_light: int,
+    max_light: int,
+    require_complete_vdj: bool = False,
 ) -> Tuple[bool, str]:
+    """
+    Returns (keep, reason_if_dropped).
+    """
+    locus = str(record.get("locus", "OTHER"))
+    seq = str(record.get("sequence") or "")
+
     if not seq:
         return False, "empty_sequence"
 
-    if productive is False:
+    if locus == "IGH":
+        if len(seq) < min_heavy or len(seq) > max_heavy:
+            return False, "length_out_of_range"
+    elif locus in {"IGK", "IGL"}:
+        if len(seq) < min_light or len(seq) > max_light:
+            return False, "length_out_of_range"
+    else:
+        return False, "bad_locus"
+
+    if record.get("productive") is False:
         return False, "non_productive"
-    if vj_in_frame is False:
+
+    if record.get("vj_in_frame") is False:
         return False, "out_of_frame"
-    if stop_codon is True:
+
+    if record.get("stop_codon") is True:
         return False, "stop_codon"
-    if v_frameshift is True:
+
+    if record.get("v_frameshift") is True:
         return False, "v_frameshift"
 
-    if args.require_complete_vdj and complete_vdj is not True:
+    if require_complete_vdj and record.get("complete_vdj") is not True:
         return False, "incomplete_vdj"
 
-    if locus == "IGH":
-        if not (args.min_heavy <= len(seq) <= args.max_heavy):
-            return False, "length_out_of_range"
-        return True, "kept"
+    return True, "kept"
 
-    if locus in {"IGK", "IGL"}:
-        if not (args.min_light <= len(seq) <= args.max_light):
-            return False, "length_out_of_range"
-        return True, "kept"
 
-    if locus == "VHH":
-        if not (args.min_nano <= len(seq) <= args.max_nano):
-            return False, "length_out_of_range"
-        return True, "kept"
+def iter_oas_records(path: Path) -> Iterator[Dict[str, object]]:
+    delimiter = detect_delimiter(path)
 
-    return False, "bad_locus"
+    with open_text(path) as f:
+        metadata = parse_metadata_line(f.readline())
+    basic_meta = extract_basic_metadeta(metadata)
 
+    with open_text(path) as f:
+        _ = f.readline()  # skip metadata line
+        reader = csv.DictReader(f, delimiter=delimiter)
+        for row in reader:
+            locus = normalize_locus(row.get("locus"))
+            chain_group = chain_group_from_locus(locus)
+            variable_aa, sequence_source = build_variable_aa(row)
+            region_aas = extract_region_aas(row)
+
+            record = {
+                **basic_meta,
+                "source_file": path.name,
+
+                # Core sequence fields
+                "sequence": variable_aa,         # keep trainer compatibility
+                "variable_aa": variable_aa,      # explicit name for clarity
+                "sequence_source": sequence_source,
+                "sequence_nt": choose_nt_sequence(row),
+
+                # Chain identity
+                "locus": locus,
+                "chain_group": chain_group,
+
+                # Productivity / QC flags
+                "productive": normalize_bool(row.get("productive")),
+                "vj_in_frame": normalize_bool(row.get("vj_in_frame")),
+                "v_frameshift": normalize_bool(row.get("v_frameshift")),
+                "stop_codon": normalize_bool(row.get("stop_codon")),
+                "complete_vdj": normalize_bool(row.get("complete_vdj")),
+                "rev_comp": normalize_bool(row.get("rev_comp")),
+
+                # Gene calls
+                "v_call": row.get("v_call"),
+                "d_call": row.get("d_call"),
+                "j_call": row.get("j_call"),
+
+                # Region-level AA annotations
+                **region_aas,
+                "cdr3_aa": clean_aa_sequence(row.get("cdr3_aa")),
+                "junction_aa": clean_aa_sequence(row.get("junction_aa")),
+
+                # Useful numerical metadata
+                "redundancy": safe_int(row.get("Redundancy"), default=1),
+                "junction_length": safe_int(row.get("junction_length")),
+                "junction_aa_length": safe_int(row.get("junction_aa_length")),
+
+                # Identity metrics if present
+                "v_identity": row.get("v_identity"),
+                "d_identity": row.get("d_identity"),
+                "j_identity": row.get("j_identity"),
+
+                # ANARCI
+                "anarci_numbering": row.get("ANARCI_numbering"),
+                "anarci_status": row.get("ANARCI_status"),
+            }
+
+            yield record
 
 class JsonlGzWriter:
     def __init__(self, path: Path) -> None:
@@ -262,41 +449,49 @@ class JsonlGzWriter:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.handle = gzip.open(self.path, "wt", encoding="utf-8")
 
-    def write(self, record: Dict[str, Any]) -> None:
+    def write(self, record: Dict[str, object]) -> None:
         self.handle.write(json.dumps(record) + "\n")
 
     def close(self) -> None:
         self.handle.close()
-
-
-def iter_input_files(input_dir: Path) -> Iterator[Path]:
-    for path in sorted(input_dir.rglob("*")):
-        if path.is_file() and path.suffix in {".gz", ".csv"}:
-            yield path
+        
 
 
 def main() -> None:
-    args = parse_args()
+    parser = argparse.ArgumentParser(
+        description="Schema-aware OAS preprocessor for variable-domain antibody LM pretraining."
+    )
+    parser.add_argument("--input-dir", type=Path, required=True, help="Directory containing raw OAS .csv.gz files")
+    parser.add_argument("--output-dir", type=Path, required=True, help="Directory to write processed outputs")
+    parser.add_argument("--stats-output", type=Path, default=None, help="Optional JSON stats file")
+    parser.add_argument("--max-files", type=int, default=None, help="Process only the first N files")
+    parser.add_argument("--max-records", type=int, default=None, help="Stop after writing N kept records total")
+    parser.add_argument("--val-percent", type=int, default=10, help="Validation percent")
+    parser.add_argument("--min-heavy", type=int, default=80, help="Minimum full variable-domain AA length for heavy chains")
+    parser.add_argument("--max-heavy", type=int, default=180, help="Maximum full variable-domain AA length for heavy chains")
+    parser.add_argument("--min-light", type=int, default=70, help="Minimum full variable-domain AA length for light chains")
+    parser.add_argument("--max-light", type=int, default=160, help="Maximum full variable-domain AA length for light chains")
+    parser.add_argument("--require-complete-vdj", action="store_true", help="Drop rows not explicitly marked complete_vdj")
+    args = parser.parse_args()
 
-    tokenizer = AminoAcidTokenizer()
-
-    input_files = list(iter_input_files(args.input_dir))
+    input_files = sorted(
+        [p for p in args.input_dir.rglob("*") if p.is_file() and p.suffix in {".gz", ".csv"}]
+    )
     if args.max_files is not None:
         input_files = input_files[: args.max_files]
 
     if not input_files:
         raise FileNotFoundError(f"No .csv or .csv.gz files found under {args.input_dir}")
 
-    args.output_dir.mkdir(parents=True, exist_ok=True)
     writers = {
         "all": JsonlGzWriter(args.output_dir / "oas_all.jsonl.gz"),
         "IGH": JsonlGzWriter(args.output_dir / "oas_igh.jsonl.gz"),
         "IGK": JsonlGzWriter(args.output_dir / "oas_igk.jsonl.gz"),
         "IGL": JsonlGzWriter(args.output_dir / "oas_igl.jsonl.gz"),
-        "VHH": JsonlGzWriter(args.output_dir / "oas_vhh.jsonl.gz"),
     }
 
     seen = set()
+
     stats = {
         "files_seen": 0,
         "records_seen": 0,
@@ -313,109 +508,61 @@ def main() -> None:
         for path in input_files:
             stats["files_seen"] += 1
 
-            metadata, df = read_oas_table(path)
-            basic_meta = extract_basic_metadata(metadata)
+            try:
+                for record in iter_oas_records(path):
+                    stats["records_seen"] += 1
 
-            for _, row in df.iterrows():
-                stats["records_seen"] += 1
+                    keep, reason = keep_record(
+                        record,
+                        min_heavy=args.min_heavy,
+                        max_heavy=args.max_heavy,
+                        min_light=args.min_light,
+                        max_light=args.max_light,
+                        require_complete_vdj=args.require_complete_vdj,
+                    )
+                    if not keep:
+                        stats["drop_reasons"][reason] += 1
+                        continue
 
-                locus = normalize_locus(row, metadata)
-                chain_group = chain_group_from_locus(locus)
+                    locus = str(record["locus"])
+                    seq = str(record["sequence"])
 
-                productive = normalize_bool(row.get("productive"))
-                vj_in_frame = normalize_bool(row.get("vj_in_frame"))
-                stop_codon = normalize_bool(row.get("stop_codon"))
-                v_frameshift = normalize_bool(row.get("v_frameshift"))
-                complete_vdj = normalize_bool(row.get("complete_vdj"))
+                    # Dedupe within locus, not globally across all chains.
+                    dedupe_key = (locus, seq)
+                    if dedupe_key in seen:
+                        stats["duplicates_dropped"] += 1
+                        continue
+                    seen.add(dedupe_key)
 
-                variable_aa, sequence_source = build_variable_aa(row)
-                cdr3_aa = clean_aa_sequence(row.get("cdr3_aa"))
-                cdr3_start_aa, cdr3_end_aa = locate_cdr3_span(
-                    variable_aa,
-                    cdr3_aa,
-                    drop_ambiguous=args.drop_ambiguous_cdr3_span,
-                )
+                    split_key = f"{locus}:{seq}"
+                    split = deterministic_split(split_key, val_percent=args.val_percent)
 
-                keep, reason = keep_record(
-                    locus=locus,
-                    seq=variable_aa,
-                    productive=productive,
-                    vj_in_frame=vj_in_frame,
-                    stop_codon=stop_codon,
-                    v_frameshift=v_frameshift,
-                    complete_vdj=complete_vdj,
-                    args=args,
-                )
-                if not keep:
-                    stats["drop_reasons"][reason] += 1
-                    continue
+                    record["length"] = len(seq)
+                    record["split"] = split
 
-                # dedupe by locus + variable AA, not sequence alone
-                dedupe_key = (locus, variable_aa)
-                if dedupe_key in seen:
-                    stats["duplicates_dropped"] += 1
-                    continue
-                seen.add(dedupe_key)
+                    writers["all"].write(record)
+                    if locus in writers:
+                        writers[locus].write(record)
 
-                split = deterministic_split(f"{locus}:{variable_aa}", val_percent=args.val_percent)
-                token_ids = tokenizer.encode_sequence(
-                    sequence=variable_aa,
-                    locus=locus,
-                    max_length=args.token_max_length,
-                )
+                    stats["records_kept"] += 1
+                    stats["kept_by_locus"][locus] += 1
+                    stats["kept_by_split"][split] += 1
+                    stats["sequence_source_counts"][str(record["sequence_source"])] += 1
+                    stats["redundancy_sum_by_locus"][locus] += int(record.get("redundancy") or 1)
 
-                record = {
-                    "sequence": variable_aa,              # keep compatibility
-                    "variable_aa": variable_aa,
-                    "token_ids": token_ids,
-                    "length": len(variable_aa),
-                    "token_length": len(token_ids),
+                    if args.max_records is not None and stats["records_kept"] >= args.max_records:
+                        raise StopIteration
 
-                    "locus": locus,
-                    "chain_group": chain_group,
-                    "split": split,
+            except StopIteration:
+                break
+            except Exception as exc:
+                print(f"[WARN] Failed while parsing {path}: {exc}")
 
-                    "productive": productive,
-                    "vj_in_frame": vj_in_frame,
-                    "stop_codon": stop_codon,
-                    "v_frameshift": v_frameshift,
-                    "complete_vdj": complete_vdj,
-
-                    "sequence_source": sequence_source,
-
-                    "cdr3_aa": cdr3_aa or None,
-                    "cdr3_start_aa": cdr3_start_aa,
-                    "cdr3_end_aa": cdr3_end_aa,
-
-                    "v_call": None if pd.isna(row.get("v_call")) else row.get("v_call"),
-                    "d_call": None if pd.isna(row.get("d_call")) else row.get("d_call"),
-                    "j_call": None if pd.isna(row.get("j_call")) else row.get("j_call"),
-
-                    "redundancy": safe_int(row.get("Redundancy"), default=1),
-
-                    "metadata": basic_meta,
-                    "source_file": path.name,
-                }
-
-                writers["all"].write(record)
-                if locus in writers:
-                    writers[locus].write(record)
-
-                stats["records_kept"] += 1
-                stats["kept_by_locus"][locus] += 1
-                stats["kept_by_split"][split] += 1
-                stats["sequence_source_counts"][sequence_source] += 1
-                stats["redundancy_sum_by_locus"][locus] += record["redundancy"]
-
-                if args.max_records is not None and stats["records_kept"] >= args.max_records:
-                    raise StopIteration
-
-    except StopIteration:
-        pass
     finally:
         for writer in writers.values():
             writer.close()
 
+    # Convert Counters to normal dicts for JSON serialization
     serializable_stats = {
         "files_seen": stats["files_seen"],
         "records_seen": stats["records_seen"],
@@ -431,16 +578,15 @@ def main() -> None:
             "IGH": str(args.output_dir / "oas_igh.jsonl.gz"),
             "IGK": str(args.output_dir / "oas_igk.jsonl.gz"),
             "IGL": str(args.output_dir / "oas_igl.jsonl.gz"),
-            "VHH": str(args.output_dir / "oas_vhh.jsonl.gz"),
         },
     }
-
-    print(json.dumps(serializable_stats, indent=2))
 
     if args.stats_output is not None:
         args.stats_output.parent.mkdir(parents=True, exist_ok=True)
         with open(args.stats_output, "w", encoding="utf-8") as f:
             json.dump(serializable_stats, f, indent=2)
+
+    print(json.dumps(serializable_stats, indent=2))
 
 
 if __name__ == "__main__":
