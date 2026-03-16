@@ -65,6 +65,28 @@ class OASSequenceDataset(Dataset[OASRecord]):
         return self.records[idx]
     
 class MLMCollator:
+    """
+    Masked language model (MLM) that batches for antibody sequences. 
+    
+    4 Components of the Collator:
+        1. Tokenizes each sequence with the provided tokenizer
+        2. Pads sequences in the batch to a common length
+        3. Builds an attention mask so the model can ignore padding
+        4. Applies a mixed MLM objective that can optionally focus on HCDR3 spans for heavy chains while still allowing
+        standard random residue masking
+    
+    Intended as in-between PyTorch Dataset and mode. Dataset should return record-like objects with MINIMUM:
+        - sequence
+        - locus
+        - chain_group
+        - cdr3_start_aa
+        - cdr3_end_aa
+        
+    Collator assumptions:
+        - Tokenization prepends [CLS] and chain token
+        - amino-acid coords are zero-based and relative to the cleaned amino-acid sequence
+        - cdr3_end_aa is exclusive
+    """
     def __init__(
         self, 
         tokenizer: AminoAcidTokenizer,
@@ -75,6 +97,31 @@ class MLMCollator:
         hcdr3_span_max: int = 8, 
         rng_seed: int = 42
     ) -> None:
+        """
+        Stores tokenizer/configuration state and prepare RNG and list of residue-token IDs that are legal (not special) 
+        random replacements during MLM corruption
+
+        Args:
+        
+            tokenizer (AminoAcidTokenizer): Convert amino-acid sequences into token IDs. Must expose: 
+                token_to_id, 
+                special_ids, 
+                mask_id, 
+                encode_sequence
+                
+            max_length (int): Maximum tokenized sequence length allowed in a batch, INCLUDING special tokens (ex. CLS, chain token, EOS)
+            
+            mask_probability (float, optional): Fraction of eligible residue positions to turn into MLM targets. Defaults to 0.15.
+            
+            hcdr_3_span_probability (float, optional): Probability of attempting HCDR3 span masking for a heavy-chain example with 
+                valid HCDR3 coordinates. If this does not trigger, example falls back to ordinary random MLM target selection. 
+                Defaults to 0.5.
+                
+            hcdr_3_span_min (int, optional): Minimum number of residues to mask when sampling an HCDR3 span. Defaults to 3.
+            hcdr3_span_max (int, optional): Maximum number of residues to mask when sampling an HCDR3 span. Defaults to 8.
+            rng_seed (int, optional): seed for the Python random number generator used by this collator Defaults to 42.
+
+        """
         
         self.tokenizer = tokenizer
         self.max_length = max_length
@@ -100,16 +147,23 @@ class MLMCollator:
         Chose which token positions should become MLM targets. 
         
         General strategy:
-        1. If heavy chain + valid HCDR3 coordinations + random hint: 
-        - sample a span inside of HCDR3
-        2. Then top up to the overall masking budget with random residue positions
+        1. If heavy chain + valid HCDR3 coordinations + chosen to be sampled: 
+        - potentially sample a span inside of HCDR3
+        2. Then top up to the overall masking budget with random residue positions using ordinary random residue positions
 
         Args:
-            input_ids_row (torch.Tensor): _description_
-            record (_type_): _description_
+        
+            input_ids_row (torch.Tensor): 1D tesnor of token IDs for a single, already-padded sequence. 
+                Can include special tokens such as [CLS], chain token, [EOS], [PAD]
+                
+            record (dataset record): Dataset record for the same sequence as input_ids_rows. It is expected to expose: 
+                - chain_group
+                - cdr3_start_aa
+                - cdr3_end_aa
 
         Returns:
-            set[int]: _description_
+            set[int]: Set of integer token positions that should become MLM targets. Positions are indices into "input_ids_row"
+            
         """
         
         selected: set[int] = set()
@@ -169,14 +223,31 @@ class MLMCollator:
                     batch_records: Sequence
     ) -> tuple[torch.tensor, torch.tensor]:
         """
-        Build Masked Language Model corrupted input + sparse labels
+        Build Masked Language Model corrupted input + sparse labels for one batch. 
+        Given batch of token IDs and the correspodning dataset records, choose MLM target positions for each example, then apply standard
+        BERT-style corruption: 
+            - 80% replace target with [MASK]
+            - 10% replace target with random residue token
+            - 10% keep original token unchanged
+            
+        Labels set only at selected target positions; all other positions filled with -100 so as to be ignored by CrossEntropyLoss
 
         Args:
-            input_ids (torch.Tensor): _description_
+        
+            input_ids (torch.Tensor): 2D tensor of shape [batch_size, seq_len] containing padded token IDs for the batch
+            
+            batch_records (Sequence): Original dataset recrods corresponding to each batch row. 
+                Each record used to determine chain type and HCDR3 boundaries.
 
         Returns:
-            tuple[torch.tensor, torch.tensor]: _description_
+        
+            tuple[torch.tensor, torch.tensor]: tuple (masked_input, labels) where: 
+                - masked_input: A tensor of the same shape as "input_ids", containing corrupted version seen by the model
+                - labels: A tensor of the sme shape as "input_ids", containg the original token IDs only at selected MLM target positions
+                    and -100 everywhere else. 
+            
         """
+        
         labels = torch.full_like(input_ids, fill_value = -100)
         masked_input = input_ids.clone()
         
@@ -201,13 +272,42 @@ class MLMCollator:
     
     def __call__(self, batch: Sequence[OASRecord]) -> Dict[str, torch.Tensor]:
         encoded = [
-            self.tokenizer.encode_sequence(item.sequence, locus = item.locus, max_length = self.max_length) for item in batch
-        ] # list comprehension
+            self.tokenizer.encode_sequence(
+                item.sequence, 
+                locus = item.locus, 
+                max_length = self.max_length) 
+            for item in batch
+        ] 
+        
+        """
+        
+        Convert list of sequence records into one MLM training batch by tokenziing each example, padding all examples in the batch to the same length,
+        building an attention mask, and creating MLM inputs/labels using "_mask_tokens"
+        
+        Args: 
+            batch (Sequence[OASRecord]): Seequence of dataset record objects. Each record must have at least:
+                - sequence
+                - locus
+                
+                HCDR3 span masking also requires 
+                - chain_group
+                - cdr3_start_aa
+                - cdr3_end_aa
+                
+        Returns:
+            Dictionary["input_ids", "attention_mask", "labels"]: 
+                - "input_ids": Tensor of shape [batch_size, seq_len] containing masked/corrupted token IDs for model input
+                - "attention_mask": Tensor of shape [batch_size, seq_len] where 1 indicates a real token and 0 indicates padding
+                - "labels": Tensor of shape [batch_size, seq_len] containing MLM targets at selected positions and -100 elsewhere
+        
+        """
+        
         seq_lengths = [len(x) for x in encoded]
         max_len = min(max(seq_lengths), self.max_length)
         
         padded = []
         attention_masks = []
+        
         for ids in encoded:
             ids = ids[:max_len] # only choose part of the sequence that fits the max_length
             pad_len = max_len - len(ids)
@@ -216,6 +316,7 @@ class MLMCollator:
         
         input_ids = torch.tensor(padded, dtype = torch.long)
         attention_mask = torch.tensor(attention_masks, dtype = torch.long)
+        
         masked_input_ids, labels = self._mask_tokens(input_ids)
         
         return {
