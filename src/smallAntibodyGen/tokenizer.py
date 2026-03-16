@@ -16,12 +16,13 @@ class AminoAcidTokenizer:
     pad_token: str = "[PAD]" #pads to local maximum
     cls_token: str = "[CLS]" #beginning/global summary token
     eos_token: str = "[EOS]" #end-of-sequence token
-    sep_token: str = "[SEP]" 
-    mask_token: str = "[MASK]"
-    unk_token: str = "[UNK]" # unknown-residue
+    sep_token: str = "[SEP]" # separator token, of significance when pairing vh/vl and antibody/antigen
+    mask_token: str = "[MASK]" # for training the MLM
+    unk_token: str = "[UNK]" # unknown for whatever isn't defined in the dictionary
     
     chain_tokens: List[str] = field(
-        default_factory=lambda: ["[IGH]", "[IGK]", "[IGL]", "[OTHER_CHAIN]"] # class definition, default_factory to initalize the mutable state
+        # class definition, default_factory to initalize the mutable state. If the locus token isn't informative enough, will change to heavy/light
+        default_factory=lambda: ["[IGH]", "[IGK]", "[IGL]", "[OTHER_CHAIN]"] 
     )
 
     def __post_init__(self) -> None:
@@ -39,7 +40,7 @@ class AminoAcidTokenizer:
         self.token_to_id: Dict[str, int] = {tok: idx for idx, tok in enumerate(self.vocab)}
         self.id_to_token: Dict[int, str] = {idx: tok for tok, idx in self.token_to_id.items()}
 
-    @property
+    @property 
     def vocab_size(self) -> int:
         return len(self.vocab)
 
@@ -95,6 +96,7 @@ class AminoAcidTokenizer:
         locus: str | None = None,
         max_length: int | None = None,
     ) -> List[int]:
+        
         sequence = (sequence or "").upper().strip()
         tokens = [self.cls_token, self.get_chain_token(locus)]
         tokens.extend([aa if aa in self.token_to_id else self.unk_token for aa in sequence])
