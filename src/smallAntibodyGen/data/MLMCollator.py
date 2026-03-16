@@ -15,9 +15,13 @@ from src.smallAntibodyGen.tokenizer import AminoAcidTokenizer
 @dataclass
 class OASRecord:
     sequence: str
-    locus: str
-    split: str
+    locus: str # IGH / IGK /I GL
+    chain_group: str # heavy / light
+    split: str # train / val
+    length: int 
     cdr3_aa: str | None = None # expected to be either str or None, when no val, default is None
+    cdr3_start_aa: int | None = None
+    cdr3_end_aa: int | None = None
     v_call: str | None = None
     j_call: str | None = None
     
@@ -47,7 +51,7 @@ class OASSequenceDataset(Dataset[OASRecord]):
             self.records.append(
                 OASRecord(
                     sequence = str(record["sequence"]),
-                    locus = str(record.get("locus", "")), # if record["split"] does not exist, just use "". dictionary lookback w fallback
+                    locus = str(record.get("locus", "")), # if record["locus"] does not exist, just use "". dictionary lookback w fallback
                     split = str(record.get("split", self.split)),
                     cdr_3_aa = record.get("cdr3_aa"),
                     v_call = record.get("v_call"),
@@ -123,4 +127,3 @@ class MLMCollator:
             "labels": labels
         }
         
-                
