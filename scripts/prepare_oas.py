@@ -7,6 +7,7 @@ import hashlib # deterministic train/validation splitting
 import json # parsing metadata + writing output recrods
 import re # sequence cleaning
 from pathlib import Path #filesystem handling easier
+from collections import Counter
 from typing import Dict, Iterable, Iterator, Optional, TextIO, Tuple
 
 from tqdm import tqdm # progress bars while processing files
@@ -43,7 +44,8 @@ def open_text(path: Path) -> TextIO: # convenience wrapper
 def parse_metadata_line(line: str) -> Dict[str, object]:
     """
     OAS data will place metadeta in the first line. Parser if possible, 
-    else preserves the raw line
+    else preserves the raw line. Tries two different formats (if line is CSV-quoted single field, will unwrap) with potential
+    other fallbacks as necessary
 
     Args:
         line (str): First line
@@ -51,18 +53,59 @@ def parse_metadata_line(line: str) -> Dict[str, object]:
     Returns:
         Dict[str, object]: Returns Dict in format of {"raw_metadeta": line}
     """
-    line = line.strip() # remove leading/trailing whitespace
     if not line:
-        return {} # if empty, return null
-    if line.startswith("#"):
-        line = line[1:].strip() # remove #
+        return None
+
+    stripped = line.lstrip("\ufeff").strip()
+    if not stripped:
+        return None
+
+    if stripped.startswith("#"):
+        stripped = stripped[1:].strip()
+
+    candidates: list[str] = [stripped]
+
+    # If the line is a CSV-quoted single field like:
+    # "{""Run"": ""SRR3099049"", ...}"
+    # this will unwrap it to:
+    # {"Run": "SRR3099049", ...}
     try:
-        data = json.loads(line)
-        if isinstance(data, dict):
-            return data
-    except json.JSONDecodeError:
+        row = next(csv.reader([stripped]))
+        if len(row) == 1:
+            candidates.append(row[0].strip())
+    except Exception:
         pass
-    return {"raw_metadata": line}
+
+    # Additional fallbacks
+    expanded: list[str] = []
+    for c in candidates:
+        expanded.append(c)
+
+        if c.startswith('"') and c.endswith('"'):
+            inner = c[1:-1]
+            expanded.append(inner)
+            expanded.append(inner.replace('""', '"'))
+
+        expanded.append(c.replace('""', '"'))
+
+    seen = set()
+    for c in expanded:
+        c = c.strip()
+        if c in seen:
+            continue
+        seen.add(c)
+
+        if not c.startswith("{"):
+            continue
+
+        try:
+            parsed = json.loads(c)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            continue
+
+    return None
 
 
 def detect_delimiter(path: Path) -> str:
