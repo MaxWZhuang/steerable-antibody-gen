@@ -153,6 +153,7 @@ class MLMCollator:
                 if left_max >= left_min:
                     span_left = self.rng.randint(left_min, left_max)
                     selected.update(range(span_left, span_left + span_len))
+                    
         remaining = [j 
                     for j in eligible_positions 
                     if j not in selected]
@@ -163,28 +164,39 @@ class MLMCollator:
             selected.add(j)
     
     
-    def _mask_tokens(self, input_ids: torch.Tensor) -> tuple[torch.tensor, torch.tensor]:
-        labels = input_ids.clone()
+    def _mask_tokens(self, 
+                    input_ids: torch.Tensor, 
+                    batch_records: Sequence
+    ) -> tuple[torch.tensor, torch.tensor]:
+        """
+        Build Masked Language Model corrupted input + sparse labels
+
+        Args:
+            input_ids (torch.Tensor): _description_
+
+        Returns:
+            tuple[torch.tensor, torch.tensor]: _description_
+        """
+        labels = torch.full_like(input_ids, fill_value = -100)
         masked_input = input_ids.clone()
         
-        for i in range(input_ids.size[0]):
-            for j in range(input_ids.size[1]):
-                token_id = int(input_ids[i, j])
-                if token_id in self.tokenizer.special_ids: 
-                    labels[i, j] = -100
-                    continue
-                if self.rng.random() >= self.mask_probability: 
-                    labels[i, j] = -100
-                    continue
+        for i, record in enumerate(batch_records):
+            selected_positions = self._select_target_positions(input_ids[i], record)
             
+            for j in selected_positions:
+                labels[i, j] = input_ids[i, j]
+                
                 dice = self.rng.random()
-                if dice < 0.8:
-                    #BERT masking recipe
-                    #80% of the time, replace with [MASK], 10% of the time, replace with random token, 10% of the time, leave it unchanged
+                # standard BERT procedure, 
+                # 80% of masked tokens actually masked, 
+                # 10% of tokens replaced with rand. token, 
+                # 10% of tokens will leave unchanged
+                if dice < 0.8: 
                     masked_input[i, j] = self.tokenizer.mask_id
-                elif dice < 0.9: 
-                    masked_input[i, j] = self.rng.randrange(self.tokenizer.vocab_size) # random token
-        
+                elif dice < 0.9:
+                    masked_input[i, j] = self.rng.choice(self.residue_token_ids)
+                else: 
+                    pass
         return masked_input, labels
     
     def __call__(self, batch: Sequence[OASRecord]) -> Dict[str, torch.Tensor]:
