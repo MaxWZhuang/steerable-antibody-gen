@@ -70,13 +70,98 @@ class MLMCollator:
         tokenizer: AminoAcidTokenizer,
         max_length: int, 
         mask_probability: float = 0.15, 
+        hcdr_3_span_probability: float = 0.5, 
+        hcdr_3_span_min: int = 3, 
+        hcdr3_span_max: int = 8, 
         rng_seed: int = 42
     ) -> None:
         
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.mask_probability = mask_probability
-        self.rng_seed = rng_seed
+        self.hcdr_3_span_probability = hcdr_3_span_probability
+        self.hcdr3_span_min = hcdr_3_span_min
+        self.hcdr3_span_max = hcdr3_span_max
+        self.rng = random.Random(rng_seed)
+        
+        # sampling replacement tokens from actual residue tokens, not special tokens
+        self.residue_token_ids = [
+            idx 
+            for tok, idx in self.tokenizer.token_to_id.items() 
+            if len(tok) == 1 and tok.isalpha
+        ]
+    
+    def _select_target_positions(
+        self, 
+        input_ids_row: torch.Tensor,
+        record
+    ) -> set[int]: 
+        """
+        Chose which token positions should become MLM targets. 
+        
+        General strategy:
+        1. If heavy chain + valid HCDR3 coordinations + random hint: 
+        - sample a span inside of HCDR3
+        2. Then top up to the overall masking budget with random residue positions
+
+        Args:
+            input_ids_row (torch.Tensor): _description_
+            record (_type_): _description_
+
+        Returns:
+            set[int]: _description_
+        """
+        
+        selected: set[int] = set()
+        
+        eligible_positions = [
+            j
+            for j, token_id in enumerate(input_ids_row.toList())
+            if token_id not in self.tokenizer.special_ids
+        ]
+        
+        if not eligible_positions:
+            return selected
+        
+        target_budget = max(1, round(len(eligible_positions)) * self.mask_probability)
+        
+        if (
+            record.chain_group == "heavy"
+            and record.cdr3_start_aa is not None 
+            and record.cdr3_end_aa is not None
+            and self.rng.random() < self.hcdr3_span_probability
+        ): 
+            # Offset by 2, encode_seq() auto-prepends # [CLS], [CHAIN_TOKEN]
+            cdr_3_start_token = 2 + record.cdr3_start_aa
+            cdr_3_end_token = 2 + record.cdr3_end_aa # end-exclusive
+            
+            # clip to the available tokenized row length (if sampling good, should be a non-issue)
+            cdr3_positions = [
+                j
+                for j in range(cdr_3_start_token, min(cdr_3_end_token, input_ids_row.size(0)))
+                if int(input_ids_row[j]) not in self.tokenizer.special_ids
+            ]
+            
+            if cdr3_positions: 
+                span_max = min(self.hcdr3_span_max, len(cdr3_positions))
+                span_min = min(self.hcdr3_span_min, span_max)
+                span_len = self.rng.randint(span_min, span_max) 
+                
+                left_min = cdr3_positions[0]
+                left_max = cdr3_positions[-1] - span_len + 1
+                
+                if left_max >= left_min:
+                    span_left = self.rng.randint(left_min, left_max)
+                    selected.update(range(span_left, span_left + span_len))
+        remaining = [j 
+                    for j in eligible_positions 
+                    if j not in selected]
+        self.rng.shuffle(remaining)
+        for j in remaining: 
+            if len(selected) >= target_budget:
+                break
+            selected.add(j)
+    
     
     def _mask_tokens(self, input_ids: torch.Tensor) -> tuple[torch.tensor, torch.tensor]:
         labels = input_ids.clone()
