@@ -5,6 +5,8 @@ import gzip
 import io
 import json
 import re
+
+from tabulate import tabulate
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List
@@ -88,7 +90,6 @@ def open_text_maybe_gzip(path: Path):
 def read_oas_table(path: Path) -> tuple[Dict[str, Any], pd.DataFrame]:
     with open_text_maybe_gzip(path) as f:
         first_line = f.readline()
-        print("FIRST LINE RAW:", repr(first_line[:300]))
         metadata = parse_possible_json_metadata(first_line)
         if metadata is not None:
             remaining = f.read()
