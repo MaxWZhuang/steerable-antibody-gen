@@ -377,6 +377,22 @@ def keep_record(
 
     return True, "kept"
 
+def locate_cdr3_span(sequence: str, cdr3_aa: str) -> tuple[Optional[int], Optional[int]]:
+    if not sequence or not cdr3_aa:
+        return None, None
+
+    starts = []
+    start = sequence.find(cdr3_aa)
+    while start != -1:
+        starts.append(start)
+        start = sequence.find(cdr3_aa, start + 1)
+
+    if len(starts) != 1:
+        return None, None
+
+    s = starts[0]
+    e = s + len(cdr3_aa)
+    return s, e
 
 def iter_oas_records(path: Path) -> Iterator[Dict[str, object]]:
     delimiter = detect_delimiter(path)
@@ -384,7 +400,7 @@ def iter_oas_records(path: Path) -> Iterator[Dict[str, object]]:
     with open_text(path) as f:
         metadata = parse_metadata_line(f.readline())
     basic_meta = extract_basic_metadeta(metadata)
-
+    
     with open_text(path) as f:
         _ = f.readline()  # skip metadata line
         reader = csv.DictReader(f, delimiter=delimiter)
@@ -393,6 +409,8 @@ def iter_oas_records(path: Path) -> Iterator[Dict[str, object]]:
             chain_group = chain_group_from_locus(locus)
             variable_aa, sequence_source = build_variable_aa(row)
             region_aas = extract_region_aas(row)
+            cdr3_aa = clean_aa_sequence(row.get("cdr3_aa"))
+            cdr3_start_aa, cdr3_end_aa = locate_cdr3_span(variable_aa, cdr3_aa)
 
             record = {
                 **basic_meta,
@@ -423,8 +441,10 @@ def iter_oas_records(path: Path) -> Iterator[Dict[str, object]]:
 
                 # Region-level AA annotations
                 **region_aas,
-                "cdr3_aa": clean_aa_sequence(row.get("cdr3_aa")),
                 "junction_aa": clean_aa_sequence(row.get("junction_aa")),
+                "cdr3_aa": cdr3_aa,
+                "cdr3_start_aa": cdr3_start_aa,
+                "cdr3_end_aa": cdr3_end_aa,
 
                 # Useful numerical metadata
                 "redundancy": safe_int(row.get("Redundancy"), default=1),
