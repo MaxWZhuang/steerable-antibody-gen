@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import tabulate
 import json
 import sys
 from pathlib import Path
@@ -25,7 +26,7 @@ def main() -> None:
     print("=== COLUMNS ===")
     print(df.columns.tolist())
     print("=== HEAD ===")
-    print(df.head(3).to_string())
+    print(df.head(3).to_markdown(tablefmt = "grid"))
 
 
 if __name__ == "__main__":
