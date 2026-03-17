@@ -182,3 +182,94 @@ class MLMConfig:
             
             if config.tie_weights:
                 self.lm_head.weight = self.token_embedding.weight
+        
+        def _validate_inputs(
+            self,
+            input_ids: torch.Tensor,
+            attention_mask: torch.Tensor | None 
+        ) -> torch.Tensor:
+            
+            """
+            Validate model inputs and construct attention mask (if needed).
+
+            Args:
+                input_ids (torch.Tensor): Tensor of token IDs with shape [batch_size, seq_len]
+                
+                attention_mask (torch.Tensor | None): Optional tensor with shape [batch_size, seq_len]. If None, the mask is 
+                    inferred from input_ids != pad_token_id
+
+            Returns:
+                torch.Tensor: Valid attention_mask tensor with shape [batch_size, seq_len]
+                
+            Raises ValueError if shapes are wrong/sequence length exceeds max_length
+            """
+            if input_ids.dim() != 2: 
+                raise ValueError("input_ids must have shape [batch_size, seq_len]")
+            
+            batch_size, seq_len = input_ids.shape
+            if seq_len > self.config.max_length:
+                raise ValueError(
+                    f"Input sequence length {seq_len} has to be less than the max length, equal to {self.config.max_length}"
+                )
+            
+            if attention_mask is None:
+                attention_mask = (input_ids != self.config.pad_token_id).long()
+            else:
+                if attention_mask.shape != input_ids.shape:
+                    raise ValueError("attention_mask must have the same shape as input_ids")
+            
+            return attention_mask
+        
+    def _build_key_padding_mask(self, attention_mask: torch.Tensor) -> torch.Tensor:
+        """
+        Convert a standard attention mask into a transformer key padding mask.
+
+        Args:
+            attention_mask (torch.Tensor): Tensor of shape [batch_size, seq_len] with 1 for real tokens and 0 for padding
+
+        Returns:
+            torch.Tensor: Boolean tensor of shape [batch_size, seq_len] where True marks padding positions to be ignored 
+            by the transformer.
+        """
+        return attention_mask == 0
+    
+    def embed(
+        self, 
+        input_ids: torch.Tensor, 
+        attention_mask: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Build the input embeddings for the transformer
+
+        Args:
+            input_ids (torch.Tensor): Tensor of shape [batch_size, seq_len] containing token IDs.
+            
+            attention_mask (torch.Tensor): Tensor of shape [batch_size, seq_len] indicating real vs pad tokens.
+
+        Returns:
+            torch.Tensor: Tensor of shape [batch_size, seq_len, d_model] containing the sum of token embeddings and positional embeddings, 
+            followed by dropout.
+        """
+        token_emb = self.token_embedding(input_ids)
+        pos_emb = self.position_embedding(attention_mask)
+        hidden = token_emb + pos_emb
+        hidden = self.embed_dropout(hidden)
+        return hidden
+
+    def encode(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor | None = None  
+    ) -> torch.Tensor:
+        """
+        Encode a batch of tokenized seqeunces into contextual hidden states.
+        
+        Args: 
+            input_ids: Tensor of shape [batch_size, seq_len] containing token IDs.
+            
+            attention_masks: Optional tensor of shape [batch_size, seq_len]. If omitted, it is inferred from padding positions. 
+            
+        Returns: torch.Tensor of shape [batch_size, seq_len, d_model] containing the contextual hidden states after the transformer encoder.
+        """
+        
+        attention_mask = self.validate_input(input_ids, attention_mask)
