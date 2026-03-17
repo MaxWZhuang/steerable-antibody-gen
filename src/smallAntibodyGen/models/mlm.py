@@ -269,7 +269,8 @@ class MLMConfig:
             
             attention_masks: Optional tensor of shape [batch_size, seq_len]. If omitted, it is inferred from padding positions. 
             
-        Returns: torch.Tensor of shape [batch_size, seq_len, d_model] containing the contextual hidden states after the transformer encoder.
+        Returns: 
+            torch.Tensor of shape [batch_size, seq_len, d_model] containing the contextual hidden states after the transformer encoder.
         """
         
         attention_mask = self.validate_input(input_ids, attention_mask)
@@ -279,4 +280,25 @@ class MLMConfig:
         hidden = self.final_norm(hidden)
         return hidden
     
+    def pooled_cls(
+        self, 
+        input_ids: torch.Tensor, 
+        attention_mask: torch.Tensor | None = None
+    ) -> torch.Tensor: 
+        """
+        Return the contextual hidden state at the first token position. 
+        
+        Typically the [CLS] embedding if tokenizer prepends [CLS].
+
+        Args:
+            input_ids (torch.Tensor): Tensor of shape [batch_size, seq_len] containing token IDs
+            
+            attention_mask (torch.Tensor | None, optional): Optional tensor of shape [batch_size, seq_len]
+
+        Returns:
+            torch.Tensor: Tensor of shape [batch_size, d_model] containing the first-token embedding for each sequence.
+        """
+        hidden = self.encode(input_ids, attention_mask)
+        logits = self.lm_head(hidden)
+        return logits
     
