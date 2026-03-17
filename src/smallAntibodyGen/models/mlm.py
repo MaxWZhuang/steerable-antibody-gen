@@ -128,4 +128,57 @@ class MLMConfig:
                 )
             return self.embedding(position_ids)
         
-    
+    class AntibodyMLM(nn.Module):
+        """
+        Transformer-encoder MLM for antibody/nanobody sequences.
+        
+        Model expects tokenized sequences with optional chain tokens already inserted by the tokenizer/collator. 
+        It returns per-position vocabulary logits (log-odds, to be converted to prob. distribution) suitable for masked language modelling. 
+        
+        Inputs:
+            - input_ids: [batch_size, seq_len]
+            - attention_mask: [batch_size, seq_len]
+        
+        Output:
+            - logits: [batch_size, seq_len, vocab_size]
+        """
+        
+        def __init__(self, config: MLMConfig) -> None: 
+            super().__init__()
+            config.validate()
+            self.config = config
+            
+            self.token_embedding = nn.Embedding(
+                num_embeddings = config.vocab_size,
+                embedding_dim = config.d_model,
+                padding_idx = config.pad_token_id
+            )
+            
+            self.position_embedding = LearnedPositionalEmbedding(
+                max_length = config.max_length, 
+                d_model = config.d_model
+            )
+            
+            self.embed_drop = nn.Dropout(config.dropout)
+            
+            encoder_layer = nn.TransformerEncoderLayer(
+                d_model = config.d_model,
+                nhead = config.n_heads,
+                dim_feedforward = config.d_ff,
+                dropout = config.dsropout, 
+                activation = config.activation,
+                batch_first = True, 
+                norm_first = False
+            )
+            
+            self.encoder = nn.TransformerEncoder(
+                encoder_layer, 
+                num_layers = config.n_layers,
+                enable_nested_tensor = False
+            )
+            
+            self.final_norm = nn.LayerNorm(config.d_model)
+            self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias = False)
+            
+            if config.tie_weights:
+                self.lm_head.weight = self.token_embedding.weight
