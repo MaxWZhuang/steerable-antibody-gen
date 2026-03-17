@@ -302,3 +302,26 @@ class MLMConfig:
         logits = self.lm_head(hidden)
         return logits
     
+    def forward(
+        self, 
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor | None = None
+    ) -> torch.Tensor: 
+        """
+        Run a forward pass and return MLM logits. 
+
+        Args:
+            input_ids (torch.Tensor): Tensor of shape [batch_size, seq_len] containing token IDs.
+            
+            attention_mask (torch.Tensor | None, optional): Optional tensor of shape [batch_size, seq_len]
+
+        Returns:
+            torch.Tensor: Tensor of shape [batch_size, seq_len, vocab_size] containing per-position token logits for MLM prediction.
+        """
+        hidden = self.encode(input_ids, attention_mask)
+        logits = self.lm_head(hidden)
+        return logits
+    
+    def compute_loss(
+        s
+    )
