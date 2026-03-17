@@ -273,3 +273,10 @@ class MLMConfig:
         """
         
         attention_mask = self.validate_input(input_ids, attention_mask)
+        hidden = self.embed(input_ids, attention_mask)
+        key_padding_mask = self._build_key_padding_mask(attention_mask)
+        hidden = self.encoder(hidden, src_key_padding_mask = key_padding_mask)
+        hidden = self.final_norm(hidden)
+        return hidden
+    
+    
