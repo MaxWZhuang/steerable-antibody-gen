@@ -323,5 +323,38 @@ class MLMConfig:
         return logits
     
     def compute_loss(
-        s
-    )
+        self, 
+        logits: torch.Tensor, 
+        labels: torch.Tensor,
+        ignore_index: int = -100
+    ) -> torch.Tensor:
+        """
+        Compute masked language model cross-entropy loss. 
+
+        Args:
+            logits (torch.Tensor): Tensor of shape [batch_size, seq_len, vocab_size]
+            
+            labels (torch.Tensor): Tensor of shape [batch_size, seq_len] containing target token IDs at MLM positions
+                and 'ignore_index' elsewhere
+            
+            ignore_index (int): Label value to ignore when computing loss. Defaults to -100.
+
+        Returns:
+            torch.Tensor: Scalar tensor containing the MLM loss
+            
+        Raises ValueErorr if logits/labels do not have compatible shapes.
+        """
+        
+        if logits.dim() != 3: 
+            raise ValueError("logits must have shape [batch_size, seq_len, vocab_size]")
+        if labels.dim() != 2: 
+            raise ValueError("labels must have shape [batch_size, seq_len]")
+        if logits.shape[:2] != labels.shape:
+            raise ValueError("logits and labels must agree on [batch_size, seq_len]")
+        
+        loss = F.cross_entropy(
+            logits.reshape(-1, logits.size(-1)),
+            labels.reshape(-1),
+            ignore_index = ignore_index
+        )
+        return loss
