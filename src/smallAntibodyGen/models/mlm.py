@@ -75,286 +75,286 @@ class MLMConfig:
         if self.activation not in {"relu", "gelu"}:
             raise ValueError("activation must be either 'relu' (ReLU/Rectified Linear Unit) or 'gelu' (GELU/Gaussian Error Linear Unit)")
     
-    class LearnedPositionalEmbedding(nn.Module):
-        """
-        Learned positional embedding layer.
-        
-        Uses an embedding table for token positions. Position index 0 is reserved for padding positions, and 
-        real sequence positions start at 1. 
-        
-        As an example: 
-            If attention_mask = [1, 1, 1, 0, 0]
-            then position_ids = [1, 2, 3, 0, 0]
-
-        """
-        
-        def __init__(self, max_length: int, d_model: int) -> None:
-            """
-            Initialize positional embedding table.
-
-            Args:
-                max_length (int): Maximum sequence length supported for real (non-pad) tokens.
-                d_model (int): Embedding dimension
-            """
-            
-            super().__init__()
-            self.max_length = max_length
-            self.embedding = nn.Embedding(max_length + 1, d_model, padding_idx = 0)
-        
-        def forward(self, attention_mask: torch.Tensor) -> torch.Tensor:
-            """
-            Convert attention mask into learned positional embeddings.
-
-            Args:
-                attention_mask (torch.Tensor): Tensor of shape [batch_size, seq_len] with 1 for real teokens and 0 for paddding tokens
-
-            Returns:
-                torch.Tensor: Tensor of shape [batch_size, seq_len, d_model] containing positional embeddings.
-                
-            Raises ValueError if any effective position exceeds the configured max_length
-            
-            """
-            if attention_mask.dim() != 2:
-                raise ValueError("attention_mask must have shape [batch_size, seq_len]")
-            
-            # real tokens count upward from 1; pads remain 0
-            position_ids = attention_mask.long().cumsum(dim = 1)
-            position_ids = position_ids.masked_fill(attention_mask == 0, 0)
-            
-            max_pos = int(position_ids.max().item()) if position_ids.numel() > 0 else 0  # if the position_ids have more than 0 items
-            if max_pos > self.max_length:
-                raise ValueError(
-                    f"Sequence length {max_pos} exceeds configured max_length, which is equal to {self.max_length}"
-                )
-            return self.embedding(position_ids)
-        
-    class AntibodyMLM(nn.Module):
-        """
-        Transformer-encoder MLM for antibody/nanobody sequences.
-        
-        Model expects tokenized sequences with optional chain tokens already inserted by the tokenizer/collator. 
-        It returns per-position vocabulary logits (log-odds, to be converted to prob. distribution) suitable for masked language modelling. 
-        
-        Inputs:
-            - input_ids: [batch_size, seq_len]
-            - attention_mask: [batch_size, seq_len]
-        
-        Output:
-            - logits: [batch_size, seq_len, vocab_size]
-        """
-        
-        def __init__(self, config: MLMConfig) -> None: 
-            super().__init__()
-            config.validate()
-            self.config = config
-            
-            self.token_embedding = nn.Embedding(
-                num_embeddings = config.vocab_size,
-                embedding_dim = config.d_model,
-                padding_idx = config.pad_token_id
-            )
-            
-            self.position_embedding = LearnedPositionalEmbedding(
-                max_length = config.max_length, 
-                d_model = config.d_model
-            )
-            
-            self.embed_drop = nn.Dropout(config.dropout)
-            
-            encoder_layer = nn.TransformerEncoderLayer(
-                d_model = config.d_model,
-                nhead = config.n_heads,
-                dim_feedforward = config.d_ff,
-                dropout = config.dsropout, 
-                activation = config.activation,
-                batch_first = True, 
-                norm_first = False
-            )
-            
-            self.encoder = nn.TransformerEncoder(
-                encoder_layer, 
-                num_layers = config.n_layers,
-                enable_nested_tensor = False
-            )
-            
-            self.final_norm = nn.LayerNorm(config.d_model)
-            self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias = False)
-            
-            if config.tie_weights:
-                self.lm_head.weight = self.token_embedding.weight
-        
-        def _validate_inputs(
-            self,
-            input_ids: torch.Tensor,
-            attention_mask: torch.Tensor | None 
-        ) -> torch.Tensor:
-            
-            """
-            Validate model inputs and construct attention mask (if needed).
-
-            Args:
-                input_ids (torch.Tensor): Tensor of token IDs with shape [batch_size, seq_len]
-                
-                attention_mask (torch.Tensor | None): Optional tensor with shape [batch_size, seq_len]. If None, the mask is 
-                    inferred from input_ids != pad_token_id
-
-            Returns:
-                torch.Tensor: Valid attention_mask tensor with shape [batch_size, seq_len]
-                
-            Raises ValueError if shapes are wrong/sequence length exceeds max_length
-            """
-            if input_ids.dim() != 2: 
-                raise ValueError("input_ids must have shape [batch_size, seq_len]")
-            
-            batch_size, seq_len = input_ids.shape
-            if seq_len > self.config.max_length:
-                raise ValueError(
-                    f"Input sequence length {seq_len} has to be less than the max length, equal to {self.config.max_length}"
-                )
-            
-            if attention_mask is None:
-                attention_mask = (input_ids != self.config.pad_token_id).long()
-            else:
-                if attention_mask.shape != input_ids.shape:
-                    raise ValueError("attention_mask must have the same shape as input_ids")
-            
-            return attention_mask
-        
-    def _build_key_padding_mask(self, attention_mask: torch.Tensor) -> torch.Tensor:
-        """
-        Convert a standard attention mask into a transformer key padding mask.
-
-        Args:
-            attention_mask (torch.Tensor): Tensor of shape [batch_size, seq_len] with 1 for real tokens and 0 for padding
-
-        Returns:
-            torch.Tensor: Boolean tensor of shape [batch_size, seq_len] where True marks padding positions to be ignored 
-            by the transformer.
-        """
-        return attention_mask == 0
+class LearnedPositionalEmbedding(nn.Module):
+    """
+    Learned positional embedding layer.
     
-    def embed(
-        self, 
-        input_ids: torch.Tensor, 
-        attention_mask: torch.Tensor
-    ) -> torch.Tensor:
+    Uses an embedding table for token positions. Position index 0 is reserved for padding positions, and 
+    real sequence positions start at 1. 
+    
+    As an example: 
+        If attention_mask = [1, 1, 1, 0, 0]
+        then position_ids = [1, 2, 3, 0, 0]
+
+    """
+    
+    def __init__(self, max_length: int, d_model: int) -> None:
         """
-        Build the input embeddings for the transformer
+        Initialize positional embedding table.
 
         Args:
-            input_ids (torch.Tensor): Tensor of shape [batch_size, seq_len] containing token IDs.
-            
-            attention_mask (torch.Tensor): Tensor of shape [batch_size, seq_len] indicating real vs pad tokens.
+            max_length (int): Maximum sequence length supported for real (non-pad) tokens.
+            d_model (int): Embedding dimension
+        """
+        
+        super().__init__()
+        self.max_length = max_length
+        self.embedding = nn.Embedding(max_length + 1, d_model, padding_idx = 0)
+    
+    def forward(self, attention_mask: torch.Tensor) -> torch.Tensor:
+        """
+        Convert attention mask into learned positional embeddings.
+
+        Args:
+            attention_mask (torch.Tensor): Tensor of shape [batch_size, seq_len] with 1 for real teokens and 0 for paddding tokens
 
         Returns:
-            torch.Tensor: Tensor of shape [batch_size, seq_len, d_model] containing the sum of token embeddings and positional embeddings, 
-            followed by dropout.
+            torch.Tensor: Tensor of shape [batch_size, seq_len, d_model] containing positional embeddings.
+            
+        Raises ValueError if any effective position exceeds the configured max_length
+        
         """
-        token_emb = self.token_embedding(input_ids)
-        pos_emb = self.position_embedding(attention_mask)
-        hidden = token_emb + pos_emb
-        hidden = self.embed_dropout(hidden)
-        return hidden
-
-    def encode(
+        if attention_mask.dim() != 2:
+            raise ValueError("attention_mask must have shape [batch_size, seq_len]")
+        
+        # real tokens count upward from 1; pads remain 0
+        position_ids = attention_mask.long().cumsum(dim = 1)
+        position_ids = position_ids.masked_fill(attention_mask == 0, 0)
+        
+        max_pos = int(position_ids.max().item()) if position_ids.numel() > 0 else 0  # if the position_ids have more than 0 items
+        if max_pos > self.max_length:
+            raise ValueError(
+                f"Sequence length {max_pos} exceeds configured max_length, which is equal to {self.max_length}"
+            )
+        return self.embedding(position_ids)
+    
+class AntibodyMLM(nn.Module):
+    """
+    Transformer-encoder MLM for antibody/nanobody sequences.
+    
+    Model expects tokenized sequences with optional chain tokens already inserted by the tokenizer/collator. 
+    It returns per-position vocabulary logits (log-odds, to be converted to prob. distribution) suitable for masked language modelling. 
+    
+    Inputs:
+        - input_ids: [batch_size, seq_len]
+        - attention_mask: [batch_size, seq_len]
+    
+    Output:
+        - logits: [batch_size, seq_len, vocab_size]
+    """
+    
+    def __init__(self, config: MLMConfig) -> None: 
+        super().__init__()
+        config.validate()
+        self.config = config
+        
+        self.token_embedding = nn.Embedding(
+            num_embeddings = config.vocab_size,
+            embedding_dim = config.d_model,
+            padding_idx = config.pad_token_id
+        )
+        
+        self.position_embedding = LearnedPositionalEmbedding(
+            max_length = config.max_length, 
+            d_model = config.d_model
+        )
+        
+        self.embed_drop = nn.Dropout(config.dropout)
+        
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model = config.d_model,
+            nhead = config.n_heads,
+            dim_feedforward = config.d_ff,
+            dropout = config.dsropout, 
+            activation = config.activation,
+            batch_first = True, 
+            norm_first = False
+        )
+        
+        self.encoder = nn.TransformerEncoder(
+            encoder_layer, 
+            num_layers = config.n_layers,
+            enable_nested_tensor = False
+        )
+        
+        self.final_norm = nn.LayerNorm(config.d_model)
+        self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias = False)
+        
+        if config.tie_weights:
+            self.lm_head.weight = self.token_embedding.weight
+    
+    def _validate_inputs(
         self,
         input_ids: torch.Tensor,
-        attention_mask: torch.Tensor | None = None  
+        attention_mask: torch.Tensor | None 
     ) -> torch.Tensor:
-        """
-        Encode a batch of tokenized seqeunces into contextual hidden states.
         
-        Args: 
-            input_ids: Tensor of shape [batch_size, seq_len] containing token IDs.
-            
-            attention_masks: Optional tensor of shape [batch_size, seq_len]. If omitted, it is inferred from padding positions. 
-            
-        Returns: 
-            torch.Tensor of shape [batch_size, seq_len, d_model] containing the contextual hidden states after the transformer encoder.
         """
-        
-        attention_mask = self.validate_input(input_ids, attention_mask)
-        hidden = self.embed(input_ids, attention_mask)
-        key_padding_mask = self._build_key_padding_mask(attention_mask)
-        hidden = self.encoder(hidden, src_key_padding_mask = key_padding_mask)
-        hidden = self.final_norm(hidden)
-        return hidden
-    
-    def pooled_cls(
-        self, 
-        input_ids: torch.Tensor, 
-        attention_mask: torch.Tensor | None = None
-    ) -> torch.Tensor: 
-        """
-        Return the contextual hidden state at the first token position. 
-        
-        Typically the [CLS] embedding if tokenizer prepends [CLS].
+        Validate model inputs and construct attention mask (if needed).
 
         Args:
-            input_ids (torch.Tensor): Tensor of shape [batch_size, seq_len] containing token IDs
+            input_ids (torch.Tensor): Tensor of token IDs with shape [batch_size, seq_len]
             
-            attention_mask (torch.Tensor | None, optional): Optional tensor of shape [batch_size, seq_len]
+            attention_mask (torch.Tensor | None): Optional tensor with shape [batch_size, seq_len]. If None, the mask is 
+                inferred from input_ids != pad_token_id
 
         Returns:
-            torch.Tensor: Tensor of shape [batch_size, d_model] containing the first-token embedding for each sequence.
-        """
-        hidden = self.encode(input_ids, attention_mask)
-        logits = self.lm_head(hidden)
-        return logits
-    
-    def forward(
-        self, 
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor | None = None
-    ) -> torch.Tensor: 
-        """
-        Run a forward pass and return MLM logits. 
-
-        Args:
-            input_ids (torch.Tensor): Tensor of shape [batch_size, seq_len] containing token IDs.
+            torch.Tensor: Valid attention_mask tensor with shape [batch_size, seq_len]
             
-            attention_mask (torch.Tensor | None, optional): Optional tensor of shape [batch_size, seq_len]
-
-        Returns:
-            torch.Tensor: Tensor of shape [batch_size, seq_len, vocab_size] containing per-position token logits for MLM prediction.
+        Raises ValueError if shapes are wrong/sequence length exceeds max_length
         """
-        hidden = self.encode(input_ids, attention_mask)
-        logits = self.lm_head(hidden)
-        return logits
-    
-    def compute_loss(
-        self, 
-        logits: torch.Tensor, 
-        labels: torch.Tensor,
-        ignore_index: int = -100
-    ) -> torch.Tensor:
-        """
-        Compute masked language model cross-entropy loss. 
-
-        Args:
-            logits (torch.Tensor): Tensor of shape [batch_size, seq_len, vocab_size]
-            
-            labels (torch.Tensor): Tensor of shape [batch_size, seq_len] containing target token IDs at MLM positions
-                and 'ignore_index' elsewhere
-            
-            ignore_index (int): Label value to ignore when computing loss. Defaults to -100.
-
-        Returns:
-            torch.Tensor: Scalar tensor containing the MLM loss
-            
-        Raises ValueErorr if logits/labels do not have compatible shapes.
-        """
+        if input_ids.dim() != 2: 
+            raise ValueError("input_ids must have shape [batch_size, seq_len]")
         
-        if logits.dim() != 3: 
-            raise ValueError("logits must have shape [batch_size, seq_len, vocab_size]")
-        if labels.dim() != 2: 
-            raise ValueError("labels must have shape [batch_size, seq_len]")
-        if logits.shape[:2] != labels.shape:
-            raise ValueError("logits and labels must agree on [batch_size, seq_len]")
+        batch_size, seq_len = input_ids.shape
+        if seq_len > self.config.max_length:
+            raise ValueError(
+                f"Input sequence length {seq_len} has to be less than the max length, equal to {self.config.max_length}"
+            )
         
-        loss = F.cross_entropy(
-            logits.reshape(-1, logits.size(-1)),
-            labels.reshape(-1),
-            ignore_index = ignore_index
-        )
-        return loss
+        if attention_mask is None:
+            attention_mask = (input_ids != self.config.pad_token_id).long()
+        else:
+            if attention_mask.shape != input_ids.shape:
+                raise ValueError("attention_mask must have the same shape as input_ids")
+        
+        return attention_mask
+    
+def _build_key_padding_mask(self, attention_mask: torch.Tensor) -> torch.Tensor:
+    """
+    Convert a standard attention mask into a transformer key padding mask.
+
+    Args:
+        attention_mask (torch.Tensor): Tensor of shape [batch_size, seq_len] with 1 for real tokens and 0 for padding
+
+    Returns:
+        torch.Tensor: Boolean tensor of shape [batch_size, seq_len] where True marks padding positions to be ignored 
+        by the transformer.
+    """
+    return attention_mask == 0
+
+def embed(
+    self, 
+    input_ids: torch.Tensor, 
+    attention_mask: torch.Tensor
+) -> torch.Tensor:
+    """
+    Build the input embeddings for the transformer
+
+    Args:
+        input_ids (torch.Tensor): Tensor of shape [batch_size, seq_len] containing token IDs.
+        
+        attention_mask (torch.Tensor): Tensor of shape [batch_size, seq_len] indicating real vs pad tokens.
+
+    Returns:
+        torch.Tensor: Tensor of shape [batch_size, seq_len, d_model] containing the sum of token embeddings and positional embeddings, 
+        followed by dropout.
+    """
+    token_emb = self.token_embedding(input_ids)
+    pos_emb = self.position_embedding(attention_mask)
+    hidden = token_emb + pos_emb
+    hidden = self.embed_dropout(hidden)
+    return hidden
+
+def encode(
+    self,
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor | None = None  
+) -> torch.Tensor:
+    """
+    Encode a batch of tokenized seqeunces into contextual hidden states.
+    
+    Args: 
+        input_ids: Tensor of shape [batch_size, seq_len] containing token IDs.
+        
+        attention_masks: Optional tensor of shape [batch_size, seq_len]. If omitted, it is inferred from padding positions. 
+        
+    Returns: 
+        torch.Tensor of shape [batch_size, seq_len, d_model] containing the contextual hidden states after the transformer encoder.
+    """
+    
+    attention_mask = self.validate_input(input_ids, attention_mask)
+    hidden = self.embed(input_ids, attention_mask)
+    key_padding_mask = self._build_key_padding_mask(attention_mask)
+    hidden = self.encoder(hidden, src_key_padding_mask = key_padding_mask)
+    hidden = self.final_norm(hidden)
+    return hidden
+
+def pooled_cls(
+    self, 
+    input_ids: torch.Tensor, 
+    attention_mask: torch.Tensor | None = None
+) -> torch.Tensor: 
+    """
+    Return the contextual hidden state at the first token position. 
+    
+    Typically the [CLS] embedding if tokenizer prepends [CLS].
+
+    Args:
+        input_ids (torch.Tensor): Tensor of shape [batch_size, seq_len] containing token IDs
+        
+        attention_mask (torch.Tensor | None, optional): Optional tensor of shape [batch_size, seq_len]
+
+    Returns:
+        torch.Tensor: Tensor of shape [batch_size, d_model] containing the first-token embedding for each sequence.
+    """
+    hidden = self.encode(input_ids, attention_mask)
+    logits = self.lm_head(hidden)
+    return logits
+
+def forward(
+    self, 
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor | None = None
+) -> torch.Tensor: 
+    """
+    Run a forward pass and return MLM logits. 
+
+    Args:
+        input_ids (torch.Tensor): Tensor of shape [batch_size, seq_len] containing token IDs.
+        
+        attention_mask (torch.Tensor | None, optional): Optional tensor of shape [batch_size, seq_len]
+
+    Returns:
+        torch.Tensor: Tensor of shape [batch_size, seq_len, vocab_size] containing per-position token logits for MLM prediction.
+    """
+    hidden = self.encode(input_ids, attention_mask)
+    logits = self.lm_head(hidden)
+    return logits
+
+def compute_loss(
+    self, 
+    logits: torch.Tensor, 
+    labels: torch.Tensor,
+    ignore_index: int = -100
+) -> torch.Tensor:
+    """
+    Compute masked language model cross-entropy loss. 
+
+    Args:
+        logits (torch.Tensor): Tensor of shape [batch_size, seq_len, vocab_size]
+        
+        labels (torch.Tensor): Tensor of shape [batch_size, seq_len] containing target token IDs at MLM positions
+            and 'ignore_index' elsewhere
+        
+        ignore_index (int): Label value to ignore when computing loss. Defaults to -100.
+
+    Returns:
+        torch.Tensor: Scalar tensor containing the MLM loss
+        
+    Raises ValueErorr if logits/labels do not have compatible shapes.
+    """
+    
+    if logits.dim() != 3: 
+        raise ValueError("logits must have shape [batch_size, seq_len, vocab_size]")
+    if labels.dim() != 2: 
+        raise ValueError("labels must have shape [batch_size, seq_len]")
+    if logits.shape[:2] != labels.shape:
+        raise ValueError("logits and labels must agree on [batch_size, seq_len]")
+    
+    loss = F.cross_entropy(
+        logits.reshape(-1, logits.size(-1)),
+        labels.reshape(-1),
+        ignore_index = ignore_index
+    )
+    return loss
