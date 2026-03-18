@@ -9,6 +9,9 @@ import re # sequence cleaning
 from pathlib import Path #filesystem handling easier
 from collections import Counter
 from typing import Dict, Iterable, Iterator, Optional, TextIO, Tuple
+from smallAntibodyGen.data.oas import read_oas_table
+
+import pandas as pd
 
 from tqdm import tqdm # progress bars while processing files
 
@@ -246,7 +249,7 @@ def deterministic_split(key: str, val_percent: int = 10) -> str:
     bucket = int(h[:8], 16) % 100 #hashing
     return "val" if bucket < val_percent else "train"
 
-def extract_basic_metadeta(metadata: Dict[str, object]) -> Dict[str, object]:
+def extract_basic_metadata(metadata: Dict[str, object]) -> Dict[str, object]:
     """
     Normalize the file-level metadeta into a smaller, predicted schema. Renaming, essentially
 
@@ -479,7 +482,6 @@ class JsonlGzWriter:
 def iter_kept_records_for_file(
     path: Path,
     args: argparse.Namespace,
-    tokenizer: AminoAcidTokenizer,
     stats: dict,
 ):
     """
@@ -537,18 +539,10 @@ def iter_kept_records_for_file(
             stats["drop_reasons"][reason] += 1
             continue
 
-        token_ids = tokenizer.encode_sequence(
-            sequence=variable_aa,
-            locus=locus,
-            max_length=args.token_max_length,
-        )
-
         record = {
             "sequence": variable_aa,
             "variable_aa": variable_aa,
-            "token_ids": token_ids,
             "length": len(variable_aa),
-            "token_length": len(token_ids),
             "locus": locus,
             "chain_group": chain_group,
             "split": deterministic_split(f"{locus}:{variable_aa}", val_percent=args.val_percent),
@@ -619,8 +613,8 @@ def main() -> None:
     parser.add_argument("--min-light", type=int, default=70, help="Minimum full variable-domain AA length for light chains")
     parser.add_argument("--max-light", type=int, default=160, help="Maximum full variable-domain AA length for light chains")
     parser.add_argument("--require-complete-vdj", action="store_true", help="Drop rows not explicitly marked complete_vdj")
-    p.add_argument(
-    "--sampling-mode",
+    parser.add_argument(
+        "--sampling-mode",
         type=str,
         choices=["greedy", "round_robin"],
         default="round_robin",
@@ -628,6 +622,7 @@ def main() -> None:
             "'greedy' fills from file 1, then file 2, etc. "
             "'round_robin' interleaves kept records across files."
     )
+    
     args = parser.parse_args()
 
     input_files = sorted(
@@ -665,7 +660,7 @@ def main() -> None:
         if args.sampling_mode == "greedy":
             # Old behavior: fill from file 1, then file 2, etc.
             for path in input_files:
-                for record in iter_kept_records_for_file(path, args, tokenizer, stats):
+                for record in iter_kept_records_for_file(path, args, stats):
                     write_record(record, writers, stats, seen)
 
                     if args.max_records is not None and stats["records_kept"] >= args.max_records:
@@ -674,7 +669,7 @@ def main() -> None:
         elif args.sampling_mode == "round_robin":
             # New behavior: interleave kept records across files.
             active = [
-                (path, iter_kept_records_for_file(path, args, tokenizer, stats))
+                (path, iter_kept_records_for_file(path, args, stats))
                 for path in input_files
             ]
 
