@@ -50,15 +50,19 @@ class OASSequenceDataset(Dataset[OASRecord]):
                 continue
             self.records.append(
                 OASRecord(
-                    sequence = str(record["sequence"]),
-                    locus = str(record.get("locus", "")), # if record["locus"] does not exist, just use "". dictionary lookback w fallback
-                    split = str(record.get("split", self.split)),
-                    cdr3_aa = record.get("cdr3_aa"),
-                    v_call = record.get("v_call"),
-                    j_call = record.get("j_call")
-                    
+                    sequence=str(record["sequence"]),
+                    locus=str(record.get("locus", "")),
+                    chain_group=str(record.get("chain_group", "")),
+                    split=str(record.get("split", self.split)),
+                    length=int(record.get("length", len(str(record["sequence"])))),
+                    cdr3_aa=record.get("cdr3_aa"),
+                    cdr3_start_aa=record.get("cdr3_start_aa"),
+                    cdr3_end_aa=record.get("cdr3_end_aa"),
+                    v_call=record.get("v_call"),
+                    j_call=record.get("j_call"),
                 )
             )
+            
     def __len__(self) -> int: 
         return len(self.records)
     def __getitem__(self, idx = int) -> OASRecord:
@@ -170,7 +174,7 @@ class MLMCollator:
         
         eligible_positions = [
             j
-            for j, token_id in enumerate(input_ids_row.toList())
+            for j, token_id in enumerate(input_ids_row.tolist())
             if token_id not in self.tokenizer.special_ids
         ]
         
@@ -216,6 +220,8 @@ class MLMCollator:
             if len(selected) >= target_budget:
                 break
             selected.add(j)
+        
+        return selected
     
     
     def _mask_tokens(self, 
@@ -253,7 +259,8 @@ class MLMCollator:
         
         for i, record in enumerate(batch_records):
             selected_positions = self._select_target_positions(input_ids[i], record)
-            
+            if selected_positions is None:
+                raise RuntimeError("_select_target_positions() returned None; it must return a set of positions")
             for j in selected_positions:
                 labels[i, j] = input_ids[i, j]
                 
@@ -271,14 +278,6 @@ class MLMCollator:
         return masked_input, labels
     
     def __call__(self, batch: Sequence[OASRecord]) -> Dict[str, torch.Tensor]:
-        encoded = [
-            self.tokenizer.encode_sequence(
-                item.sequence, 
-                locus = item.locus, 
-                max_length = self.max_length) 
-            for item in batch
-        ] 
-        
         """
         
         Convert list of sequence records into one MLM training batch by tokenziing each example, padding all examples in the batch to the same length,
@@ -302,6 +301,14 @@ class MLMCollator:
         
         """
         
+        encoded = [
+            self.tokenizer.encode_sequence(
+                item.sequence, 
+                locus = item.locus, 
+                max_length = self.max_length) 
+            for item in batch
+        ] 
+        
         seq_lengths = [len(x) for x in encoded]
         max_len = min(max(seq_lengths), self.max_length)
         
@@ -317,7 +324,7 @@ class MLMCollator:
         input_ids = torch.tensor(padded, dtype = torch.long)
         attention_mask = torch.tensor(attention_masks, dtype = torch.long)
         
-        masked_input_ids, labels = self._mask_tokens(input_ids)
+        masked_input_ids, labels = self._mask_tokens(input_ids, batch)
         
         return {
             "input_ids": masked_input_ids,
