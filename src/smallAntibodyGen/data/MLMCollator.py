@@ -10,7 +10,7 @@ from typing import Dict, Iterator, List, Sequence
 import torch
 from torch.utils.data import Dataset
 
-from src.smallAntibodyGen.tokenizer import AminoAcidTokenizer
+from smallAntibodyGen.tokenizer import AminoAcidTokenizer
 
 @dataclass
 class OASRecord:
@@ -33,7 +33,7 @@ class OASSequenceDataset(Dataset[OASRecord]):
     ) -> None:
         self.data_path = Path(data_path)
         self.split = split
-        self.records = List(OASRecord) = []
+        self.records: list[OASRecord] = []
         self._load()
         
     def _iter_jsonl(self) -> Iterator[Dict[str, object]]:
@@ -53,7 +53,7 @@ class OASSequenceDataset(Dataset[OASRecord]):
                     sequence = str(record["sequence"]),
                     locus = str(record.get("locus", "")), # if record["locus"] does not exist, just use "". dictionary lookback w fallback
                     split = str(record.get("split", self.split)),
-                    cdr_3_aa = record.get("cdr3_aa"),
+                    cdr3_aa = record.get("cdr3_aa"),
                     v_call = record.get("v_call"),
                     j_call = record.get("j_call")
                     
@@ -92,8 +92,8 @@ class MLMCollator:
         tokenizer: AminoAcidTokenizer,
         max_length: int, 
         mask_probability: float = 0.15, 
-        hcdr_3_span_probability: float = 0.5, 
-        hcdr_3_span_min: int = 3, 
+        hcdr3_span_probability: float = 0.5, 
+        hcdr3_span_min: int = 3, 
         hcdr3_span_max: int = 8, 
         rng_seed: int = 42
     ) -> None:
@@ -113,11 +113,11 @@ class MLMCollator:
             
             mask_probability (float, optional): Fraction of eligible residue positions to turn into MLM targets. Defaults to 0.15.
             
-            hcdr_3_span_probability (float, optional): Probability of attempting HCDR3 span masking for a heavy-chain example with 
+            hcdr3_span_probability (float, optional): Probability of attempting HCDR3 span masking for a heavy-chain example with 
                 valid HCDR3 coordinates. If this does not trigger, example falls back to ordinary random MLM target selection. 
                 Defaults to 0.5.
                 
-            hcdr_3_span_min (int, optional): Minimum number of residues to mask when sampling an HCDR3 span. Defaults to 3.
+            hcdr3_span_min (int, optional): Minimum number of residues to mask when sampling an HCDR3 span. Defaults to 3.
             hcdr3_span_max (int, optional): Maximum number of residues to mask when sampling an HCDR3 span. Defaults to 8.
             rng_seed (int, optional): seed for the Python random number generator used by this collator Defaults to 42.
 
@@ -126,8 +126,8 @@ class MLMCollator:
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.mask_probability = mask_probability
-        self.hcdr_3_span_probability = hcdr_3_span_probability
-        self.hcdr3_span_min = hcdr_3_span_min
+        self.hcdr3_span_probability = hcdr3_span_probability
+        self.hcdr3_span_min = hcdr3_span_min
         self.hcdr3_span_max = hcdr3_span_max
         self.rng = random.Random(rng_seed)
         
@@ -186,13 +186,13 @@ class MLMCollator:
             and self.rng.random() < self.hcdr3_span_probability
         ): 
             # Offset by 2, encode_seq() auto-prepends # [CLS], [CHAIN_TOKEN]
-            cdr_3_start_token = 2 + record.cdr3_start_aa
-            cdr_3_end_token = 2 + record.cdr3_end_aa # end-exclusive
+            cdr3_start_token = 2 + record.cdr3_start_aa
+            cdr3_end_token = 2 + record.cdr3_end_aa # end-exclusive
             
             # clip to the available tokenized row length (if sampling good, should be a non-issue)
             cdr3_positions = [
                 j
-                for j in range(cdr_3_start_token, min(cdr_3_end_token, input_ids_row.size(0)))
+                for j in range(cdr3_start_token, min(cdr3_end_token, input_ids_row.size(0)))
                 if int(input_ids_row[j]) not in self.tokenizer.special_ids
             ]
             
