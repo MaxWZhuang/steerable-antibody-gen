@@ -402,7 +402,7 @@ def iter_oas_records(path: Path) -> Iterator[Dict[str, object]]:
 
     with open_text(path) as f:
         metadata = parse_metadata_line(f.readline())
-    basic_meta = extract_basic_metadeta(metadata)
+    basic_meta = extract_basic_metadata(metadata)
     
     with open_text(path) as f:
         _ = f.readline()  # skip metadata line
