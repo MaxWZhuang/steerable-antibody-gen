@@ -338,47 +338,73 @@ def choose_nt_sequence(row: Dict[str, str]) -> str:
     return ""
 
 def keep_record(
-    record: Dict[str, object],
-    min_heavy: int,
-    max_heavy: int,
-    min_light: int,
-    max_light: int,
-    require_complete_vdj: bool = False,
-) -> Tuple[bool, str]:
+    *,
+    locus: str,
+    seq: str,
+    productive: bool | None,
+    vj_in_frame: bool | None,
+    stop_codon: bool | None,
+    v_frameshift: bool | None,
+    complete_vdj: bool | None,
+    args,
+) -> tuple[bool, str]:
     """
-    Returns (keep, reason_if_dropped).
-    """
-    locus = str(record.get("locus", "OTHER"))
-    seq = str(record.get("sequence") or "")
+    Decide whether one parsed OAS record should be kept.
 
+    Args:
+        locus:
+            Normalized locus string such as IGH, IGK, IGL, or VHH.
+        seq:
+            Cleaned amino-acid sequence chosen for modeling.
+        productive:
+            Whether the rearrangement is marked productive.
+        vj_in_frame:
+            Whether the rearrangement is in frame.
+        stop_codon:
+            Whether a stop codon is present.
+        v_frameshift:
+            Whether a V-region frameshift is present.
+        complete_vdj:
+            Whether the sequence is explicitly marked as complete_vdj.
+        args:
+            Parsed CLI arguments containing length thresholds and strictness flags.
+
+    Returns:
+        A tuple `(keep, reason)` where:
+            - keep is True if the record should be kept
+            - reason is a short string explaining why it was kept or dropped
+    """
     if not seq:
         return False, "empty_sequence"
 
-    if locus == "IGH":
-        if len(seq) < min_heavy or len(seq) > max_heavy:
-            return False, "length_out_of_range"
-    elif locus in {"IGK", "IGL"}:
-        if len(seq) < min_light or len(seq) > max_light:
-            return False, "length_out_of_range"
-    else:
-        return False, "bad_locus"
-
-    if record.get("productive") is False:
+    if productive is False:
         return False, "non_productive"
-
-    if record.get("vj_in_frame") is False:
+    if vj_in_frame is False:
         return False, "out_of_frame"
-
-    if record.get("stop_codon") is True:
+    if stop_codon is True:
         return False, "stop_codon"
-
-    if record.get("v_frameshift") is True:
+    if v_frameshift is True:
         return False, "v_frameshift"
 
-    if require_complete_vdj and record.get("complete_vdj") is not True:
+    if getattr(args, "require_complete_vdj", False) and complete_vdj is not True:
         return False, "incomplete_vdj"
 
-    return True, "kept"
+    if locus == "IGH":
+        if not (args.min_heavy <= len(seq) <= args.max_heavy):
+            return False, "length_out_of_range"
+        return True, "kept"
+
+    if locus in {"IGK", "IGL"}:
+        if not (args.min_light <= len(seq) <= args.max_light):
+            return False, "length_out_of_range"
+        return True, "kept"
+
+    if locus == "VHH":
+        if not (args.min_nano <= len(seq) <= args.max_nano):
+            return False, "length_out_of_range"
+        return True, "kept"
+
+    return False, "bad_locus"
 
 def locate_cdr3_span(sequence: str, cdr3_aa: str) -> tuple[Optional[int], Optional[int]]:
     if not sequence or not cdr3_aa:
