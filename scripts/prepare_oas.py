@@ -9,6 +9,7 @@ import re # sequence cleaning
 from pathlib import Path #filesystem handling easier
 from collections import Counter
 from typing import Dict, Iterable, Iterator, Optional, TextIO, Tuple
+import random # for shuffling files
 from smallAntibodyGen.data.oas import read_oas_table
 
 import pandas as pd
@@ -636,7 +637,7 @@ def main() -> None:
     parser.add_argument("--input-dir", type=Path, required=True, help="Directory containing raw OAS .csv.gz files")
     parser.add_argument("--output-dir", type=Path, required=True, help="Directory to write processed outputs")
     parser.add_argument("--stats-output", type=Path, default=None, help="Optional JSON stats file")
-    parser.add_argument("--max-files", type=int, default=None, help="Process only the first N files")
+    parser.add_argument("--max-files", type=int, default=100, help="Process only the first N files")
     parser.add_argument("--max-records", type=int, default=None, help="Stop after writing N kept records total")
     parser.add_argument("--val-percent", type=int, default=10, help="Validation percent")
     parser.add_argument("--min-heavy", type=int, default=80, help="Minimum full variable-domain AA length for heavy chains")
@@ -644,6 +645,7 @@ def main() -> None:
     parser.add_argument("--min-light", type=int, default=70, help="Minimum full variable-domain AA length for light chains")
     parser.add_argument("--max-light", type=int, default=160, help="Maximum full variable-domain AA length for light chains")
     parser.add_argument("--require-complete-vdj", action="store_true", help="Drop rows not explicitly marked complete_vdj")
+    parser.add_argument("--file-shuffle-seed", type = int, default = 42, help = "Seed used to randomly shuffle file input order before processing")
     parser.add_argument(
         "--sampling-mode",
         type=str,
@@ -659,6 +661,10 @@ def main() -> None:
     input_files = sorted(
         [p for p in args.input_dir.rglob("*") if p.is_file() and p.suffix in {".gz", ".csv"}]
     )
+    
+    rng = random.Random(args.file_shuffle_seed)
+    rng.shuffle(input_files)
+    
     if args.max_files is not None:
         input_files = input_files[: args.max_files]
 
