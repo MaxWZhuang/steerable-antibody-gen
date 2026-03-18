@@ -476,6 +476,133 @@ class JsonlGzWriter:
         self.handle.close()
         
 
+def iter_kept_records_for_file(
+    path: Path,
+    args: argparse.Namespace,
+    tokenizer: AminoAcidTokenizer,
+    stats: dict,
+):
+    """
+    Yield cleaned, kept records from one raw OAS file.
+
+    This helper:
+    - parses one file
+    - applies the same row-level filtering you already have
+    - yields record dicts that are ready to be deduplicated/written
+
+    It does NOT:
+    - deduplicate across files
+    - write output
+    - stop at max_records
+
+    Those remain the responsibility of the outer loop.
+    """
+    stats["files_seen"] += 1
+
+    metadata, df = read_oas_table(path)
+    basic_meta = extract_basic_metadata(metadata)
+
+    for _, row in df.iterrows():
+        stats["records_seen"] += 1
+
+        locus = normalize_locus(row, metadata)
+        chain_group = chain_group_from_locus(locus)
+
+        productive = normalize_bool(row.get("productive"))
+        vj_in_frame = normalize_bool(row.get("vj_in_frame"))
+        stop_codon = normalize_bool(row.get("stop_codon"))
+        v_frameshift = normalize_bool(row.get("v_frameshift"))
+        complete_vdj = normalize_bool(row.get("complete_vdj"))
+
+        variable_aa, sequence_source = build_variable_aa(row)
+        cdr3_aa = clean_aa_sequence(row.get("cdr3_aa"))
+        cdr3_start_aa, cdr3_end_aa = locate_cdr3_span(
+            variable_aa,
+            cdr3_aa,
+            drop_ambiguous=args.drop_ambiguous_cdr3_span,
+        )
+
+        keep, reason = keep_record(
+            locus=locus,
+            seq=variable_aa,
+            productive=productive,
+            vj_in_frame=vj_in_frame,
+            stop_codon=stop_codon,
+            v_frameshift=v_frameshift,
+            complete_vdj=complete_vdj,
+            args=args,
+        )
+
+        if not keep:
+            stats["drop_reasons"][reason] += 1
+            continue
+
+        token_ids = tokenizer.encode_sequence(
+            sequence=variable_aa,
+            locus=locus,
+            max_length=args.token_max_length,
+        )
+
+        record = {
+            "sequence": variable_aa,
+            "variable_aa": variable_aa,
+            "token_ids": token_ids,
+            "length": len(variable_aa),
+            "token_length": len(token_ids),
+            "locus": locus,
+            "chain_group": chain_group,
+            "split": deterministic_split(f"{locus}:{variable_aa}", val_percent=args.val_percent),
+            "productive": productive,
+            "vj_in_frame": vj_in_frame,
+            "stop_codon": stop_codon,
+            "v_frameshift": v_frameshift,
+            "complete_vdj": complete_vdj,
+            "sequence_source": sequence_source,
+            "cdr3_aa": cdr3_aa or None,
+            "cdr3_start_aa": cdr3_start_aa,
+            "cdr3_end_aa": cdr3_end_aa,
+            "v_call": None if pd.isna(row.get("v_call")) else row.get("v_call"),
+            "d_call": None if pd.isna(row.get("d_call")) else row.get("d_call"),
+            "j_call": None if pd.isna(row.get("j_call")) else row.get("j_call"),
+            "redundancy": safe_int(row.get("Redundancy"), default=1),
+            "metadata": basic_meta,
+            "source_file": path.name,
+        }
+
+        yield record
+
+def write_record(
+    record: dict,
+    writers: dict,
+    stats: dict,
+    seen: set,
+) -> bool:
+    """
+    Deduplicate one record globally, write it if new, and update stats.
+
+    Returns:
+        True if the record was written,
+        False if it was dropped as a duplicate.
+    """
+    dedupe_key = (record["locus"], record["sequence"])
+    if dedupe_key in seen:
+        stats["duplicates_dropped"] += 1
+        return False
+
+    seen.add(dedupe_key)
+
+    writers["all"].write(record)
+    if record["locus"] in writers:
+        writers[record["locus"]].write(record)
+
+    stats["records_kept"] += 1
+    stats["kept_by_locus"][record["locus"]] += 1
+    stats["kept_by_split"][record["split"]] += 1
+    stats["sequence_source_counts"][record["sequence_source"]] += 1
+    stats["redundancy_sum_by_locus"][record["locus"]] += int(record.get("redundancy") or 1)
+    stats["kept_by_source_file"][record["source_file"]] += 1
+
+    return True
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -492,6 +619,15 @@ def main() -> None:
     parser.add_argument("--min-light", type=int, default=70, help="Minimum full variable-domain AA length for light chains")
     parser.add_argument("--max-light", type=int, default=160, help="Maximum full variable-domain AA length for light chains")
     parser.add_argument("--require-complete-vdj", action="store_true", help="Drop rows not explicitly marked complete_vdj")
+    p.add_argument(
+    "--sampling-mode",
+        type=str,
+        choices=["greedy", "round_robin"],
+        default="round_robin",
+        help="How to sample records across files. "
+            "'greedy' fills from file 1, then file 2, etc. "
+            "'round_robin' interleaves kept records across files."
+    )
     args = parser.parse_args()
 
     input_files = sorted(
@@ -509,9 +645,7 @@ def main() -> None:
         "IGK": JsonlGzWriter(args.output_dir / "oas_igk.jsonl.gz"),
         "IGL": JsonlGzWriter(args.output_dir / "oas_igl.jsonl.gz"),
     }
-
-    seen = set()
-
+    
     stats = {
         "files_seen": 0,
         "records_seen": 0,
@@ -522,66 +656,58 @@ def main() -> None:
         "kept_by_split": Counter(),
         "sequence_source_counts": Counter(),
         "redundancy_sum_by_locus": Counter(),
+        "kept_by_source_file": Counter()
     }
 
+    seen = set()
+
     try:
-        for path in input_files:
-            stats["files_seen"] += 1
-
-            try:
-                for record in iter_oas_records(path):
-                    stats["records_seen"] += 1
-
-                    keep, reason = keep_record(
-                        record,
-                        min_heavy=args.min_heavy,
-                        max_heavy=args.max_heavy,
-                        min_light=args.min_light,
-                        max_light=args.max_light,
-                        require_complete_vdj=args.require_complete_vdj,
-                    )
-                    if not keep:
-                        stats["drop_reasons"][reason] += 1
-                        continue
-
-                    locus = str(record["locus"])
-                    seq = str(record["sequence"])
-
-                    # Dedupe within locus, not globally across all chains.
-                    dedupe_key = (locus, seq)
-                    if dedupe_key in seen:
-                        stats["duplicates_dropped"] += 1
-                        continue
-                    seen.add(dedupe_key)
-
-                    split_key = f"{locus}:{seq}"
-                    split = deterministic_split(split_key, val_percent=args.val_percent)
-
-                    record["length"] = len(seq)
-                    record["split"] = split
-
-                    writers["all"].write(record)
-                    if locus in writers:
-                        writers[locus].write(record)
-
-                    stats["records_kept"] += 1
-                    stats["kept_by_locus"][locus] += 1
-                    stats["kept_by_split"][split] += 1
-                    stats["sequence_source_counts"][str(record["sequence_source"])] += 1
-                    stats["redundancy_sum_by_locus"][locus] += int(record.get("redundancy") or 1)
+        if args.sampling_mode == "greedy":
+            # Old behavior: fill from file 1, then file 2, etc.
+            for path in input_files:
+                for record in iter_kept_records_for_file(path, args, tokenizer, stats):
+                    write_record(record, writers, stats, seen)
 
                     if args.max_records is not None and stats["records_kept"] >= args.max_records:
                         raise StopIteration
 
-            except StopIteration:
-                break
-            except Exception as exc:
-                print(f"[WARN] Failed while parsing {path}: {exc}")
+        elif args.sampling_mode == "round_robin":
+            # New behavior: interleave kept records across files.
+            active = [
+                (path, iter_kept_records_for_file(path, args, tokenizer, stats))
+                for path in input_files
+            ]
 
+            done = False
+            while active and not done:
+                next_active = []
+
+                for path, iterator in active:
+                    try:
+                        record = next(iterator)
+                    except StopIteration:
+                        # this file is exhausted
+                        continue
+
+                    write_record(record, writers, stats, seen)
+
+                    if args.max_records is not None and stats["records_kept"] >= args.max_records:
+                        done = True
+                        break
+
+                    # keep this file in rotation
+                    next_active.append((path, iterator))
+
+                active = next_active
+
+        else:
+            raise ValueError(f"Unknown sampling mode: {args.sampling_mode}")
+
+    except StopIteration:
+        pass
     finally:
         for writer in writers.values():
-            writer.close()
-
+            writer.close()    
     # Convert Counters to normal dicts for JSON serialization
     serializable_stats = {
         "files_seen": stats["files_seen"],
