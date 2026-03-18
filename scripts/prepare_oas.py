@@ -719,12 +719,13 @@ def main() -> None:
         "kept_by_split": dict(stats["kept_by_split"]),
         "sequence_source_counts": dict(stats["sequence_source_counts"]),
         "redundancy_sum_by_locus": dict(stats["redundancy_sum_by_locus"]),
+        "kept_by_source_file": dict(stats["kept_by_source_file"]),
         "outputs": {
             "all": str(args.output_dir / "oas_all.jsonl.gz"),
             "IGH": str(args.output_dir / "oas_igh.jsonl.gz"),
             "IGK": str(args.output_dir / "oas_igk.jsonl.gz"),
             "IGL": str(args.output_dir / "oas_igl.jsonl.gz"),
-        },
+        }
     }
 
     if args.stats_output is not None:
