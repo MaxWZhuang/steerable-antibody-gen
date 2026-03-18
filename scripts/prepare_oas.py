@@ -526,8 +526,7 @@ def iter_kept_records_for_file(
         cdr3_aa = clean_aa_sequence(row.get("cdr3_aa"))
         cdr3_start_aa, cdr3_end_aa = locate_cdr3_span(
             variable_aa,
-            cdr3_aa,
-            drop_ambiguous=args.drop_ambiguous_cdr3_span,
+            cdr3_aa
         )
 
         keep, reason = keep_record(
