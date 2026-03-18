@@ -50,7 +50,7 @@ class ChainLengthBucketBatchSampler(Sampler[List[int]]):
             for start in range(0, len(indices), self.batch_size):
                 batch = indices[start: start + self.batch_size] # randomly choosing batches
                 if len(batch) == self.batch_size or not self.drop_last: # if the batch is now the same size or if you don't drop the last one
-                    all_batches.append[batch]
+                    all_batches.append(batch)
         
         rng.shuffle(all_batches)
         yield from all_batches # select one batch at a time from all batches
