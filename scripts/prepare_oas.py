@@ -506,8 +506,14 @@ def iter_kept_records_for_file(
 
     for _, row in df.iterrows():
         stats["records_seen"] += 1
+        
+        raw_locus = row.get("locus")
+        if raw_locus is None or pd.isna(raw_locus) or str(raw_locus).strip() == "":
+            raw_locus = metadata.get("Chain")
 
-        locus = normalize_locus(row, metadata)
+        locus = normalize_locus(raw_locus)
+
+        locus = normalize_locus(raw_locus)
         chain_group = chain_group_from_locus(locus)
 
         productive = normalize_bool(row.get("productive"))
