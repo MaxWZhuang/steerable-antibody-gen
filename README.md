@@ -24,6 +24,6 @@ Overall plan for Phase 1:
 6. Train a SAE on this fused antibody-antigen representation
   a. Collect activation info, train a sparse dictionary, then annotate the features (sparse-autoencoder-derived concept layer)
 7. Constrained generation / lead generation of existing binder
-  a. Focused on HDCR3, then expand slowly
+  a. Focused on HCDR3, then expand slowly
 
 
