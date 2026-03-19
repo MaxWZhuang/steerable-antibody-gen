@@ -747,12 +747,12 @@ def main() -> None:
     Main entrypoint for MLM training.
 
     Workflow:
-      1. Parse config
-      2. Set seeds and device
-      3. Build tokenizer, datasets, model, optimizer
-      4. Run an implementation smoke test if requested
-      5. Train for multiple epochs
-      6. Save best and last checkpoints
+    1. Parse config
+    2. Set seeds and device
+    3. Build tokenizer, datasets, model, optimizer
+    4. Run an implementation smoke test if requested
+    5. Train for multiple epochs
+    6. Save best and last checkpoints
 
     Args:
         None.
