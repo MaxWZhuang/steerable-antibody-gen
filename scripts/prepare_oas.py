@@ -630,6 +630,229 @@ def write_record(
 
     return True
 
+def stable_seed_from_path(path: Path, base_seed: int = 42) -> int:
+    """
+    Build deterministic integer seed from a file path. 
+    Python's built-in hash() is randomized between interepreter sessions. For reproducible sampling, it's important to have a stable 
+    file-dependent seed.
+
+    Args:
+        path (Path): Path to one raw OAS file
+        base_seed (int, optional): Global run-level seed. Defaults to 42.
+
+    Returns:
+        int: Integer seed that is stable for this file.
+    """
+    
+    digest = hashlib.sha1(str(path)).encode("utf-8").hexdigest()
+    return base_seed + int(digest[:8], 16)
+
+def count_valid_records_per_file(
+    input_files: list[Path],
+    args
+) -> Dict[Path, int]:
+    """
+    Count how many valid/kept records each file contains.
+    
+    This runs your existing row parsing + filtering logic, but does NOT write anything yet. It only counts records that 
+    survive your keep/drop criteria.
+
+    Args:
+        input_files (list[Path]): Raw OAS files selected for this run.
+        args (_type_): Parsed CLI arguments
+
+    Returns:
+        Dict[Path, int]: _description_
+    """
+    counts: Dict[Path, int] = {}
+    
+    for path in input_files:
+        n_valid = 0
+        for _ in iter_kept_records_for_file(path, args):
+            n_valid += 1
+        counts[path] = n_valid
+
+    return counts
+
+def allocate_equal_quotas(
+    counts: Dict[Path, int],
+    total_records: int,
+) -> Dict[Path, int]:
+    """
+    Allocate an approximately equal number of samples per file.
+
+    Strategy:
+        1. Give each non-empty file a base quota
+        2. Cap that quota by the actual number of valid records in the file
+        3. Redistribute any leftover quota to files that still have spare capacity
+
+    Args:
+        counts:
+            Mapping file -> number of valid records in that file.
+        total_records:
+            Total number of records desired across all files.
+
+    Returns:
+        Mapping file -> quota for that file.
+    """
+    nonempty_files = [p for p, n in counts.items() if n > 0]
+    if not nonempty_files:
+        return {}
+
+    base_quota = total_records // len(nonempty_files)
+
+    quotas: Dict[Path, int] = {}
+    for path in nonempty_files:
+        quotas[path] = min(base_quota, counts[path])
+
+    allocated = sum(quotas.values())
+    remaining = total_records - allocated
+
+    # Redistribute leftover quota to files that still have spare capacity.
+    # We iterate in descending spare capacity so larger files absorb more overflow.
+    while remaining > 0:
+        progressed = False
+        files_by_spare = sorted(
+            nonempty_files,
+            key=lambda p: counts[p] - quotas[p],
+            reverse=True,
+        )
+
+        for path in files_by_spare:
+            spare = counts[path] - quotas[path]
+            if spare <= 0:
+                continue
+            quotas[path] += 1
+            remaining -= 1
+            progressed = True
+            if remaining == 0:
+                break
+
+        # If no file had spare capacity, we are done early.
+        if not progressed:
+            break
+
+    return quotas
+
+def reservoir_sample_file(
+    path: Path,
+    args,
+    quota: int,
+    seed: int,
+) -> list[dict]:
+    """
+    Uniformly sample `quota` valid records from one file using reservoir sampling.
+
+    Why reservoir sampling:
+        It lets us sample k records from a stream of unknown size using O(k) memory.
+
+    Args:
+        path:
+            Raw OAS file.
+        args:
+            Parsed CLI arguments.
+        quota:
+            Number of records to sample from this file.
+        seed:
+            Deterministic random seed for this file.
+
+    Returns:
+        List of sampled record dictionaries of length <= quota.
+        If the file has fewer than `quota` valid records, all valid records are returned.
+    """
+    
+    if quota <= 0:
+        return []
+
+    rng = random.Random(seed)
+    reservoir: list[dict] = []
+    seen = 0
+
+    for record in iter_kept_records_for_file(path, args):
+        seen += 1
+
+        # Fill reservoir until it reaches target size.
+        if len(reservoir) < quota:
+            reservoir.append(record)
+            continue
+
+        # Standard reservoir sampling update:
+        # replace an existing item with probability quota / seen
+        j = rng.randrange(seen)
+        if j < quota:
+            reservoir[j] = record
+
+    return reservoir
+
+def sample_with_file_quotas(
+    input_files: list[Path],
+    args,
+    writers: dict,
+    stats: dict,
+    seen: set,
+    base_seed: int = 42,
+) -> None:
+    """
+    Build a balanced subset by assigning a quota to each file and sampling within each file.
+
+    Workflow:
+        Pass 1:
+            count valid records in each file
+        Pass 2:
+            allocate equal per-file quotas
+        Pass 3:
+            reservoir-sample each file independently
+        Pass 4:
+            globally deduplicate and write sampled records
+
+    Args:
+        input_files:
+            Raw OAS files selected for this run.
+        args:
+            Parsed CLI arguments.
+        writers:
+            Output writers, e.g. all / IGH / IGK / IGL / VHH.
+        stats:
+            Mutable stats dictionary.
+        seen:
+            Global dedupe set, typically (locus, sequence).
+        base_seed:
+            Global seed for deterministic sampling.
+
+    Returns:
+        None.
+    """
+    # --------
+    # PASS 1: count valid records in each file
+    # --------
+    counts = count_valid_records_per_file(input_files, args)
+    stats["valid_records_per_file"] = {str(p): n for p, n in counts.items()}
+
+    # --------
+    # PASS 2: choose quotas
+    # --------
+    quotas = allocate_equal_quotas(counts, args.max_records)
+    stats["allocated_quota_per_file"] = {str(p): q for p, q in quotas.items()}
+
+    # --------
+    # PASS 3 + 4: sample each file independently, then write
+    # --------
+    for path in input_files:
+        quota = quotas.get(path, 0)
+        if quota <= 0:
+            continue
+
+        file_seed = stable_seed_from_path(path, base_seed=base_seed)
+        sampled_records = reservoir_sample_file(
+            path=path,
+            args=args,
+            quota=quota,
+            seed=file_seed,
+        )
+
+        for record in sampled_records:
+            write_record(record, writers, stats, seen)
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Schema-aware OAS preprocessor for variable-domain antibody LM pretraining."
@@ -704,33 +927,14 @@ def main() -> None:
                         raise StopIteration
 
         elif args.sampling_mode == "round_robin":
-            # New behavior: interleave kept records across files.
-            active = [
-                (path, iter_kept_records_for_file(path, args, stats))
-                for path in input_files
-            ]
-
-            done = False
-            while active and not done:
-                next_active = []
-
-                for path, iterator in active:
-                    try:
-                        record = next(iterator)
-                    except StopIteration:
-                        # this file is exhausted
-                        continue
-
-                    write_record(record, writers, stats, seen)
-
-                    if args.max_records is not None and stats["records_kept"] >= args.max_records:
-                        done = True
-                        break
-
-                    # keep this file in rotation
-                    next_active.append((path, iterator))
-
-                active = next_active
+            sample_with_file_quotas(
+                input_files = input_files,
+                args = args,
+                writers = writers,
+                stats = stats,
+                seen = seen,
+                base_seed = args.file_shuffle_seed
+            )
 
         else:
             raise ValueError(f"Unknown sampling mode: {args.sampling_mode}")
