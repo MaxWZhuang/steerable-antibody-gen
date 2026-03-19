@@ -509,7 +509,7 @@ class JsonlGzWriter:
 def iter_kept_records_for_file(
     path: Path,
     args: argparse.Namespace,
-    stats: dict,
+    stats: dict = None,
 ):
     """
     Yield cleaned, kept records from one raw OAS file.
@@ -526,13 +526,15 @@ def iter_kept_records_for_file(
 
     Those remain the responsibility of the outer loop.
     """
-    stats["files_seen"] += 1
+    if stats is not None: 
+        stats["files_seen"] += 1
 
     metadata, df = read_oas_table(path)
     basic_meta = extract_basic_metadata(metadata)
 
     for _, row in df.iterrows():
-        stats["records_seen"] += 1
+        if stats is not None:
+            stats["records_seen"] += 1
         
         raw_locus = row.get("locus")
         if raw_locus is None or pd.isna(raw_locus) or str(raw_locus).strip() == "":
@@ -568,7 +570,8 @@ def iter_kept_records_for_file(
         )
 
         if not keep:
-            stats["drop_reasons"][reason] += 1
+            if stats is not None:
+                stats["drop_reasons"][reason] += 1
             continue
 
         record = {
@@ -644,33 +647,51 @@ def stable_seed_from_path(path: Path, base_seed: int = 42) -> int:
         int: Integer seed that is stable for this file.
     """
     
-    digest = hashlib.sha1(str(path)).encode("utf-8").hexdigest()
+    digest = hashlib.sha1(str(path).encode("utf-8")).hexdigest()
     return base_seed + int(digest[:8], 16)
 
-def count_valid_records_per_file(
-    input_files: list[Path],
-    args
-) -> Dict[Path, int]:
-    """
-    Count how many valid/kept records each file contains.
-    
-    This runs your existing row parsing + filtering logic, but does NOT write anything yet. It only counts records that 
-    survive your keep/drop criteria.
+def count_valid_records_per_file(input_files, args):
+    counts = {}
 
-    Args:
-        input_files (list[Path]): Raw OAS files selected for this run.
-        args (_type_): Parsed CLI arguments
-
-    Returns:
-        Dict[Path, int]: _description_
-    """
-    counts: Dict[Path, int] = {}
-    
-    for path in input_files:
+    for i, path in enumerate(input_files, start=1):
+        metadata, df = read_oas_table(path)
         n_valid = 0
-        for _ in iter_kept_records_for_file(path, args):
-            n_valid += 1
+
+        for row in df.itertuples(index=False):
+            raw_locus = getattr(row, "locus", None)
+            if raw_locus is None or str(raw_locus).strip() == "":
+                raw_locus = metadata.get("Chain")
+
+            locus = normalize_locus(raw_locus)
+
+            productive = normalize_bool(getattr(row, "productive", None))
+            vj_in_frame = normalize_bool(getattr(row, "vj_in_frame", None))
+            stop_codon = normalize_bool(getattr(row, "stop_codon", None))
+            v_frameshift = normalize_bool(getattr(row, "v_frameshift", None))
+            complete_vdj = normalize_bool(getattr(row, "complete_vdj", None))
+
+            seq = clean_aa_sequence(getattr(row, "sequence_alignment_aa", ""))
+            if not seq:
+                seq = clean_aa_sequence(getattr(row, "v_sequence_alignment_aa", ""))
+
+            keep, _ = keep_record(
+                locus=locus,
+                seq=seq,
+                productive=productive,
+                vj_in_frame=vj_in_frame,
+                stop_codon=stop_codon,
+                v_frameshift=v_frameshift,
+                complete_vdj=complete_vdj,
+                args=args,
+            )
+
+            if keep:
+                n_valid += 1
+
         counts[path] = n_valid
+
+        if i % 10 == 0:
+            print(f"[count] processed {i}/{len(input_files)} files")
 
     return counts
 
@@ -841,7 +862,8 @@ def sample_with_file_quotas(
         quota = quotas.get(path, 0)
         if quota <= 0:
             continue
-
+        
+        stats["files_seen"] += 1
         file_seed = stable_seed_from_path(path, base_seed=base_seed)
         sampled_records = reservoir_sample_file(
             path=path,
@@ -849,7 +871,9 @@ def sample_with_file_quotas(
             quota=quota,
             seed=file_seed,
         )
-
+        
+        print(f"[sample pass] sampling {quota} from {path.name}") # print line testing
+        
         for record in sampled_records:
             write_record(record, writers, stats, seen)
 
