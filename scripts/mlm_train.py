@@ -738,9 +738,35 @@ def save_checkpoint(
             "val_loss": val_loss,
             "train_config": asdict(cfg),
         },
-        path,
+        path
     )
+    
+def load_checkpoint(
+    path: Path,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer | None = None,
+    map_location: str | torch.device = "cpu",
+) -> dict:
+    """
+    Load a checkpoint into the model (and optionally optimizer).
 
+    Args:
+        path: Path to checkpoint file.
+        model: Model to load into.
+        optimizer: Optional optimizer to restore.
+        map_location: Device mapping for torch.load.
+
+    Returns:
+        The full checkpoint dictionary.
+    """
+    checkpoint = torch.load(path, map_location=map_location)
+    model.load_state_dict(checkpoint["model_state_dict"])
+
+    if optimizer is not None and "optimizer_state_dict" in checkpoint:
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+
+    print(f"[checkpoint] loaded <- {path}")
+    return checkpoint
 
 def main() -> None:
     """
@@ -788,8 +814,22 @@ def main() -> None:
         return
 
     best_val_loss = float("inf")
+    start_epoch = 0
 
-    for epoch in range(cfg.epochs):
+    # Resume from last checkpoint if it exists
+    last_ckpt_path = output_dir / "last.pt"
+    if last_ckpt_path.exists():
+        checkpoint = load_checkpoint(
+            path=last_ckpt_path,
+            model=model,
+            optimizer=optimizer,
+            map_location=device,
+        )
+        start_epoch = checkpoint["epoch"]
+        best_val_loss = checkpoint.get("val_loss", float("inf"))
+        print(f"Resuming from epoch {start_epoch}")
+
+    for epoch in range(start_epoch, cfg.epochs):
         train_loss, train_acc = train_one_epoch(
             model=model,
             train_dataset=train_dataset,
