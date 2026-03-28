@@ -786,6 +786,7 @@ def main() -> None:
     Returns:
         None.
     """
+    
     cfg = parse_args()
     set_seed(cfg.seed)
 
