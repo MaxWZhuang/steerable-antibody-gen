@@ -4,6 +4,7 @@ import gzip
 import json
 import random
 from dataclasses import dataclass
+from dataclasses import replace
 from pathlib import Path
 from typing import Dict, Iterator, List, Sequence
 
@@ -11,9 +12,12 @@ import torch
 from torch.utils.data import Dataset
 
 from smallAntibodyGen.tokenizer import AminoAcidTokenizer
+from smallAntibodyGen.data.MLMSampler import ChainLengthBucketBatchSampler
 
 @dataclass
 class OASRecord:
+    """In-memory representation of one processed OAS example."""
+
     sequence: str
     locus: str # IGH / IGK / IGL
     chain_group: str # heavy / light
@@ -24,8 +28,24 @@ class OASRecord:
     cdr3_end_aa: int | None = None
     v_call: str | None = None
     j_call: str | None = None
+    token_ids: list[int] | None = None
+    token_length: int | None = None
+    sequence_heavy: str | None = None
+    sequence_light: str | None = None
+    heavy_locus: str | None = None
+    light_locus: str | None = None
+    is_paired: bool = False
+    pair_id: str | None = None
+    cdr3_aa_heavy: str | None = None
+    cdr3_start_aa_heavy: int | None = None
+    cdr3_end_aa_heavy: int | None = None
+    cdr3_aa_light: str | None = None
+    cdr3_start_aa_light: int | None = None
+    cdr3_end_aa_light: int | None = None
     
 class OASSequenceDataset(Dataset[OASRecord]):
+    """Dataset that reads processed single-chain or paired OAS JSONL records."""
+
     def __init__(
         self, 
         data_path: str | Path, 
@@ -37,6 +57,7 @@ class OASSequenceDataset(Dataset[OASRecord]):
         self._load()
         
     def _iter_jsonl(self) -> Iterator[Dict[str, object]]:
+        """Yield parsed JSON objects from a plain or gzipped JSONL file."""
         opener = gzip.open if self.data_path.suffix == ".gz" else open
         with opener(self.data_path, "rt", encoding="utf-8") as f:
             for line in f: 
@@ -44,10 +65,27 @@ class OASSequenceDataset(Dataset[OASRecord]):
                     yield json.loads(line)
     
     def _load(self) -> None: 
+        """
+        Load the requested split into memory as `OASRecord` objects.
+
+        The processed schema now supports both classic single-chain records and
+        native heavy/light paired examples. We preserve a single dataset class
+        so the training code can switch between them based only on the contents
+        of the processed JSONL file.
+        """
         for record in self._iter_jsonl():
             # yields 1 line at a time, prefers over records
             if record.get("split") != self.split: 
                 continue
+            token_ids = record.get("token_ids")
+            token_length = record.get("token_length")
+            if token_length is None:
+                if record.get("sequence_heavy") and record.get("sequence_light"):
+                    token_length = len(str(record["sequence_heavy"])) + len(str(record["sequence_light"])) + 5
+                elif isinstance(token_ids, list):
+                    token_length = len(token_ids)
+                else:
+                    token_length = len(str(record["sequence"])) + 3
             self.records.append(
                 OASRecord(
                     sequence=str(record["sequence"]),
@@ -60,12 +98,26 @@ class OASSequenceDataset(Dataset[OASRecord]):
                     cdr3_end_aa=record.get("cdr3_end_aa"),
                     v_call=record.get("v_call"),
                     j_call=record.get("j_call"),
+                    token_ids=token_ids,
+                    token_length=int(token_length),
+                    sequence_heavy=record.get("sequence_heavy"),
+                    sequence_light=record.get("sequence_light"),
+                    heavy_locus=record.get("heavy_locus"),
+                    light_locus=record.get("light_locus"),
+                    is_paired=bool(record.get("is_paired")) or bool(record.get("sequence_heavy") and record.get("sequence_light")),
+                    pair_id=record.get("pair_id"),
+                    cdr3_aa_heavy=record.get("cdr3_aa_heavy"),
+                    cdr3_start_aa_heavy=record.get("cdr3_start_aa_heavy"),
+                    cdr3_end_aa_heavy=record.get("cdr3_end_aa_heavy"),
+                    cdr3_aa_light=record.get("cdr3_aa_light"),
+                    cdr3_start_aa_light=record.get("cdr3_start_aa_light"),
+                    cdr3_end_aa_light=record.get("cdr3_end_aa_light"),
                 )
             )
             
     def __len__(self) -> int: 
         return len(self.records)
-    def __getitem__(self, idx = int) -> OASRecord:
+    def __getitem__(self, idx: int) -> OASRecord:
         return self.records[idx]
     
 class MLMCollator:
@@ -99,6 +151,7 @@ class MLMCollator:
         hcdr3_span_probability: float = 0.5, 
         hcdr3_span_min: int = 3, 
         hcdr3_span_max: int = 8, 
+        shuffle_pair_probability: float = 0.5,
         rng_seed: int = 42
     ) -> None:
         """
@@ -133,13 +186,14 @@ class MLMCollator:
         self.hcdr3_span_probability = hcdr3_span_probability
         self.hcdr3_span_min = hcdr3_span_min
         self.hcdr3_span_max = hcdr3_span_max
+        self.shuffle_pair_probability = shuffle_pair_probability
         self.rng = random.Random(rng_seed)
         
         # sampling replacement tokens from actual residue tokens, not special tokens
         self.residue_token_ids = [
             idx 
             for tok, idx in self.tokenizer.token_to_id.items() 
-            if len(tok) == 1 and tok.isalpha
+            if len(tok) == 1 and tok.isalpha()
         ]
     
     def _select_target_positions(
@@ -181,14 +235,14 @@ class MLMCollator:
         if not eligible_positions:
             return selected
         
-        target_budget = max(1, round(len(eligible_positions)) * self.mask_probability)
+        target_budget = max(1, int(round(len(eligible_positions) * self.mask_probability)))
         
         if (
-            record.chain_group == "heavy"
-            and record.cdr3_start_aa is not None 
+            self.rng.random() < self.hcdr3_span_probability
+            and record.cdr3_start_aa is not None
             and record.cdr3_end_aa is not None
-            and self.rng.random() < self.hcdr3_span_probability
-        ): 
+            and (record.chain_group == "heavy" or record.is_paired)
+        ):
             # Offset by 2, encode_seq() auto-prepends # [CLS], [CHAIN_TOKEN]
             cdr3_start_token = 2 + record.cdr3_start_aa
             cdr3_end_token = 2 + record.cdr3_end_aa # end-exclusive
@@ -222,6 +276,86 @@ class MLMCollator:
             selected.add(j)
         
         return selected
+
+    def _is_pairable_record(self, item: OASRecord) -> bool:
+        """
+        Decide whether one record can participate in pair shuffling.
+
+        Args:
+            item:
+                Dataset record under consideration.
+
+        Returns:
+            True when the record already contains both heavy and light chain
+            sequences and therefore supports the auxiliary compatibility task.
+        """
+        heavy_seq = (item.sequence_heavy or "").strip()
+        light_seq = (item.sequence_light or "").strip()
+        return bool(item.is_paired and heavy_seq and light_seq)
+
+    def _build_pairing_batch(
+        self,
+        batch: Sequence[OASRecord],
+    ) -> tuple[list[OASRecord], list[int], list[bool]]:
+        """
+        Materialize native or shuffled pairings for one batch.
+
+        We keep preprocessing outputs strictly native/cognate. This helper
+        synthesizes shuffled negatives on the fly by replacing the light chain
+        for a subset of paired examples with a light chain drawn from another
+        paired example in the same batch.
+
+        Args:
+            batch:
+                Sequence of dataset records selected for this batch.
+
+        Returns:
+            Tuple `(effective_batch, pair_labels, pair_mask)` where:
+                - `effective_batch` is the batch actually encoded
+                - `pair_labels` contains 1 for native pairs and 0 for shuffled
+                - `pair_mask` marks examples that participate in the pair loss
+        """
+        native_batch = [replace(item) for item in batch]
+        effective_batch = [replace(item) for item in batch]
+        pair_labels = [0] * len(batch)
+        pair_mask = [False] * len(batch)
+
+        pairable_indices = [idx for idx, item in enumerate(effective_batch) if self._is_pairable_record(item)]
+        if len(pairable_indices) < 2:
+            for idx in pairable_indices:
+                pair_labels[idx] = 1
+                pair_mask[idx] = True
+            return effective_batch, pair_labels, pair_mask
+
+        shuffled_indices = []
+        for idx in pairable_indices:
+            pair_labels[idx] = 1
+            pair_mask[idx] = True
+            if self.rng.random() < self.shuffle_pair_probability:
+                shuffled_indices.append(idx)
+
+        if len(shuffled_indices) == 1 and len(pairable_indices) > 1:
+            # A lone negative cannot borrow from itself, so fall back to native.
+            shuffled_indices = []
+
+        for idx in shuffled_indices:
+            donor_candidates = [candidate for candidate in pairable_indices if candidate != idx]
+            donor_idx = self.rng.choice(donor_candidates)
+            donor_record = native_batch[donor_idx]
+
+            # We keep the heavy chain fixed and replace only the light chain so
+            # the classifier learns whether the observed partner is cognate.
+            effective_batch[idx] = replace(
+                effective_batch[idx],
+                sequence_light=donor_record.sequence_light,
+                light_locus=donor_record.light_locus,
+                cdr3_aa_light=donor_record.cdr3_aa_light,
+                cdr3_start_aa_light=donor_record.cdr3_start_aa_light,
+                cdr3_end_aa_light=donor_record.cdr3_end_aa_light,
+            )
+            pair_labels[idx] = 0
+
+        return effective_batch, pair_labels, pair_mask
     
     
     def _mask_tokens(self, 
@@ -277,6 +411,33 @@ class MLMCollator:
                     pass
         return masked_input, labels
     
+    def _encode_record(self, item: OASRecord) -> list[int]:
+        """
+        Encode one single-chain or paired record into token IDs.
+
+        Args:
+            item:
+                Dataset record to encode.
+
+        Returns:
+            List of integer token IDs suitable for batching.
+        """
+        heavy_seq = (item.sequence_heavy or "").strip() if item.sequence_heavy is not None else ""
+        light_seq = (item.sequence_light or "").strip() if item.sequence_light is not None else ""
+        if heavy_seq and light_seq:
+            return self.tokenizer.encode_paired_sequences(
+                heavy_sequence=heavy_seq,
+                light_sequence=light_seq,
+                heavy_locus=item.heavy_locus or "IGH",
+                light_locus=item.light_locus or "IGK",
+                max_length=self.max_length,
+            )
+        return self.tokenizer.encode_sequence(
+            item.sequence,
+            locus=item.locus,
+            max_length=self.max_length,
+        )
+
     def __call__(self, batch: Sequence[OASRecord]) -> Dict[str, torch.Tensor]:
         """
         
@@ -294,20 +455,17 @@ class MLMCollator:
                 - cdr3_end_aa
                 
         Returns:
-            Dictionary["input_ids", "attention_mask", "labels"]: 
+            Dictionary["input_ids", "attention_mask", "labels", "pair_labels", "pair_mask"]: 
                 - "input_ids": Tensor of shape [batch_size, seq_len] containing masked/corrupted token IDs for model input
                 - "attention_mask": Tensor of shape [batch_size, seq_len] where 1 indicates a real token and 0 indicates padding
                 - "labels": Tensor of shape [batch_size, seq_len] containing MLM targets at selected positions and -100 elsewhere
+                - "pair_labels": Tensor of shape [batch_size] with 1 for native pairs and 0 for shuffled negatives
+                - "pair_mask": Tensor of shape [batch_size] marking records that participate in the auxiliary pair loss
         
         """
         
-        encoded = [
-            self.tokenizer.encode_sequence(
-                item.sequence, 
-                locus = item.locus, 
-                max_length = self.max_length) 
-            for item in batch
-        ] 
+        effective_batch, pair_labels, pair_mask = self._build_pairing_batch(batch)
+        encoded = [self._encode_record(item) for item in effective_batch]
         
         seq_lengths = [len(x) for x in encoded]
         max_len = min(max(seq_lengths), self.max_length)
@@ -324,11 +482,13 @@ class MLMCollator:
         input_ids = torch.tensor(padded, dtype = torch.long)
         attention_mask = torch.tensor(attention_masks, dtype = torch.long)
         
-        masked_input_ids, labels = self._mask_tokens(input_ids, batch)
-        
+        masked_input_ids, labels = self._mask_tokens(input_ids, effective_batch)
+
         return {
             "input_ids": masked_input_ids,
             "attention_mask": attention_mask, 
-            "labels": labels
+            "labels": labels,
+            "pair_labels": torch.tensor(pair_labels, dtype=torch.long),
+            "pair_mask": torch.tensor(pair_mask, dtype=torch.bool),
         }
         
