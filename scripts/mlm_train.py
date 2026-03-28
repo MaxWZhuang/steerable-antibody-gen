@@ -5,14 +5,20 @@ import argparse
 import json
 import os
 import random
-from dataclasses import asdict, dataclass
+import sys
+from dataclasses import MISSING, asdict, dataclass, fields
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = PROJECT_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
 from smallAntibodyGen.tokenizer import AminoAcidTokenizer
 from smallAntibodyGen.data.MLMCollator import (
@@ -21,6 +27,11 @@ from smallAntibodyGen.data.MLMCollator import (
 )
 from smallAntibodyGen.data.MLMSampler import ChainLengthBucketBatchSampler
 from smallAntibodyGen.models.mlm import AntibodyMLM, MLMConfig
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover - exercised only when dependency is missing
+    yaml = None
 
 
 @dataclass
@@ -96,6 +107,7 @@ class TrainConfig:
     hcdr3_span_probability: float = 0.0
     hcdr3_span_min: int = 3
     hcdr3_span_max: int = 8
+    shuffle_pair_probability: float = 0.5
 
     d_model: int = 256
     n_heads: int = 8
@@ -106,6 +118,7 @@ class TrainConfig:
     learning_rate: float = 3e-4
     weight_decay: float = 1e-2
     grad_clip_norm: float = 1.0
+    pair_loss_weight: float = 1.0
     epochs: int = 5
     seed: int = 42
 
@@ -139,6 +152,8 @@ class TrainConfig:
             raise ValueError("mask_probability must be in (0, 1]")
         if not (0.0 <= self.hcdr3_span_probability <= 1.0):
             raise ValueError("hcdr3_span_probability must be in [0, 1]")
+        if not (0.0 <= self.shuffle_pair_probability <= 1.0):
+            raise ValueError("shuffle_pair_probability must be in [0, 1]")
         if self.hcdr3_span_min <= 0 or self.hcdr3_span_max <= 0:
             raise ValueError("HCDR3 span lengths must be > 0")
         if self.hcdr3_span_min > self.hcdr3_span_max:
@@ -149,84 +164,232 @@ class TrainConfig:
             raise ValueError("weight_decay must be >= 0")
         if self.grad_clip_norm <= 0:
             raise ValueError("grad_clip_norm must be > 0")
+        if self.pair_loss_weight < 0:
+            raise ValueError("pair_loss_weight must be >= 0")
         if self.epochs <= 0:
             raise ValueError("epochs must be > 0")
         if self.train_num_workers < 0 or self.eval_num_workers < 0:
             raise ValueError("num_workers must be >= 0")
 
 
-def parse_args() -> TrainConfig:
+def _train_config_defaults() -> Dict[str, Any]:
     """
-    Parse command-line arguments into a TrainConfig.
+    Return default values for every optional TrainConfig field.
+
+    We derive this from the dataclass instead of duplicating defaults in the
+    CLI/config loader, which keeps the defaults in one authoritative place.
 
     Args:
         None.
 
     Returns:
+        Dictionary of field name -> default value for optional config fields.
+    """
+    defaults: Dict[str, Any] = {}
+    for field in fields(TrainConfig):
+        if field.name == "data_path":
+            continue
+        if field.default is not MISSING:
+            defaults[field.name] = field.default
+    return defaults
+
+
+def load_config_file(config_path: str | Path) -> Dict[str, Any]:
+    """
+    Load a training config from JSON or YAML.
+
+    Args:
+        config_path:
+            Path to a config file.
+
+    Returns:
+        Raw parsed config dictionary.
+
+    Raises:
+        ValueError:
+            If the file extension is unsupported or the parsed payload is not
+            a dictionary.
+    """
+    path = Path(config_path)
+    suffixes = path.suffixes
+
+    if suffixes[-2:] == [".jsonl", ".gz"]:
+        raise ValueError("Config files must be JSON or YAML, not JSONL data files")
+
+    if path.suffix == ".json":
+        with open(path, "r", encoding="utf-8") as f:
+            raw_config = json.load(f)
+    elif path.suffix in {".yaml", ".yml"}:
+        if yaml is None:
+            raise ImportError(
+                "PyYAML is required to load YAML config files. "
+                "Install it with `pip install pyyaml`."
+            )
+        with open(path, "r", encoding="utf-8") as f:
+            raw_config = yaml.safe_load(f)
+    else:
+        raise ValueError(f"Unsupported config format for {path}. Use .json, .yaml, or .yml")
+
+    if raw_config is None:
+        return {}
+    if not isinstance(raw_config, dict):
+        raise ValueError(f"Expected top-level mapping in config file {path}")
+    return raw_config
+
+
+def normalize_config_data(raw_config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Translate config-file keys into the flat TrainConfig schema.
+
+    The checked-in YAML uses a friendlier nested layout and a couple of older
+    names (`num_workers`, `mixed_precision`). We normalize those here so the
+    training loop can keep using one simple dataclass.
+
+    Args:
+        raw_config:
+            Parsed JSON/YAML dictionary.
+
+    Returns:
+        Flat dictionary containing TrainConfig-compatible keys.
+
+    Raises:
+        ValueError:
+            If a nested section is present but not a mapping.
+    """
+    normalized = dict(raw_config)
+
+    # Legacy/shared worker count: if the config specifies one worker value,
+    # treat it as both train/eval unless a side-specific override exists.
+    num_workers = normalized.pop("num_workers", None)
+    if num_workers is not None:
+        normalized.setdefault("train_num_workers", num_workers)
+        normalized.setdefault("eval_num_workers", num_workers)
+
+    # Keep the YAML key intuitive while mapping onto the runtime flag name.
+    mixed_precision = normalized.pop("mixed_precision", None)
+    if mixed_precision is not None:
+        normalized.setdefault("use_amp", mixed_precision)
+
+    model_config = normalized.pop("model", None)
+    if model_config is not None:
+        if not isinstance(model_config, dict):
+            raise ValueError("The `model` config section must be a mapping")
+        for key in ("d_model", "n_heads", "n_layers", "d_ff", "dropout"):
+            if key in model_config:
+                normalized.setdefault(key, model_config[key])
+
+    optimizer_config = normalized.pop("optimizer", None)
+    if optimizer_config is not None:
+        if not isinstance(optimizer_config, dict):
+            raise ValueError("The `optimizer` config section must be a mapping")
+        # The current training loop only uses lr/weight decay. We accept the
+        # section so existing configs keep working even though extra keys are
+        # currently informational only.
+        if "learning_rate" in optimizer_config:
+            normalized.setdefault("learning_rate", optimizer_config["learning_rate"])
+        if "weight_decay" in optimizer_config:
+            normalized.setdefault("weight_decay", optimizer_config["weight_decay"])
+
+    logging_config = normalized.pop("logging", None)
+    if logging_config is not None and not isinstance(logging_config, dict):
+        raise ValueError("The `logging` config section must be a mapping")
+
+    # These keys are intentionally accepted but ignored for now so saved configs
+    # from earlier experiments remain runnable instead of failing hard.
+    normalized.pop("warmup_steps", None)
+
+    return normalized
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    """
+    Build the CLI parser used by the training entrypoint.
+
+    Args:
+        None.
+
+    Returns:
+        Configured ArgumentParser instance.
+    """
+    parser = argparse.ArgumentParser(
+        description="Train an antibody MLM on processed OAS data.",
+        argument_default=argparse.SUPPRESS,
+    )
+
+    parser.add_argument("--config", type=str, default=None)
+    parser.add_argument("--data-path", type=str)
+    parser.add_argument("--output-dir", type=str)
+    parser.add_argument("--max-length", type=int)
+
+    parser.add_argument("--batch-size", type=int)
+    parser.add_argument("--eval-batch-size", type=int)
+    parser.add_argument("--train-num-workers", type=int)
+    parser.add_argument("--eval-num-workers", type=int)
+    parser.add_argument("--bucket-width", type=int)
+
+    parser.add_argument("--mask-probability", type=float)
+    parser.add_argument("--hcdr3-span-probability", type=float)
+    parser.add_argument("--hcdr3-span-min", type=int)
+    parser.add_argument("--hcdr3-span-max", type=int)
+    parser.add_argument("--shuffle-pair-probability", type=float)
+
+    parser.add_argument("--d-model", type=int)
+    parser.add_argument("--n-heads", type=int)
+    parser.add_argument("--n-layers", type=int)
+    parser.add_argument("--d-ff", type=int)
+    parser.add_argument("--dropout", type=float)
+
+    parser.add_argument("--learning-rate", type=float)
+    parser.add_argument("--weight-decay", type=float)
+    parser.add_argument("--grad-clip-norm", type=float)
+    parser.add_argument("--pair-loss-weight", type=float)
+    parser.add_argument("--epochs", type=int)
+    parser.add_argument("--seed", type=int)
+
+    parser.add_argument("--use-amp", action="store_true", default=argparse.SUPPRESS)
+    parser.add_argument("--smoke-test-only", action="store_true", default=argparse.SUPPRESS)
+    parser.add_argument("--device", type=str)
+    return parser
+
+
+def parse_args(argv: Optional[Sequence[str]] = None) -> TrainConfig:
+    """
+    Parse CLI arguments plus an optional config file into TrainConfig.
+
+    Merge precedence is:
+    1. TrainConfig dataclass defaults
+    2. Values loaded from `--config`
+    3. Explicit CLI flags
+
+    This lets saved configs act as reusable presets while keeping the command
+    line ergonomic for quick one-off overrides.
+
+    Args:
+        argv:
+            Optional sequence of CLI arguments. If omitted, argparse reads from
+            `sys.argv`.
+
+    Returns:
         A validated TrainConfig object.
     """
-    parser = argparse.ArgumentParser(description="Train an antibody MLM on processed OAS data.")
+    parser = build_arg_parser()
+    args = parser.parse_args(argv)
+    args_dict = vars(args)
 
-    parser.add_argument("--data-path", type=str, required=True)
-    parser.add_argument("--output-dir", type=str, default="checkpoints/mlm")
-    parser.add_argument("--max-length", type=int, default=192)
+    merged_config = _train_config_defaults()
 
-    parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--eval-batch-size", type=int, default=32)
-    parser.add_argument("--train-num-workers", type=int, default=0)
-    parser.add_argument("--eval-num-workers", type=int, default=0)
-    parser.add_argument("--bucket-width", type=int, default=8)
+    config_path = args_dict.pop("config", None)
+    if config_path:
+        file_config = normalize_config_data(load_config_file(config_path))
+        merged_config.update(file_config)
 
-    parser.add_argument("--mask-probability", type=float, default=0.15)
-    parser.add_argument("--hcdr3-span-probability", type=float, default=0.0)
-    parser.add_argument("--hcdr3-span-min", type=int, default=3)
-    parser.add_argument("--hcdr3-span-max", type=int, default=8)
+    # CLI values always win over config-file values when both are provided.
+    merged_config.update(args_dict)
 
-    parser.add_argument("--d-model", type=int, default=256)
-    parser.add_argument("--n-heads", type=int, default=8)
-    parser.add_argument("--n-layers", type=int, default=6)
-    parser.add_argument("--d-ff", type=int, default=1024)
-    parser.add_argument("--dropout", type=float, default=0.1)
+    if "data_path" not in merged_config or not merged_config["data_path"]:
+        parser.error("--data-path is required unless provided via --config")
 
-    parser.add_argument("--learning-rate", type=float, default=3e-4)
-    parser.add_argument("--weight-decay", type=float, default=1e-2)
-    parser.add_argument("--grad-clip-norm", type=float, default=1.0)
-    parser.add_argument("--epochs", type=int, default=5)
-    parser.add_argument("--seed", type=int, default=42)
-
-    parser.add_argument("--use-amp", action="store_true")
-    parser.add_argument("--smoke-test-only", action="store_true")
-    parser.add_argument("--device", type=str, default=None)
-
-    args = parser.parse_args()
-
-    cfg = TrainConfig(
-        data_path=args.data_path,
-        output_dir=args.output_dir,
-        max_length=args.max_length,
-        batch_size=args.batch_size,
-        eval_batch_size=args.eval_batch_size,
-        train_num_workers=args.train_num_workers,
-        eval_num_workers=args.eval_num_workers,
-        bucket_width=args.bucket_width,
-        mask_probability=args.mask_probability,
-        hcdr3_span_probability=args.hcdr3_span_probability,
-        hcdr3_span_min=args.hcdr3_span_min,
-        hcdr3_span_max=args.hcdr3_span_max,
-        d_model=args.d_model,
-        n_heads=args.n_heads,
-        n_layers=args.n_layers,
-        d_ff=args.d_ff,
-        dropout=args.dropout,
-        learning_rate=args.learning_rate,
-        weight_decay=args.weight_decay,
-        grad_clip_norm=args.grad_clip_norm,
-        epochs=args.epochs,
-        seed=args.seed,
-        use_amp=args.use_amp,
-        smoke_test_only=args.smoke_test_only,
-        device=args.device,
-    )
+    cfg = TrainConfig(**merged_config)
     cfg.validate()
     return cfg
 
@@ -377,6 +540,7 @@ def build_train_loader(
         hcdr3_span_probability=cfg.hcdr3_span_probability,
         hcdr3_span_min=cfg.hcdr3_span_min,
         hcdr3_span_max=cfg.hcdr3_span_max,
+        shuffle_pair_probability=cfg.shuffle_pair_probability,
         rng_seed=cfg.seed + epoch,
     )
 
@@ -428,6 +592,7 @@ def build_eval_loader(
         hcdr3_span_probability=cfg.hcdr3_span_probability,
         hcdr3_span_min=cfg.hcdr3_span_min,
         hcdr3_span_max=cfg.hcdr3_span_max,
+        shuffle_pair_probability=cfg.shuffle_pair_probability,
         rng_seed=cfg.seed + 20_000,
     )
 
@@ -532,6 +697,34 @@ def masked_accuracy(logits: torch.Tensor, labels: torch.Tensor) -> float:
     return (preds[mask] == labels[mask]).float().mean().item()
 
 
+def pair_classification_accuracy(
+    pair_logits: torch.Tensor,
+    pair_labels: torch.Tensor,
+    pair_mask: torch.Tensor,
+) -> float:
+    """
+    Compute pair-compatibility accuracy on valid paired examples only.
+
+    Args:
+        pair_logits:
+            Tensor of shape [batch_size, 2] containing native-vs-shuffled logits.
+        pair_labels:
+            Tensor of shape [batch_size] containing integer class labels.
+        pair_mask:
+            Tensor of shape [batch_size] where True marks examples that
+            represent actual paired records and therefore participate in the
+            auxiliary objective.
+
+    Returns:
+        Classification accuracy as a Python float. Returns 0.0 if the batch has
+        no paired examples.
+    """
+    if pair_mask.sum().item() == 0:
+        return 0.0
+    preds = pair_logits.argmax(dim=-1)
+    return (preds[pair_mask] == pair_labels[pair_mask]).float().mean().item()
+
+
 def run_smoke_test(
     model: AntibodyMLM,
     train_loader: DataLoader,
@@ -573,11 +766,20 @@ def run_smoke_test(
     optimizer.zero_grad(set_to_none=True)
 
     with torch.autocast(device_type=device.type, enabled=(use_amp and device.type == "cuda")):
-        logits = model(batch["input_ids"], batch["attention_mask"])
-        loss = model.compute_loss(logits, batch["labels"])
+        logits, pair_logits = model.forward_with_pairing(batch["input_ids"], batch["attention_mask"])
+        losses = model.compute_losses(
+            mlm_logits=logits,
+            labels=batch["labels"],
+            pair_logits=pair_logits,
+            pair_labels=batch["pair_labels"],
+            pair_mask=batch["pair_mask"],
+            pair_loss_weight=1.0,
+        )
+        loss = losses["loss"]
 
     print("smoke_test/input_ids:", tuple(batch["input_ids"].shape))
     print("smoke_test/logits:", tuple(logits.shape))
+    print("smoke_test/pair_logits:", tuple(pair_logits.shape))
     print("smoke_test/loss:", float(loss))
 
     scaler.scale(loss).backward()
@@ -621,16 +823,27 @@ def evaluate(
 
     total_loss = 0.0
     total_acc = 0.0
+    total_pair_acc = 0.0
     total_batches = 0
 
     for batch in val_loader:
         batch = move_batch_to_device(batch, device)
-        logits = model(batch["input_ids"], batch["attention_mask"])
-        loss = model.compute_loss(logits, batch["labels"])
+        logits, pair_logits = model.forward_with_pairing(batch["input_ids"], batch["attention_mask"])
+        losses = model.compute_losses(
+            mlm_logits=logits,
+            labels=batch["labels"],
+            pair_logits=pair_logits,
+            pair_labels=batch["pair_labels"],
+            pair_mask=batch["pair_mask"],
+            pair_loss_weight=cfg.pair_loss_weight,
+        )
+        loss = losses["loss"]
         acc = masked_accuracy(logits, batch["labels"])
+        pair_acc = pair_classification_accuracy(pair_logits, batch["pair_labels"], batch["pair_mask"])
 
         total_loss += float(loss.item())
         total_acc += acc
+        total_pair_acc += pair_acc
         total_batches += 1
 
     if total_batches == 0:
@@ -676,6 +889,7 @@ def train_one_epoch(
 
     total_loss = 0.0
     total_acc = 0.0
+    total_pair_acc = 0.0
     total_batches = 0
 
     for batch in train_loader:
@@ -683,8 +897,16 @@ def train_one_epoch(
         optimizer.zero_grad(set_to_none=True)
 
         with torch.autocast(device_type=device.type, enabled=(cfg.use_amp and device.type == "cuda")):
-            logits = model(batch["input_ids"], batch["attention_mask"])
-            loss = model.compute_loss(logits, batch["labels"])
+            logits, pair_logits = model.forward_with_pairing(batch["input_ids"], batch["attention_mask"])
+            losses = model.compute_losses(
+                mlm_logits=logits,
+                labels=batch["labels"],
+                pair_logits=pair_logits,
+                pair_labels=batch["pair_labels"],
+                pair_mask=batch["pair_mask"],
+                pair_loss_weight=cfg.pair_loss_weight,
+            )
+            loss = losses["loss"]
 
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
@@ -693,9 +915,15 @@ def train_one_epoch(
         scaler.update()
 
         acc = masked_accuracy(logits.detach(), batch["labels"])
+        pair_acc = pair_classification_accuracy(
+            pair_logits.detach(),
+            batch["pair_labels"],
+            batch["pair_mask"],
+        )
 
         total_loss += float(loss.item())
         total_acc += acc
+        total_pair_acc += pair_acc
         total_batches += 1
 
     return total_loss / total_batches, total_acc / total_batches

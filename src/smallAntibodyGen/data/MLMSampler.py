@@ -31,16 +31,52 @@ class ChainLengthBucketBatchSampler(Sampler[List[int]]):
         self.epoch = 0
     
     def set_epoch(self, epoch: int) -> None:
+        """
+        Update the epoch-dependent shuffle seed used by the sampler.
+
+        Args:
+            epoch:
+                Zero-based epoch index.
+
+        Returns:
+            None.
+        """
         self.epoch = epoch
+
+    def _record_bucket_key(self, record) -> tuple[str, int]:
+        """
+        Compute the batching bucket for one dataset record.
+
+        For classic single-chain records, `chain_group` will be `"heavy"` or
+        `"light"`. For native paired examples it will be `"paired"`. We bucket
+        on token length when available because paired examples carry separator
+        and chain-marker tokens that materially affect padding cost.
+
+        Args:
+            record:
+                Dataset record exposing `chain_group`, `token_length`, and
+                `length`.
+
+        Returns:
+            Tuple `(group_name, length_bucket)` used as the dictionary key.
+        """
+        effective_length = getattr(record, "token_length", None) or getattr(record, "length")
+        length_bucket = int(effective_length) // self.bucket_width
+        return (record.chain_group, length_bucket)
         
     def __iter__(self) -> Iterator[List[int]]:
+        """
+        Yield batches of indices grouped by chain type and rough sequence length.
+
+        Returns:
+            Iterator of lists of dataset indices, one batch at a time.
+        """
         rng = random.Random(self.seed + self.epoch)
         
         buckets = defaultdict(list)
         
         for idx, record in enumerate(self.dataset.records):
-            length_bucket = record.length // self.bucket_width # floor div
-            bucket_key = (record.chain_group, length_bucket)
+            bucket_key = self._record_bucket_key(record)
             buckets[bucket_key].append(idx)
         
         all_batches: List[List[int]] = []
@@ -56,12 +92,17 @@ class ChainLengthBucketBatchSampler(Sampler[List[int]]):
         yield from all_batches # select one batch at a time from all batches
         
     def __len__(self) -> int:
+        """
+        Return the number of batches the sampler will emit for one epoch.
+
+        Returns:
+            Integer number of batches.
+        """
         total = 0
         buckets = defaultdict(int)
         
         for record in self.dataset.records:
-            length_bucket = record.length // self.bucket_width
-            bucket_key = (record.chain_group, length_bucket)
+            bucket_key = self._record_bucket_key(record)
             buckets[bucket_key] += 1
             
         for count in buckets.values():

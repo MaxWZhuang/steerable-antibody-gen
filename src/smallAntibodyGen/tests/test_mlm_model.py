@@ -21,6 +21,22 @@ def make_record(tokenizer, sequence: str, locus: str, chain_group: str):
     )
 
 
+def make_paired_record(heavy_sequence: str, light_sequence: str, light_locus: str = "IGK"):
+    return OASRecord(
+        sequence=heavy_sequence,
+        locus="PAIRED",
+        chain_group="paired",
+        split="train",
+        length=len(heavy_sequence) + len(light_sequence),
+        token_length=len(heavy_sequence) + len(light_sequence) + 5,
+        sequence_heavy=heavy_sequence,
+        sequence_light=light_sequence,
+        heavy_locus="IGH",
+        light_locus=light_locus,
+        is_paired=True,
+    )
+
+
 def test_mlm_forward_shape(tokenizer):
     config = MLMConfig(
         vocab_size=tokenizer.vocab_size,
@@ -179,4 +195,46 @@ def test_mlm_can_fit_one_fixed_batch(tokenizer):
     final_loss = model.compute_loss(final_logits, fixed_batch["labels"]).item()
 
     assert final_loss < initial_loss
+
+
+def test_model_returns_pairing_logits_for_paired_batches(tokenizer):
+    config = MLMConfig(
+        vocab_size=tokenizer.vocab_size,
+        pad_token_id=tokenizer.pad_id,
+        max_length=96,
+        d_model=64,
+        n_heads=4,
+        n_layers=2,
+        d_ff=128,
+        dropout=0.1,
+    )
+    model = AntibodyMLM(config)
+
+    collator = MLMCollator(
+        tokenizer=tokenizer,
+        max_length=96,
+        mask_probability=0.15,
+        hcdr3_span_probability=0.0,
+        shuffle_pair_probability=1.0,
+        rng_seed=42,
+    )
+    batch = collator([
+        make_paired_record("CARDRSTYWGQGTLV", "QQYNSYPWTFGQGTK", light_locus="IGK"),
+        make_paired_record("CVRDRSTYWGQGTLV", "AQYNSYPWTFGQGTA", light_locus="IGL"),
+    ])
+
+    mlm_logits, pair_logits = model.forward_with_pairing(batch["input_ids"], batch["attention_mask"])
+    losses = model.compute_losses(
+        mlm_logits=mlm_logits,
+        labels=batch["labels"],
+        pair_logits=pair_logits,
+        pair_labels=batch["pair_labels"],
+        pair_mask=batch["pair_mask"],
+        pair_loss_weight=1.0,
+    )
+
+    assert mlm_logits.shape[:2] == batch["input_ids"].shape
+    assert pair_logits.shape == (2, 2)
+    assert torch.isfinite(losses["loss"])
+    assert torch.isfinite(losses["pair_loss"])
     

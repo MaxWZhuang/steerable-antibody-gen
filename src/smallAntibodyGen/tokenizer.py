@@ -96,7 +96,6 @@ class AminoAcidTokenizer:
         locus: str | None = None,
         max_length: int | None = None,
     ) -> List[int]:
-        
         sequence = (sequence or "").upper().strip()
         tokens = [self.cls_token, self.get_chain_token(locus)]
         tokens.extend([aa if aa in self.token_to_id else self.unk_token for aa in sequence])
@@ -109,10 +108,50 @@ class AminoAcidTokenizer:
 
         return [self.token_to_id[token] for token in tokens]
 
+    def encode_paired_sequences(
+        self,
+        heavy_sequence: str,
+        light_sequence: str,
+        heavy_locus: str | None = "IGH",
+        light_locus: str | None = "IGK",
+        max_length: int | None = None,
+    ) -> List[int]:
+        """
+        Encode a heavy/light pair into one token sequence.
+
+        Format:
+            [CLS] [IGH] HHH... [SEP] [IGK] LLL... [EOS]
+        """
+        heavy_sequence = (heavy_sequence or "").upper().strip()
+        light_sequence = (light_sequence or "").upper().strip()
+
+        tokens = [self.cls_token, self.get_chain_token(heavy_locus)]
+        tokens.extend([aa if aa in self.token_to_id else self.unk_token for aa in heavy_sequence])
+        tokens.append(self.sep_token)
+        tokens.append(self.get_chain_token(light_locus))
+        tokens.extend([aa if aa in self.token_to_id else self.unk_token for aa in light_sequence])
+        tokens.append(self.eos_token)
+
+        if max_length is not None:
+            tokens = tokens[:max_length]
+            if tokens[-1] != self.eos_token:
+                tokens[-1] = self.eos_token
+
+        return [self.token_to_id[token] for token in tokens]
+
     def decode_ids(self, ids: Iterable[int], skip_special: bool = True) -> str:
         tokens = [self.id_to_token.get(i, self.unk_token) for i in ids]
         if skip_special:
-            tokens = [tok for tok in tokens if tok not in set(self.vocab[: len(self.special_ids)])]
+            special_tokens = {
+                self.pad_token,
+                self.cls_token,
+                self.eos_token,
+                self.sep_token,
+                self.mask_token,
+                self.unk_token,
+                *self.chain_tokens,
+            }
+            tokens = [tok for tok in tokens if tok not in special_tokens]
         aa_tokens = [tok for tok in tokens if len(tok) == 1 and tok.isalpha()]
         return "".join(aa_tokens)
 

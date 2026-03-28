@@ -179,6 +179,7 @@ class AntibodyMLM(nn.Module):
         
         self.final_norm = nn.LayerNorm(config.d_model)
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias = False)
+        self.pair_head = nn.Linear(config.d_model, 2)
         
         if config.tie_weights:
             self.lm_head.weight = self.token_embedding.weight
@@ -299,8 +300,58 @@ class AntibodyMLM(nn.Module):
             torch.Tensor: Tensor of shape [batch_size, d_model] containing the first-token embedding for each sequence.
         """
         hidden = self.encode(input_ids, attention_mask)
-        logits = self.lm_head(hidden)
-        return logits
+        return hidden[:, 0, :]
+
+    def predict_pairing(
+        self,
+        cls_hidden: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Predict whether each heavy/light combination is native or shuffled.
+
+        Args:
+            cls_hidden:
+                Tensor of shape [batch_size, d_model] representing the final
+                contextual [CLS] hidden state for each example.
+
+        Returns:
+            Tensor of shape [batch_size, 2] containing pair-classification
+            logits, where class 1 corresponds to a native/cognate pair and
+            class 0 corresponds to a shuffled negative.
+        """
+        if cls_hidden.dim() != 2:
+            raise ValueError("cls_hidden must have shape [batch_size, d_model]")
+        return self.pair_head(cls_hidden)
+
+
+    def forward_with_pairing(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Run one forward pass that returns both MLM and pairing logits.
+
+        This is the main forward helper for paired training. We expose both
+        heads from one shared encoder pass so the training loop can optimize the
+        residue-recovery objective and the native-vs-shuffled compatibility
+        objective together.
+
+        Args:
+            input_ids:
+                Tensor of shape [batch_size, seq_len] containing token IDs.
+            attention_mask:
+                Optional tensor of shape [batch_size, seq_len].
+
+        Returns:
+            Tuple `(mlm_logits, pair_logits)` where:
+                - `mlm_logits` has shape [batch_size, seq_len, vocab_size]
+                - `pair_logits` has shape [batch_size, 2]
+        """
+        hidden = self.encode(input_ids, attention_mask)
+        mlm_logits = self.lm_head(hidden)
+        pair_logits = self.predict_pairing(hidden[:, 0, :])
+        return mlm_logits, pair_logits
 
     def forward(
         self, 
@@ -318,8 +369,7 @@ class AntibodyMLM(nn.Module):
         Returns:
             torch.Tensor: Tensor of shape [batch_size, seq_len, vocab_size] containing per-position token logits for MLM prediction.
         """
-        hidden = self.encode(input_ids, attention_mask)
-        logits = self.lm_head(hidden)
+        logits, _ = self.forward_with_pairing(input_ids, attention_mask)
         return logits
 
     def compute_loss(
@@ -358,3 +408,95 @@ class AntibodyMLM(nn.Module):
             ignore_index = ignore_index
         )
         return loss
+
+    def compute_pair_loss(
+        self,
+        pair_logits: torch.Tensor,
+        pair_labels: torch.Tensor,
+        pair_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """
+        Compute native-vs-shuffled pair classification loss.
+
+        Args:
+            pair_logits:
+                Tensor of shape [batch_size, 2] containing compatibility logits.
+            pair_labels:
+                Tensor of shape [batch_size] containing integer class labels.
+            pair_mask:
+                Optional boolean tensor of shape [batch_size] indicating which
+                examples should contribute to the auxiliary loss. This lets the
+                same code path handle batches that contain single-chain examples
+                or mixed data where some rows are not true paired records.
+
+        Returns:
+            Scalar tensor containing the pair-classification loss. Returns a
+            detached zero-like tensor when there are no valid paired examples.
+        """
+        if pair_logits.dim() != 2 or pair_logits.size(-1) != 2:
+            raise ValueError("pair_logits must have shape [batch_size, 2]")
+        if pair_labels.dim() != 1:
+            raise ValueError("pair_labels must have shape [batch_size]")
+        if pair_logits.size(0) != pair_labels.size(0):
+            raise ValueError("pair_logits and pair_labels must agree on batch size")
+
+        if pair_mask is None:
+            pair_mask = torch.ones_like(pair_labels, dtype=torch.bool)
+        if pair_mask.dim() != 1 or pair_mask.size(0) != pair_labels.size(0):
+            raise ValueError("pair_mask must have shape [batch_size]")
+
+        if pair_mask.sum().item() == 0:
+            return pair_logits.sum() * 0.0
+
+        return F.cross_entropy(pair_logits[pair_mask], pair_labels[pair_mask])
+
+    def compute_losses(
+        self,
+        mlm_logits: torch.Tensor,
+        labels: torch.Tensor,
+        pair_logits: torch.Tensor | None = None,
+        pair_labels: torch.Tensor | None = None,
+        pair_mask: torch.Tensor | None = None,
+        ignore_index: int = -100,
+        pair_loss_weight: float = 1.0,
+    ) -> dict[str, torch.Tensor]:
+        """
+        Compute the joint training loss for MLM plus optional pairing.
+
+        Args:
+            mlm_logits:
+                Tensor of shape [batch_size, seq_len, vocab_size].
+            labels:
+                Tensor of shape [batch_size, seq_len] containing MLM targets.
+            pair_logits:
+                Optional tensor of shape [batch_size, 2] with compatibility
+                logits from the auxiliary pair head.
+            pair_labels:
+                Optional tensor of shape [batch_size] containing native-vs-
+                shuffled labels.
+            pair_mask:
+                Optional boolean tensor of shape [batch_size] selecting examples
+                that should participate in the pair loss.
+            ignore_index:
+                Ignore label for MLM cross-entropy.
+            pair_loss_weight:
+                Non-negative scalar multiplier applied to the pair loss.
+
+        Returns:
+            Dictionary containing:
+                - `loss`: total scalar loss used for optimization
+                - `mlm_loss`: scalar MLM loss
+                - `pair_loss`: scalar pair-classification loss
+        """
+        mlm_loss = self.compute_loss(mlm_logits, labels, ignore_index=ignore_index)
+        if pair_logits is None or pair_labels is None:
+            pair_loss = mlm_loss.detach() * 0.0
+        else:
+            pair_loss = self.compute_pair_loss(pair_logits, pair_labels, pair_mask)
+
+        total_loss = mlm_loss + (pair_loss_weight * pair_loss)
+        return {
+            "loss": total_loss,
+            "mlm_loss": mlm_loss,
+            "pair_loss": pair_loss,
+        }

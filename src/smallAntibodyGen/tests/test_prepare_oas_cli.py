@@ -39,6 +39,13 @@ def run_prepare_oas(
     return result
 
 
+def mutate_prefix(seq: str, idx: int) -> str:
+    alphabet = "ACDEFGHIKLMNPQRSTVWY"
+    left = alphabet[idx % len(alphabet)]
+    right = alphabet[(idx // len(alphabet)) % len(alphabet)]
+    return left + right + seq[2:]
+
+
 def test_prepare_oas_preserves_metadata_from_csv_quoted_json(
     tmp_path: Path,
     script_path: Path,
@@ -70,6 +77,67 @@ def test_prepare_oas_preserves_metadata_from_csv_quoted_json(
     # adjust if your metadata is flattened instead of nested
     assert rec["metadata"]["run"] == "SRR_TEST"
     assert rec["metadata"]["species"] == "human"
+
+
+def test_prepare_oas_emits_native_paired_records(
+    tmp_path: Path,
+    script_path: Path,
+    write_oas_data_unit,
+    heavy_seq,
+    heavy_cdr3,
+    light_seq,
+    light_cdr3,
+):
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    out_dir = tmp_path / "processed"
+    stats_path = tmp_path / "stats.json"
+
+    paired_row = {
+        "sequence_id_heavy": "heavy-1",
+        "sequence_alignment_aa_heavy": heavy_seq,
+        "v_sequence_alignment_aa_heavy": heavy_seq,
+        "cdr3_aa_heavy": heavy_cdr3,
+        "locus_heavy": "H",
+        "productive_heavy": "T",
+        "vj_in_frame_heavy": "T",
+        "stop_codon_heavy": "F",
+        "v_frameshift_heavy": "F",
+        "complete_vdj_heavy": "T",
+        "v_call_heavy": "IGHV1-1*01",
+        "d_call_heavy": "IGHD1-1*01",
+        "j_call_heavy": "IGHJ4*02",
+        "sequence_id_light": "light-1",
+        "sequence_alignment_aa_light": light_seq,
+        "v_sequence_alignment_aa_light": light_seq,
+        "cdr3_aa_light": light_cdr3,
+        "locus_light": "K",
+        "productive_light": "T",
+        "vj_in_frame_light": "T",
+        "stop_codon_light": "F",
+        "v_frameshift_light": "F",
+        "complete_vdj_light": "T",
+        "v_call_light": "IGKV1-1*01",
+        "d_call_light": "",
+        "j_call_light": "IGKJ1*01",
+        "Redundancy": 3,
+    }
+    raw_file = raw_dir / "tiny_paired.csv.gz"
+    write_oas_data_unit(raw_file, [paired_row], metadata={"Chain": "Paired"}, quoted_metadata=True)
+
+    run_prepare_oas(script_path, raw_dir, out_dir, stats_path)
+
+    rows = load_jsonl_gz(out_dir / "oas_paired.jsonl.gz")
+    assert len(rows) == 1
+
+    rec = rows[0]
+    assert rec["chain_group"] == "paired"
+    assert rec["is_paired"] is True
+    assert rec["sequence_heavy"] == heavy_seq
+    assert rec["sequence_light"] == light_seq
+    assert rec["heavy_locus"] == "IGH"
+    assert rec["light_locus"] == "IGK"
+    assert rec["split"] in {"train", "val"}
 
 
 def test_prepare_oas_dedupes_within_locus_but_not_across_locus(
@@ -305,3 +373,85 @@ def test_prepare_oas_split_is_stable_across_runs(
     split_map_2 = {(r["locus"], r["sequence"]): r["split"] for r in rows2}
 
     assert split_map_1 == split_map_2
+
+
+def test_prepare_oas_chain_balance_alpha_reduces_heavy_bias(
+    tmp_path: Path,
+    script_path: Path,
+    write_oas_data_unit,
+    make_oas_row,
+    heavy_seq,
+    heavy_cdr3,
+    light_seq,
+    light_cdr3,
+):
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+
+    heavy_rows_a = [
+        make_oas_row(
+            sequence_alignment_aa=mutate_prefix(heavy_seq, idx),
+            cdr3_aa=heavy_cdr3,
+            locus="H",
+        )
+        for idx in range(6)
+    ]
+    heavy_rows_b = [
+        make_oas_row(
+            sequence_alignment_aa=mutate_prefix(heavy_seq, idx + 6),
+            cdr3_aa=heavy_cdr3,
+            locus="H",
+        )
+        for idx in range(6)
+    ]
+    light_rows = [
+        make_oas_row(
+            sequence_alignment_aa=mutate_prefix(light_seq, idx),
+            cdr3_aa=light_cdr3,
+            locus="K",
+            d_call="",
+        )
+        for idx in range(6)
+    ]
+
+    write_oas_data_unit(raw_dir / "heavy_a.csv.gz", heavy_rows_a, metadata={"Chain": "Heavy"}, quoted_metadata=True)
+    write_oas_data_unit(raw_dir / "heavy_b.csv.gz", heavy_rows_b, metadata={"Chain": "Heavy"}, quoted_metadata=True)
+    write_oas_data_unit(raw_dir / "light_a.csv.gz", light_rows, metadata={"Chain": "Light"}, quoted_metadata=True)
+
+    out_alpha0 = tmp_path / "out_alpha0"
+    out_alpha1 = tmp_path / "out_alpha1"
+    stats_alpha0 = tmp_path / "stats_alpha0.json"
+    stats_alpha1 = tmp_path / "stats_alpha1.json"
+
+    common_args = [
+        "--sampling-mode", "round_robin",
+        "--max-records", "12",
+        "--min-heavy", "20",
+        "--min-light", "20",
+    ]
+
+    run_prepare_oas(
+        script_path,
+        raw_dir,
+        out_alpha0,
+        stats_alpha0,
+        extra_args=[*common_args, "--chain-balance-alpha", "0.0"],
+    )
+    run_prepare_oas(
+        script_path,
+        raw_dir,
+        out_alpha1,
+        stats_alpha1,
+        extra_args=[*common_args, "--chain-balance-alpha", "1.0"],
+    )
+
+    stats0 = json.loads(stats_alpha0.read_text())
+    stats1 = json.loads(stats_alpha1.read_text())
+
+    assert stats0["records_kept"] == 12
+    assert stats1["records_kept"] == 12
+    assert stats0["kept_by_locus"]["IGH"] == 8
+    assert stats0["kept_by_locus"]["IGK"] == 4
+    assert stats1["kept_by_locus"]["IGH"] == 6
+    assert stats1["kept_by_locus"]["IGK"] == 6
+    assert stats1["allocated_quota_by_locus"]["IGK"] > stats0["allocated_quota_by_locus"]["IGK"]
