@@ -12,7 +12,7 @@ max_length: 192
 bucket_width: 8
 
 mask_probability: 0.15
-hcdr3_span_probability: 0.2
+hcdr3_span_probability: 0.4
 hcdr3_span_min: 3
 hcdr3_span_max: 8
 shuffle_pair_probability: 0.0
