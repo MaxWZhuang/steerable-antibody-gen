@@ -15,7 +15,7 @@ from smallAntibodyGen.tokenizer import AminoAcidTokenizer
 @dataclass
 class OASRecord:
     sequence: str
-    locus: str # IGH / IGK /I GL
+    locus: str # IGH / IGK / IGL
     chain_group: str # heavy / light
     split: str # train / val
     length: int 

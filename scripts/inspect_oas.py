@@ -17,7 +17,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("path", type=Path)
     return p.parse_args()
 
-
 def main() -> None:
     args = parse_args()
     metadata, df = read_oas_table(args.path)
@@ -27,7 +26,6 @@ def main() -> None:
     print(df.columns.tolist())
     print("=== HEAD ===")
     print(df.head(3).to_markdown(tablefmt = "grid"))
-
 
 if __name__ == "__main__":
     main()
