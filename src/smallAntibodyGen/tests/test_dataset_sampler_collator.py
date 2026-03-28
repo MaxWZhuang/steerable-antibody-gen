@@ -35,6 +35,37 @@ def make_processed_record(tokenizer, sequence, locus, chain_group, split="train"
     }
 
 
+def make_processed_pair_record(
+    heavy_sequence,
+    light_sequence,
+    heavy_locus="IGH",
+    light_locus="IGK",
+    split="train",
+):
+    return {
+        "pair_id": "pair-1",
+        "is_paired": True,
+        "sequence": heavy_sequence,
+        "sequence_heavy": heavy_sequence,
+        "sequence_light": light_sequence,
+        "heavy_locus": heavy_locus,
+        "light_locus": light_locus,
+        "locus": "PAIRED",
+        "chain_group": "paired",
+        "split": split,
+        "length": len(heavy_sequence) + len(light_sequence),
+        "token_length": len(heavy_sequence) + len(light_sequence) + 5,
+        "cdr3_aa_heavy": None,
+        "cdr3_start_aa_heavy": None,
+        "cdr3_end_aa_heavy": None,
+        "cdr3_aa_light": None,
+        "cdr3_start_aa_light": None,
+        "cdr3_end_aa_light": None,
+        "metadata": {},
+        "source_file": "tiny_paired.csv.gz",
+    }
+
+
 def test_dataset_loads_and_filters_by_split(tmp_path: Path, tokenizer, write_processed_jsonl_gz):
     records = [
         make_processed_record(tokenizer, "CARDRST", "IGH", "heavy", split="train"),
@@ -94,7 +125,7 @@ def test_collator_returns_expected_shapes(tmp_path: Path, tokenizer, write_proce
     )
     batch = collator([ds[0], ds[1]])
 
-    assert set(batch.keys()) == {"input_ids", "attention_mask", "labels"}
+    assert set(batch.keys()) == {"input_ids", "attention_mask", "labels", "pair_labels", "pair_mask"}
     assert batch["input_ids"].shape == batch["attention_mask"].shape == batch["labels"].shape
     assert batch["input_ids"].dtype == torch.long
     assert batch["attention_mask"].dtype == torch.long
@@ -189,4 +220,50 @@ def test_attention_mask_matches_padding(tmp_path: Path, tokenizer, write_process
         mask = batch["attention_mask"][i].tolist()
         assert mask[:token_len] == [1] * token_len
         assert mask[token_len:] == [0] * (len(mask) - token_len)
+
+
+def test_sampler_groups_paired_records_by_paired_bucket(tmp_path: Path, write_processed_jsonl_gz):
+    records = [
+        make_processed_pair_record("A" * 100, "C" * 90),
+        make_processed_pair_record("A" * 101, "C" * 91),
+        make_processed_pair_record("A" * 115, "C" * 100),
+    ]
+    data_path = write_processed_jsonl_gz(tmp_path / "paired.jsonl.gz", records)
+    ds = OASSequenceDataset(data_path, split="train")
+
+    sampler = ChainLengthBucketBatchSampler(
+        ds,
+        batch_size=2,
+        bucket_width=8,
+        drop_last=False,
+        seed=42,
+    )
+
+    for batch_indices in sampler:
+        recs = [ds[i] for i in batch_indices]
+        assert len({r.chain_group for r in recs}) == 1
+        assert {r.chain_group for r in recs} == {"paired"}
+
+
+def test_collator_can_shuffle_paired_examples(tmp_path: Path, tokenizer, write_processed_jsonl_gz):
+    records = [
+        make_processed_pair_record("H" * 10 + "AAAA", "L" * 10 + "CCCC", light_locus="IGK"),
+        make_processed_pair_record("H" * 10 + "BBBB", "L" * 10 + "DDDD", light_locus="IGL"),
+    ]
+    data_path = write_processed_jsonl_gz(tmp_path / "paired.jsonl.gz", records)
+    ds = OASSequenceDataset(data_path, split="train")
+
+    collator = MLMCollator(
+        tokenizer=tokenizer,
+        max_length=64,
+        mask_probability=0.3,
+        hcdr3_span_probability=0.0,
+        shuffle_pair_probability=1.0,
+        rng_seed=42,
+    )
+    batch = collator([ds[0], ds[1]])
+
+    assert batch["pair_mask"].tolist() == [True, True]
+    assert batch["pair_labels"].tolist() == [0, 0]
+    assert batch["input_ids"].shape == batch["labels"].shape
         
