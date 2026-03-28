@@ -188,32 +188,9 @@ SAEs offer a path toward sparse, more interpretable internal features. The hope 
 
 ---
 
-## Near-term milestones
-
-- [ ] Build and validate the OAS preprocessing pipeline
-- [ ] Train a baseline antibody MLM in PyTorch
-- [ ] Add chain-specific special tokens (heavy/light, later IGH/IGK/IGL)
-- [ ] Create reproducible train/val/test splits
-- [ ] Evaluate masked reconstruction with emphasis on HCDR3 behavior
-- [ ] Fine-tune or retrain on paired VH/VL data
-- [ ] Add antigen encoder + cross-attention fusion
-- [ ] Attach multitask binding / biophysical heads
-- [ ] Train an SAE on fused activations
-- [ ] Test constrained HCDR3 optimization around known binders
-
----
-
 ## Repository status
 
 This repository is currently an active research roadmap and implementation project. The README describes the intended modeling direction and staged build-out of the system.
-
-The near-term emphasis is on:
-
-1. strong antibody-only pretraining,
-2. clean representation learning for paired chains,
-3. principled antibody–antigen fusion,
-4. interpretable latent structure,
-5. and constrained, biologically grounded sequence optimization.
 
 ---
 
