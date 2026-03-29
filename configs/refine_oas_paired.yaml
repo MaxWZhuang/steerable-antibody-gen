@@ -1,0 +1,35 @@
+# Example config for paired refinement initialized from a pretrained base MLM.
+# Replace data_path and init_checkpoint before launching.
+
+training_stage: paired_refine
+data_path: /absolute/path/to/your_paired_oas.jsonl.gz
+init_checkpoint: /absolute/path/to/base_run/best.pt
+output_dir: checkpoints/mlm_oas_paired_refine
+resume_from_last: true
+
+seed: 42
+batch_size: 32
+eval_batch_size: 32
+num_workers: 4
+max_length: 224
+bucket_width: 8
+
+mask_probability: 0.15
+hcdr3_span_probability: 0.3
+hcdr3_span_min: 3
+hcdr3_span_max: 8
+shuffle_pair_probability: 0.5
+pair_loss_weight: 0.5
+
+learning_rate: 0.0001
+weight_decay: 0.01
+epochs: 5
+grad_clip_norm: 1.0
+mixed_precision: true
+
+model:
+  d_model: 256
+  n_heads: 8
+  n_layers: 6
+  d_ff: 1024
+  dropout: 0.1
