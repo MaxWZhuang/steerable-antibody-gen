@@ -1,0 +1,17 @@
+data_path: /Users/maxzhuang/personal_projs/AntibodySteering/.tmp_sanity/tiny_processed.jsonl.gz
+output_dir: /Users/maxzhuang/personal_projs/AntibodySteering/.tmp_sanity/out
+batch_size: 2
+eval_batch_size: 2
+num_workers: 0
+max_length: 64
+mask_probability: 0.15
+learning_rate: 0.0003
+weight_decay: 0.01
+epochs: 1
+mixed_precision: false
+model:
+  d_model: 64
+  n_heads: 4
+  n_layers: 2
+  d_ff: 128
+  dropout: 0.1
