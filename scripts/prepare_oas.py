@@ -1070,14 +1070,19 @@ def _allocate_weighted_integer_quotas(
 def count_valid_records_per_file_and_locus(input_files, args):
     counts = {}
 
-    for i, path in enumerate(input_files, start=1):
+    file_iter = tqdm(
+        input_files,
+        desc="count valid records",
+        unit="file",
+        dynamic_ncols=True,
+        disable=not sys.stderr.isatty(),
+    )
+    for path in file_iter:
         per_locus = Counter()
         for record in iter_kept_records_for_file(path, args, stats=None):
             per_locus[str(record.get("locus", "OTHER"))] += 1
         counts[path] = dict(per_locus)
-
-        if i % 10 == 0:
-            print(f"[count] processed {i}/{len(input_files)} files")
+        file_iter.set_postfix(file=path.name, kept=sum(per_locus.values()))
 
     return counts
 
@@ -1306,7 +1311,14 @@ def sample_with_file_quotas(
     # --------
     # PASS 3 + 4: sample each file independently, then write
     # --------
-    for path in input_files:
+    file_iter = tqdm(
+        input_files,
+        desc="sample records",
+        unit="file",
+        dynamic_ncols=True,
+        disable=not sys.stderr.isatty(),
+    )
+    for path in file_iter:
         quota = quotas.get(path, 0)
         if quota <= 0:
             continue
@@ -1320,8 +1332,7 @@ def sample_with_file_quotas(
             quotas_by_locus=quotas_by_locus,
             seed=file_seed,
         )
-
-        print(f"[sample pass] sampling {quota} from {path.name}")
+        file_iter.set_postfix(file=path.name, quota=quota, sampled=len(sampled_records))
 
         for record in sampled_records:
             write_record(record, writers, stats, seen)
@@ -1403,7 +1414,15 @@ def main() -> None:
     try:
         if args.sampling_mode == "greedy":
             # Old behavior: fill from file 1, then file 2, etc.
-            for path in input_files:
+            file_iter = tqdm(
+                input_files,
+                desc="process files",
+                unit="file",
+                dynamic_ncols=True,
+                disable=not sys.stderr.isatty(),
+            )
+            for path in file_iter:
+                file_iter.set_postfix(file=path.name)
                 for record in iter_kept_records_for_file(path, args, stats):
                     write_record(record, writers, stats, seen)
 

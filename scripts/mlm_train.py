@@ -14,6 +14,7 @@ import numpy as np
 import torch
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
@@ -124,6 +125,7 @@ class TrainConfig:
 
     use_amp: bool = False
     smoke_test_only: bool = False
+    show_progress: bool = True
     device: Optional[str] = None
 
     def validate(self) -> None:
@@ -348,6 +350,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     parser.add_argument("--use-amp", action="store_true", default=argparse.SUPPRESS)
     parser.add_argument("--smoke-test-only", action="store_true", default=argparse.SUPPRESS)
+    parser.add_argument("--show-progress", action="store_true", default=argparse.SUPPRESS)
+    parser.add_argument("--no-progress", dest="show_progress", action="store_false", default=argparse.SUPPRESS)
     parser.add_argument("--device", type=str)
     return parser
 
@@ -725,6 +729,20 @@ def pair_classification_accuracy(
     return (preds[pair_mask] == pair_labels[pair_mask]).float().mean().item()
 
 
+def _make_progress_bar(
+    iterable,
+    *,
+    total: int | None = None,
+    desc: str,
+    cfg: TrainConfig,
+):
+    """
+    Wrap an iterable in a tqdm progress bar when interactive progress is enabled.
+    """
+    disable = (not cfg.show_progress) or (not sys.stderr.isatty())
+    return tqdm(iterable, total=total, desc=desc, leave=False, dynamic_ncols=True, disable=disable)
+
+
 def run_smoke_test(
     model: AntibodyMLM,
     train_loader: DataLoader,
@@ -826,7 +844,13 @@ def evaluate(
     total_pair_acc = 0.0
     total_batches = 0
 
-    for batch in val_loader:
+    progress = _make_progress_bar(
+        val_loader,
+        total=len(val_loader),
+        desc="eval",
+        cfg=cfg,
+    )
+    for batch in progress:
         batch = move_batch_to_device(batch, device)
         logits, pair_logits = model.forward_with_pairing(batch["input_ids"], batch["attention_mask"])
         losses = model.compute_losses(
@@ -845,6 +869,12 @@ def evaluate(
         total_acc += acc
         total_pair_acc += pair_acc
         total_batches += 1
+        progress.set_postfix(
+            loss=f"{total_loss / total_batches:.4f}",
+            acc=f"{total_acc / total_batches:.4f}",
+        )
+
+    progress.close()
 
     if total_batches == 0:
         return float("nan"), float("nan")
@@ -892,7 +922,13 @@ def train_one_epoch(
     total_pair_acc = 0.0
     total_batches = 0
 
-    for batch in train_loader:
+    progress = _make_progress_bar(
+        train_loader,
+        total=len(train_loader),
+        desc=f"train {epoch + 1}/{cfg.epochs}",
+        cfg=cfg,
+    )
+    for batch in progress:
         batch = move_batch_to_device(batch, device)
         optimizer.zero_grad(set_to_none=True)
 
@@ -925,6 +961,13 @@ def train_one_epoch(
         total_acc += acc
         total_pair_acc += pair_acc
         total_batches += 1
+        progress.set_postfix(
+            loss=f"{total_loss / total_batches:.4f}",
+            acc=f"{total_acc / total_batches:.4f}",
+            pair_acc=f"{total_pair_acc / total_batches:.4f}",
+        )
+
+    progress.close()
 
     return total_loss / total_batches, total_acc / total_batches
 
