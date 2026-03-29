@@ -109,3 +109,41 @@ def test_parse_args_requires_data_path_when_not_in_config(tmp_path: Path, projec
 
     with pytest.raises(SystemExit):
         mlm_train.parse_args(["--config", str(config_path)])
+
+
+def test_parse_args_paired_refine_defaults_to_separate_output_dir(tmp_path: Path, project_root: Path):
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = tmp_path / "tiny.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+    init_ckpt = tmp_path / "best.pt"
+    init_ckpt.write_text("placeholder", encoding="utf-8")
+
+    cfg = mlm_train.parse_args(
+        [
+            "--data-path",
+            str(data_path),
+            "--training-stage",
+            "paired_refine",
+            "--init-checkpoint",
+            str(init_ckpt),
+        ]
+    )
+
+    assert cfg.training_stage == "paired_refine"
+    assert cfg.output_dir == "checkpoints/mlm_paired_refine"
+
+
+def test_parse_args_paired_refine_requires_init_checkpoint(tmp_path: Path, project_root: Path):
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = tmp_path / "tiny.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="requires `init_checkpoint`"):
+        mlm_train.parse_args(
+            [
+                "--data-path",
+                str(data_path),
+                "--training-stage",
+                "paired_refine",
+            ]
+        )
