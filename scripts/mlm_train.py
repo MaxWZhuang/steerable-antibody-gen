@@ -1044,6 +1044,7 @@ def load_checkpoint(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer | None = None,
     map_location: str | torch.device = "cpu",
+    strict: bool = True,
 ) -> dict:
     """
     Load a checkpoint into the model (and optionally optimizer).
@@ -1053,18 +1054,68 @@ def load_checkpoint(
         model: Model to load into.
         optimizer: Optional optimizer to restore.
         map_location: Device mapping for torch.load.
+        strict: Whether to require an exact key match for model weights.
 
     Returns:
         The full checkpoint dictionary.
     """
     checkpoint = torch.load(path, map_location=map_location)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    incompatible = model.load_state_dict(checkpoint["model_state_dict"], strict=strict)
 
     if optimizer is not None and "optimizer_state_dict" in checkpoint:
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
     print(f"[checkpoint] loaded <- {path}")
+    if not strict:
+        missing = list(getattr(incompatible, "missing_keys", []))
+        unexpected = list(getattr(incompatible, "unexpected_keys", []))
+        if missing:
+            print(f"[checkpoint] init missing keys (left randomly initialized): {missing}")
+        if unexpected:
+            print(f"[checkpoint] ignored unexpected keys from checkpoint: {unexpected}")
     return checkpoint
+
+
+def validate_init_checkpoint_compatibility(
+    cfg: TrainConfig,
+    init_ckpt_path: Path | None,
+) -> None:
+    """
+    Validate architecture compatibility between run config and init checkpoint.
+
+    Args:
+        cfg:
+            Current run config.
+        init_ckpt_path:
+            Optional initialization checkpoint path.
+
+    Returns:
+        None.
+    """
+    if init_ckpt_path is None:
+        return
+
+    checkpoint = torch.load(init_ckpt_path, map_location="cpu")
+    train_cfg = checkpoint.get("train_config")
+    if not isinstance(train_cfg, dict):
+        return
+
+    keys_to_match = ("d_model", "n_heads", "n_layers", "d_ff", "dropout", "max_length")
+    mismatches: list[str] = []
+    for key in keys_to_match:
+        ckpt_value = train_cfg.get(key)
+        run_value = getattr(cfg, key, None)
+        if ckpt_value is None:
+            continue
+        if run_value != ckpt_value:
+            mismatches.append(f"{key}: checkpoint={ckpt_value}, run={run_value}")
+
+    if mismatches:
+        details = "; ".join(mismatches)
+        raise ValueError(
+            "init_checkpoint architecture mismatch. Use the same base-model "
+            f"hyperparameters for refinement. Mismatches: {details}"
+        )
 
 
 def validate_checkpoint_plan(
@@ -1125,6 +1176,7 @@ def main() -> None:
 
     output_dir = Path(cfg.output_dir)
     init_ckpt_path = validate_checkpoint_plan(cfg, output_dir)
+    validate_init_checkpoint_compatibility(cfg, init_ckpt_path)
     output_dir.mkdir(parents=True, exist_ok=True)
     with open(output_dir / "train_config.json", "w", encoding="utf-8") as f:
         json.dump(asdict(cfg), f, indent=2)
@@ -1168,6 +1220,7 @@ def main() -> None:
             model=model,
             optimizer=None,
             map_location=device,
+            strict=False,
         )
         print("[checkpoint] initialized model weights from init_checkpoint")
         if last_ckpt_path.exists() and not cfg.resume_from_last:
