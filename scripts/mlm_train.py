@@ -844,7 +844,7 @@ def evaluate(
     tokenizer: AminoAcidTokenizer,
     cfg: TrainConfig,
     device: torch.device,
-) -> Tuple[float, float]:
+) -> Dict[str, float]:
     """
     Run one full validation pass.
 
@@ -861,12 +861,14 @@ def evaluate(
             Target device.
 
     Returns:
-        Tuple `(mean_loss, mean_masked_accuracy)`.
+        Dictionary containing averaged validation metrics.
     """
     model.eval()
     val_loader = build_eval_loader(val_dataset, tokenizer, cfg)
 
     total_loss = 0.0
+    total_mlm_loss = 0.0
+    total_pair_loss = 0.0
     total_acc = 0.0
     total_pair_acc = 0.0
     total_batches = 0
@@ -889,24 +891,43 @@ def evaluate(
             pair_loss_weight=cfg.pair_loss_weight,
         )
         loss = losses["loss"]
+        mlm_loss = losses["mlm_loss"]
+        pair_loss = losses["pair_loss"]
         acc = masked_accuracy(logits, batch["labels"])
         pair_acc = pair_classification_accuracy(pair_logits, batch["pair_labels"], batch["pair_mask"])
 
         total_loss += float(loss.item())
+        total_mlm_loss += float(mlm_loss.item())
+        total_pair_loss += float(pair_loss.item())
         total_acc += acc
         total_pair_acc += pair_acc
         total_batches += 1
         progress.set_postfix(
             loss=f"{total_loss / total_batches:.4f}",
-            acc=f"{total_acc / total_batches:.4f}",
+            mlm_loss=f"{total_mlm_loss / total_batches:.4f}",
+            pair_loss=f"{total_pair_loss / total_batches:.4f}",
+            mlm_acc=f"{total_acc / total_batches:.4f}",
+            pair_acc=f"{total_pair_acc / total_batches:.4f}",
         )
 
     progress.close()
 
     if total_batches == 0:
-        return float("nan"), float("nan")
+        return {
+            "loss": float("nan"),
+            "mlm_loss": float("nan"),
+            "pair_loss": float("nan"),
+            "mlm_acc": float("nan"),
+            "pair_acc": float("nan"),
+        }
 
-    return total_loss / total_batches, total_acc / total_batches
+    return {
+        "loss": total_loss / total_batches,
+        "mlm_loss": total_mlm_loss / total_batches,
+        "pair_loss": total_pair_loss / total_batches,
+        "mlm_acc": total_acc / total_batches,
+        "pair_acc": total_pair_acc / total_batches,
+    }
 
 
 def train_one_epoch(
@@ -917,7 +938,7 @@ def train_one_epoch(
     cfg: TrainConfig,
     device: torch.device,
     epoch: int,
-) -> Tuple[float, float]:
+) -> Dict[str, float]:
     """
     Train the model for one epoch.
 
@@ -938,13 +959,15 @@ def train_one_epoch(
             Zero-based epoch index.
 
     Returns:
-        Tuple `(mean_train_loss, mean_train_masked_accuracy)`.
+        Dictionary containing averaged training metrics for the epoch.
     """
     model.train()
     train_loader = build_train_loader(train_dataset, tokenizer, cfg, epoch=epoch)
     scaler = torch.amp.GradScaler("cuda", enabled=(cfg.use_amp and device.type == "cuda"))
 
     total_loss = 0.0
+    total_mlm_loss = 0.0
+    total_pair_loss = 0.0
     total_acc = 0.0
     total_pair_acc = 0.0
     total_batches = 0
@@ -970,6 +993,8 @@ def train_one_epoch(
                 pair_loss_weight=cfg.pair_loss_weight,
             )
             loss = losses["loss"]
+            mlm_loss = losses["mlm_loss"]
+            pair_loss = losses["pair_loss"]
 
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
@@ -985,18 +1010,37 @@ def train_one_epoch(
         )
 
         total_loss += float(loss.item())
+        total_mlm_loss += float(mlm_loss.item())
+        total_pair_loss += float(pair_loss.item())
         total_acc += acc
         total_pair_acc += pair_acc
         total_batches += 1
         progress.set_postfix(
             loss=f"{total_loss / total_batches:.4f}",
-            acc=f"{total_acc / total_batches:.4f}",
+            mlm_loss=f"{total_mlm_loss / total_batches:.4f}",
+            pair_loss=f"{total_pair_loss / total_batches:.4f}",
+            mlm_acc=f"{total_acc / total_batches:.4f}",
             pair_acc=f"{total_pair_acc / total_batches:.4f}",
         )
 
     progress.close()
 
-    return total_loss / total_batches, total_acc / total_batches
+    if total_batches == 0:
+        return {
+            "loss": float("nan"),
+            "mlm_loss": float("nan"),
+            "pair_loss": float("nan"),
+            "mlm_acc": float("nan"),
+            "pair_acc": float("nan"),
+        }
+
+    return {
+        "loss": total_loss / total_batches,
+        "mlm_loss": total_mlm_loss / total_batches,
+        "pair_loss": total_pair_loss / total_batches,
+        "mlm_acc": total_acc / total_batches,
+        "pair_acc": total_pair_acc / total_batches,
+    }
 
 
 def save_checkpoint(
@@ -1227,7 +1271,7 @@ def main() -> None:
             print("[checkpoint] ignored existing last.pt because resume_from_last=False")
 
     for epoch in range(start_epoch, cfg.epochs):
-        train_loss, train_acc = train_one_epoch(
+        train_metrics = train_one_epoch(
             model=model,
             train_dataset=train_dataset,
             tokenizer=tokenizer,
@@ -1237,7 +1281,7 @@ def main() -> None:
             epoch=epoch,
         )
 
-        val_loss, val_acc = evaluate(
+        val_metrics = evaluate(
             model=model,
             val_dataset=val_dataset,
             tokenizer=tokenizer,
@@ -1245,12 +1289,21 @@ def main() -> None:
             device=device,
         )
 
+        train_loss = train_metrics["loss"]
+        val_loss = val_metrics["loss"]
+
         print(
             f"[epoch {epoch+1}/{cfg.epochs}] "
-            f"train_loss={train_loss:.4f} "
-            f"train_acc={train_acc:.4f} "
-            f"val_loss={val_loss:.4f} "
-            f"val_acc={val_acc:.4f}"
+            f"train_loss={train_metrics['loss']:.4f} "
+            f"train_mlm_loss={train_metrics['mlm_loss']:.4f} "
+            f"train_pair_loss={train_metrics['pair_loss']:.4f} "
+            f"train_mlm_acc={train_metrics['mlm_acc']:.4f} "
+            f"train_pair_acc={train_metrics['pair_acc']:.4f} "
+            f"val_loss={val_metrics['loss']:.4f} "
+            f"val_mlm_loss={val_metrics['mlm_loss']:.4f} "
+            f"val_pair_loss={val_metrics['pair_loss']:.4f} "
+            f"val_mlm_acc={val_metrics['mlm_acc']:.4f} "
+            f"val_pair_acc={val_metrics['pair_acc']:.4f}"
         )
 
         save_checkpoint(
