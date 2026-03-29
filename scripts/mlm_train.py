@@ -96,6 +96,9 @@ class TrainConfig:
 
     data_path: str
     output_dir: str = "checkpoints/mlm"
+    training_stage: str = "base"
+    init_checkpoint: Optional[str] = None
+    resume_from_last: bool = True
     max_length: int = 192
 
     batch_size: int = 32
@@ -172,6 +175,13 @@ class TrainConfig:
             raise ValueError("epochs must be > 0")
         if self.train_num_workers < 0 or self.eval_num_workers < 0:
             raise ValueError("num_workers must be >= 0")
+        if self.training_stage not in {"base", "paired_refine"}:
+            raise ValueError("training_stage must be one of: base, paired_refine")
+        if self.training_stage == "paired_refine" and not self.init_checkpoint:
+            raise ValueError(
+                "paired_refine training requires `init_checkpoint` so refinement "
+                "starts from a pretrained model."
+            )
 
 
 def _train_config_defaults() -> Dict[str, Any]:
@@ -260,6 +270,14 @@ def normalize_config_data(raw_config: Dict[str, Any]) -> Dict[str, Any]:
     """
     normalized = dict(raw_config)
 
+    mode = normalized.pop("mode", None)
+    if mode is not None:
+        normalized.setdefault("training_stage", mode)
+
+    init_from_checkpoint = normalized.pop("init_from_checkpoint", None)
+    if init_from_checkpoint is not None:
+        normalized.setdefault("init_checkpoint", init_from_checkpoint)
+
     # Legacy/shared worker count: if the config specifies one worker value,
     # treat it as both train/eval unless a side-specific override exists.
     num_workers = normalized.pop("num_workers", None)
@@ -321,6 +339,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=str, default=None)
     parser.add_argument("--data-path", type=str)
     parser.add_argument("--output-dir", type=str)
+    parser.add_argument("--training-stage", type=str, choices=("base", "paired_refine"))
+    parser.add_argument("--init-checkpoint", type=str)
+    parser.add_argument("--resume-from-last", action="store_true", default=argparse.SUPPRESS)
+    parser.add_argument("--no-resume-from-last", dest="resume_from_last", action="store_false", default=argparse.SUPPRESS)
     parser.add_argument("--max-length", type=int)
 
     parser.add_argument("--batch-size", type=int)
@@ -383,12 +405,17 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> TrainConfig:
     merged_config = _train_config_defaults()
 
     config_path = args_dict.pop("config", None)
+    file_config: Dict[str, Any] = {}
     if config_path:
         file_config = normalize_config_data(load_config_file(config_path))
         merged_config.update(file_config)
 
     # CLI values always win over config-file values when both are provided.
     merged_config.update(args_dict)
+
+    output_dir_provided = ("output_dir" in file_config) or ("output_dir" in args_dict)
+    if (not output_dir_provided) and merged_config.get("training_stage") == "paired_refine":
+        merged_config["output_dir"] = "checkpoints/mlm_paired_refine"
 
     if "data_path" not in merged_config or not merged_config["data_path"]:
         parser.error("--data-path is required unless provided via --config")
@@ -1039,6 +1066,38 @@ def load_checkpoint(
     print(f"[checkpoint] loaded <- {path}")
     return checkpoint
 
+
+def validate_checkpoint_plan(
+    cfg: TrainConfig,
+    output_dir: Path,
+) -> Path | None:
+    """
+    Validate checkpoint initialization/resume settings for a run.
+
+    Args:
+        cfg:
+            Training configuration.
+        output_dir:
+            Directory where this run writes checkpoints.
+
+    Returns:
+        Resolved initialization checkpoint path, or None when not used.
+    """
+    init_ckpt_path: Path | None = None
+    if cfg.init_checkpoint:
+        init_ckpt_path = Path(cfg.init_checkpoint).expanduser().resolve()
+        if not init_ckpt_path.exists():
+            raise FileNotFoundError(f"init_checkpoint does not exist: {init_ckpt_path}")
+
+    output_dir_resolved = output_dir.resolve()
+    if init_ckpt_path is not None and init_ckpt_path.parent == output_dir_resolved:
+        raise ValueError(
+            "init_checkpoint is inside output_dir. Choose a different output_dir "
+            "to keep base pretraining and refinement checkpoints separated."
+        )
+
+    return init_ckpt_path
+
 def main() -> None:
     """
     Main entrypoint for MLM training.
@@ -1065,6 +1124,7 @@ def main() -> None:
     configure_cpu_runtime(device)
 
     output_dir = Path(cfg.output_dir)
+    init_ckpt_path = validate_checkpoint_plan(cfg, output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     with open(output_dir / "train_config.json", "w", encoding="utf-8") as f:
         json.dump(asdict(cfg), f, indent=2)
@@ -1088,9 +1148,11 @@ def main() -> None:
     best_val_loss = float("inf")
     start_epoch = 0
 
-    # Resume from last checkpoint if it exists
+    print(f"training_stage: {cfg.training_stage}")
+
+    # Resume from last checkpoint if configured and available.
     last_ckpt_path = output_dir / "last.pt"
-    if last_ckpt_path.exists():
+    if cfg.resume_from_last and last_ckpt_path.exists():
         checkpoint = load_checkpoint(
             path=last_ckpt_path,
             model=model,
@@ -1100,6 +1162,16 @@ def main() -> None:
         start_epoch = checkpoint["epoch"]
         best_val_loss = checkpoint.get("val_loss", float("inf"))
         print(f"Resuming from epoch {start_epoch}")
+    elif init_ckpt_path is not None:
+        load_checkpoint(
+            path=init_ckpt_path,
+            model=model,
+            optimizer=None,
+            map_location=device,
+        )
+        print("[checkpoint] initialized model weights from init_checkpoint")
+        if last_ckpt_path.exists() and not cfg.resume_from_last:
+            print("[checkpoint] ignored existing last.pt because resume_from_last=False")
 
     for epoch in range(start_epoch, cfg.epochs):
         train_loss, train_acc = train_one_epoch(
