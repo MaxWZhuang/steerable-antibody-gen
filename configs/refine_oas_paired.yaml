@@ -11,7 +11,7 @@ seed: 42
 batch_size: 32
 eval_batch_size: 32
 num_workers: 4
-max_length: 224
+max_length: 192
 bucket_width: 8
 
 mask_probability: 0.15
@@ -31,5 +31,5 @@ model:
   d_model: 256
   n_heads: 8
   n_layers: 6
-  d_ff: 1024
+  d_ff: 512
   dropout: 0.1
