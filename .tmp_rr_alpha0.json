@@ -1,0 +1,45 @@
+{
+  "files_seen": 17,
+  "records_seen": 0,
+  "records_kept": 20000,
+  "duplicates_dropped": 0,
+  "drop_reasons": {},
+  "kept_by_locus": {
+    "IGH": 20000
+  },
+  "kept_by_split": {
+    "val": 1988,
+    "train": 18012
+  },
+  "sequence_source_counts": {
+    "sequence_alignment_aa": 20000
+  },
+  "redundancy_sum_by_locus": {
+    "IGH": 43312
+  },
+  "kept_by_source_file": {
+    "SRR12487248_Heavy_IGHA.csv.gz": 301,
+    "SRR3099059_Heavy_Bulk.csv.gz": 15,
+    "SRR3099161_Heavy_IGHG.csv.gz": 3827,
+    "SRR3099138_Heavy_IGHG.csv.gz": 3686,
+    "SRR13716943_Heavy_Bulk.csv.gz": 72,
+    "SRR13716954_Heavy_IGHM.csv.gz": 18,
+    "SRR3099435_Heavy_IGHG.csv.gz": 5,
+    "SRR4431793_1_Heavy_IGHA.csv.gz": 1731,
+    "SRR12190315_Heavy_IGHG.csv.gz": 2050,
+    "SRR3990878_Heavy_Bulk.csv.gz": 55,
+    "SRR3099419_Heavy_IGHG.csv.gz": 8,
+    "SRR3099052_Heavy_IGHM.csv.gz": 1,
+    "SRR3620055_Heavy_IGHG.csv.gz": 1363,
+    "SRR3099407_Heavy_IGHG.csv.gz": 2834,
+    "SRR3099093_Heavy_IGHG.csv.gz": 2442,
+    "SRR3990871_Heavy_Bulk.csv.gz": 25,
+    "SRR3620052_Heavy_IGHA.csv.gz": 1567
+  },
+  "outputs": {
+    "all": ".tmp_rr_alpha0/oas_all.jsonl.gz",
+    "IGH": ".tmp_rr_alpha0/oas_igh.jsonl.gz",
+    "IGK": ".tmp_rr_alpha0/oas_igk.jsonl.gz",
+    "IGL": ".tmp_rr_alpha0/oas_igl.jsonl.gz"
+  }
+}
