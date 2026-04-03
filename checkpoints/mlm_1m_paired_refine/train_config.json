@@ -24,7 +24,7 @@
   "weight_decay": 0.01,
   "grad_clip_norm": 1.0,
   "pair_loss_weight": 0.5,
-  "epochs": 100,
+  "epochs": 45,
   "seed": 42,
   "use_amp": false,
   "smoke_test_only": false,
