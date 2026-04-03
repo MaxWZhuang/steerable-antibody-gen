@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import gzip
-import io
 import json
 import re
 
@@ -91,23 +90,27 @@ def read_oas_table(path: Path) -> tuple[Dict[str, Any], pd.DataFrame]:
     with open_text_maybe_gzip(path) as f:
         first_line = f.readline()
         metadata = parse_possible_json_metadata(first_line)
-        if metadata is not None:
-            remaining = f.read()
-            buffer = io.StringIO(remaining)
+        has_metadata = metadata is not None
+        if has_metadata:
+            sample = f.read(4096)
         else:
             metadata = {}
-            remaining = first_line + f.read()
-            buffer = io.StringIO(remaining)
-        # OAS files are described as .csv.gz; allow a fallback sniffer to tolerate odd exports.
-        sample = buffer.read(4096)
-        buffer.seek(0)
+            sample = first_line + f.read(4096)
+
+    # OAS files are described as .csv.gz; allow a fallback sniffer to tolerate odd exports.
+    delimiter = ","
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",\t;")
+        delimiter = dialect.delimiter
+    except csv.Error:
         delimiter = ","
-        try:
-            dialect = csv.Sniffer().sniff(sample, delimiters=",\t;")
-            delimiter = dialect.delimiter
-        except csv.Error:
-            delimiter = ","
-        df = pd.read_csv(buffer, sep=delimiter, low_memory=False)
+
+    # Reopen the file and stream the table into pandas so large gzip members
+    # do not have to be materialized as one giant in-memory string first.
+    with open_text_maybe_gzip(path) as f:
+        if has_metadata:
+            f.readline()
+        df = pd.read_csv(f, sep=delimiter, low_memory=False)
     return metadata, df
 
 
