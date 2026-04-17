@@ -5,6 +5,7 @@ src/smallAntibodyGen/tokenizer.py
 src/smallAntibodyGen.egg-info/PKG-INFO
 src/smallAntibodyGen.egg-info/SOURCES.txt
 src/smallAntibodyGen.egg-info/dependency_links.txt
+src/smallAntibodyGen.egg-info/requires.txt
 src/smallAntibodyGen.egg-info/top_level.txt
 src/smallAntibodyGen/data/MLMCollator.py
 src/smallAntibodyGen/data/MLMSampler.py
@@ -14,5 +15,6 @@ src/smallAntibodyGen/models/mlm.py
 src/smallAntibodyGen/tests/conftest.py
 src/smallAntibodyGen/tests/test_dataset_sampler_collator.py
 src/smallAntibodyGen/tests/test_mlm_model.py
+src/smallAntibodyGen/tests/test_mlm_train_config.py
 src/smallAntibodyGen/tests/test_oas_reader.py
 src/smallAntibodyGen/tests/test_prepare_oas_cli.py
