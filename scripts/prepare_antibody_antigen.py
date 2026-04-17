@@ -585,16 +585,23 @@ def write_record(
     stats["kept_by_split"][record["split"]] += 1
     stats["kept_by_dataset"][record["dataset"]] += 1
     stats["kept_by_confidence"][record["confidence"]] += 1
+    affinity_type = str(record.get("affinity_type") or "missing")
+    stats["kept_by_affinity_type"][affinity_type] += 1
+    stats["kept_by_dataset_affinity_type"][(str(record["dataset"]), affinity_type)] += 1
     if record.get("is_paired"):
         stats["paired_records"] += 1
     else:
         stats["heavy_only_records"] += 1
     if record.get("is_nanobody"):
         stats["nanobody_records"] += 1
+    if record.get("binder_label") is not None:
+        stats["binder_labelable_rows"] += 1
     if record.get("binder_label") == 1:
         stats["binder_positive_records"] += 1
     elif record.get("binder_label") == 0:
         stats["binder_negative_records"] += 1
+    if record.get("processed_measurement_float") is not None:
+        stats["numeric_processed_measurement_rows"] += 1
     return True
 
 
@@ -674,12 +681,16 @@ def main() -> None:
         "paired_records": 0,
         "heavy_only_records": 0,
         "nanobody_records": 0,
+        "binder_labelable_rows": 0,
         "binder_positive_records": 0,
         "binder_negative_records": 0,
+        "numeric_processed_measurement_rows": 0,
         "drop_reasons": Counter(),
         "kept_by_split": Counter(),
         "kept_by_dataset": Counter(),
         "kept_by_confidence": Counter(),
+        "kept_by_affinity_type": Counter(),
+        "kept_by_dataset_affinity_type": Counter(),
     }
 
     try:
@@ -721,13 +732,19 @@ def main() -> None:
     print(f"paired_records:      {stats['paired_records']}")
     print(f"heavy_only_records:  {stats['heavy_only_records']}")
     print(f"nanobody_records:    {stats['nanobody_records']}")
+    print(f"binder_labelable:    {stats['binder_labelable_rows']}")
     print(f"binder_positive:     {stats['binder_positive_records']}")
     print(f"binder_negative:     {stats['binder_negative_records']}")
+    print(f"numeric_measurement_rows: {stats['numeric_processed_measurement_rows']}")
     print(f"kept_by_split:       {dict(stats['kept_by_split'])}")
     print(f"kept_by_confidence:  {dict(stats['kept_by_confidence'])}")
+    print(f"kept_by_affinity_type: {dict(stats['kept_by_affinity_type'])}")
     print("top_datasets:")
     for key, value in stats["kept_by_dataset"].most_common(10):
         print(f"  {key}: {value}")
+    print("top_dataset_affinity_type_pairs:")
+    for (dataset, affinity_type), value in stats["kept_by_dataset_affinity_type"].most_common(15):
+        print(f"  {dataset} x {affinity_type}: {value}")
     print("drop_reasons:")
     for key, value in stats["drop_reasons"].most_common():
         print(f"  {key}: {value}")
