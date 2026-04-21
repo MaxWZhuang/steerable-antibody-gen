@@ -356,6 +356,28 @@ def parse_binder_label(affinity_type: str, processed_measurement: object) -> Opt
     return 1 if numeric > 0.5 else 0
 
 
+def infer_is_strong_binder(
+    affinity_type: str,
+    affinity_raw: object,
+    processed_measurement: object,
+) -> bool:
+    """
+    Return the conservative strong-binder flag used for the first
+    antibody-antigen compatibility stage.
+
+    Current policy:
+    - explicit boolean binder rows with positive labels
+    - fuzzy assay rows labeled "h"
+    """
+    normalized_type = clean_text(affinity_type).lower()
+    if normalized_type == "bool":
+        return parse_binder_label(affinity_type, processed_measurement) == 1
+    if normalized_type == "fuzzy":
+        raw_value = clean_text(processed_measurement or affinity_raw).lower()
+        return raw_value == "h"
+    return False
+
+
 def keep_record(
     *,
     heavy_variable_aa: str,
@@ -438,6 +460,12 @@ def build_processed_record(
     affinity_raw = clean_text(row.get("affinity"))
     processed_measurement_raw = clean_text(row.get("processed_measurement"))
     processed_measurement_float = safe_float(row.get("processed_measurement"))
+    binder_label = parse_binder_label(affinity_type, row.get("processed_measurement"))
+    is_strong_binder = infer_is_strong_binder(
+        affinity_type=affinity_type,
+        affinity_raw=affinity_raw,
+        processed_measurement=row.get("processed_measurement"),
+    )
 
     keep, reason = keep_record(
         heavy_variable_aa=heavy["heavy_variable_aa"],
@@ -487,7 +515,8 @@ def build_processed_record(
         "affinity_raw": affinity_raw or None,
         "processed_measurement_raw": processed_measurement_raw or None,
         "processed_measurement_float": processed_measurement_float,
-        "binder_label": parse_binder_label(affinity_type, row.get("processed_measurement")),
+        "binder_label": binder_label,
+        "is_strong_binder": is_strong_binder,
         "cdr1_aa_heavy": heavy["cdr1_aa_heavy"],
         "cdr2_aa_heavy": heavy["cdr2_aa_heavy"],
         "cdr3_aa": heavy["cdr3_aa_heavy"],
