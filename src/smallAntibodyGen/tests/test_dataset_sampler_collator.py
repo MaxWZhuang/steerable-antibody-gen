@@ -66,6 +66,51 @@ def make_processed_pair_record(
     }
 
 
+def make_processed_antibody_antigen_record(
+    heavy_sequence,
+    antigen_sequence,
+    *,
+    light_sequence=None,
+    split="train",
+    binder_label=1,
+):
+    return {
+        "record_id": "antigen-1",
+        "sequence": heavy_sequence,
+        "sequence_heavy": heavy_sequence,
+        "sequence_light": light_sequence,
+        "sequence_antigen": antigen_sequence,
+        "locus": "PAIRED_ANTIGEN",
+        "chain_group": "paired_antigen",
+        "split": split,
+        "length": len(heavy_sequence) + len(light_sequence or ""),
+        "target_key": "uniprot:p12345",
+        "target_name": "test_target",
+        "target_pdb": "1abc",
+        "target_uniprot": "P12345",
+        "dataset": "asd-test",
+        "confidence": "very_high",
+        "affinity_type": "bool",
+        "affinity_raw": "1.0",
+        "processed_measurement_raw": "1.0",
+        "processed_measurement_float": 1.0,
+        "binder_label": binder_label,
+        "is_nanobody": light_sequence is None,
+        "scfv": False,
+        "cdr3_aa_heavy": "CARDRST",
+        "cdr3_start_aa_heavy": 10,
+        "cdr3_end_aa_heavy": 17,
+        "cdr3_aa_light": "QQYNSY" if light_sequence else None,
+        "cdr3_start_aa_light": 20 if light_sequence else None,
+        "cdr3_end_aa_light": 26 if light_sequence else None,
+        "heavy_locus": "IGH",
+        "light_locus": "IGK" if light_sequence else None,
+        "is_paired": bool(light_sequence),
+        "metadata": {},
+        "source_file": "tiny_antigen.parquet",
+    }
+
+
 def test_dataset_loads_and_filters_by_split(tmp_path: Path, tokenizer, write_processed_jsonl_gz):
     records = [
         make_processed_record(tokenizer, "CARDRST", "IGH", "heavy", split="train"),
@@ -80,6 +125,46 @@ def test_dataset_loads_and_filters_by_split(tmp_path: Path, tokenizer, write_pro
     assert len(val_ds) == 1
     assert train_ds[0].chain_group == "heavy"
     assert val_ds[0].chain_group == "light"
+
+
+def test_dataset_loads_antibody_antigen_fields_without_breaking_existing_schema(
+    tmp_path: Path,
+    write_processed_jsonl_gz,
+):
+    records = [
+        make_processed_antibody_antigen_record(
+            heavy_sequence="EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVS",
+            light_sequence=None,
+            antigen_sequence="MKTIIALSYIFCLVFADYKDDDDK",
+        ),
+        make_processed_antibody_antigen_record(
+            heavy_sequence="QVQLQESGGGLVQAGGSLRLSCAASGFTFSSYAMGWFRQAPGKEREFVA",
+            light_sequence="DIQMTQSPSSLSASVGDRVTITCQASQDINNYLNWYQQKPGKAPKLLIY",
+            antigen_sequence="ACDEFGHIKLMNPQRSTVWY",
+            split="val",
+            binder_label=0,
+        ),
+    ]
+    data_path = write_processed_jsonl_gz(tmp_path / "antibody_antigen.jsonl.gz", records)
+
+    train_ds = OASSequenceDataset(data_path, split="train")
+    val_ds = OASSequenceDataset(data_path, split="val")
+
+    train_record = train_ds[0]
+    val_record = val_ds[0]
+
+    assert train_record.sequence_antigen == "MKTIIALSYIFCLVFADYKDDDDK"
+    assert train_record.target_key == "uniprot:p12345"
+    assert train_record.dataset_name == "asd-test"
+    assert train_record.binder_label == 1
+    assert train_record.is_nanobody is True
+    assert train_record.is_paired is False
+
+    assert val_record.sequence_light is not None
+    assert val_record.sequence_antigen == "ACDEFGHIKLMNPQRSTVWY"
+    assert val_record.binder_label == 0
+    assert val_record.is_nanobody is False
+    assert val_record.is_paired is True
 
 
 def test_sampler_batches_are_chain_homogeneous_and_length_bucketed(tmp_path: Path, tokenizer, write_processed_jsonl_gz):

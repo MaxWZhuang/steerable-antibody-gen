@@ -16,7 +16,7 @@ from smallAntibodyGen.data.MLMSampler import ChainLengthBucketBatchSampler
 
 @dataclass
 class OASRecord:
-    """In-memory representation of one processed OAS example."""
+    """In-memory representation of one processed OAS or antibody-antigen example."""
 
     sequence: str
     locus: str # IGH / IGK / IGL
@@ -42,6 +42,20 @@ class OASRecord:
     cdr3_aa_light: str | None = None
     cdr3_start_aa_light: int | None = None
     cdr3_end_aa_light: int | None = None
+    sequence_antigen: str | None = None
+    target_key: str | None = None
+    target_name: str | None = None
+    target_pdb: str | None = None
+    target_uniprot: str | None = None
+    dataset_name: str | None = None
+    confidence: str | None = None
+    affinity_type: str | None = None
+    affinity_raw: str | None = None
+    processed_measurement_raw: str | None = None
+    processed_measurement_float: float | None = None
+    binder_label: int | None = None
+    is_nanobody: bool = False
+    scfv: bool = False
     
 class OASSequenceDataset(Dataset[OASRecord]):
     """Dataset that reads processed single-chain or paired OAS JSONL records."""
@@ -112,6 +126,20 @@ class OASSequenceDataset(Dataset[OASRecord]):
                     cdr3_aa_light=record.get("cdr3_aa_light"),
                     cdr3_start_aa_light=record.get("cdr3_start_aa_light"),
                     cdr3_end_aa_light=record.get("cdr3_end_aa_light"),
+                    sequence_antigen=record.get("sequence_antigen"),
+                    target_key=record.get("target_key"),
+                    target_name=record.get("target_name"),
+                    target_pdb=record.get("target_pdb"),
+                    target_uniprot=record.get("target_uniprot"),
+                    dataset_name=record.get("dataset"),
+                    confidence=record.get("confidence"),
+                    affinity_type=record.get("affinity_type"),
+                    affinity_raw=record.get("affinity_raw"),
+                    processed_measurement_raw=record.get("processed_measurement_raw"),
+                    processed_measurement_float=record.get("processed_measurement_float"),
+                    binder_label=record.get("binder_label"),
+                    is_nanobody=bool(record.get("is_nanobody")),
+                    scfv=bool(record.get("scfv")),
                 )
             )
             
