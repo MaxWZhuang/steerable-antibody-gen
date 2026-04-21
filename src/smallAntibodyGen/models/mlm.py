@@ -127,7 +127,108 @@ class LearnedPositionalEmbedding(nn.Module):
                 f"Sequence length {max_pos} exceeds configured max_length, which is equal to {self.max_length}"
             )
         return self.embedding(position_ids)
-    
+
+
+class TransformerSequenceEncoder(nn.Module):
+    """
+    Reusable transformer encoder stack for tokenized protein sequences.
+
+    This keeps the antibody-only MLM path and the newer antibody-antigen path
+    aligned on the same embedding / encoder implementation while letting the
+    higher-level models decide how to fuse or decode the resulting features.
+    """
+
+    def __init__(self, config: MLMConfig) -> None:
+        super().__init__()
+        self.config = config
+
+        self.token_embedding = nn.Embedding(
+            num_embeddings=config.vocab_size,
+            embedding_dim=config.d_model,
+            padding_idx=config.pad_token_id,
+        )
+        self.position_embedding = LearnedPositionalEmbedding(
+            max_length=config.max_length,
+            d_model=config.d_model,
+        )
+        self.embed_drop = nn.Dropout(config.dropout)
+
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=config.d_model,
+            nhead=config.n_heads,
+            dim_feedforward=config.d_ff,
+            dropout=config.dropout,
+            activation=config.activation,
+            batch_first=True,
+            norm_first=False,
+        )
+        self.encoder = nn.TransformerEncoder(
+            encoder_layer,
+            num_layers=config.n_layers,
+            enable_nested_tensor=False,
+        )
+        self.final_norm = nn.LayerNorm(config.d_model)
+
+    def _validate_inputs(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor | None,
+    ) -> torch.Tensor:
+        """
+        Validate model inputs and construct attention mask when omitted.
+        """
+        if input_ids.dim() != 2:
+            raise ValueError("input_ids must have shape [batch_size, seq_len]")
+
+        _, seq_len = input_ids.shape
+        if seq_len > self.config.max_length:
+            raise ValueError(
+                f"Input sequence length {seq_len} has to be less than the max length, equal to {self.config.max_length}"
+            )
+
+        if attention_mask is None:
+            attention_mask = (input_ids != self.config.pad_token_id).long()
+        elif attention_mask.shape != input_ids.shape:
+            raise ValueError("attention_mask must have the same shape as input_ids")
+
+        return attention_mask
+
+    def _build_key_padding_mask(self, attention_mask: torch.Tensor) -> torch.Tensor:
+        """
+        Convert a standard attention mask into a transformer key padding mask.
+        """
+        return attention_mask == 0
+
+    def embed(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Build the token + positional embeddings for the encoder stack.
+        """
+        token_emb = self.token_embedding(input_ids)
+        pos_emb = self.position_embedding(attention_mask)
+        hidden = token_emb + pos_emb
+        hidden = self.embed_drop(hidden)
+        return hidden
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Encode one batch and return contextual hidden states plus the resolved mask.
+        """
+        attention_mask = self._validate_inputs(input_ids, attention_mask)
+        hidden = self.embed(input_ids, attention_mask)
+        key_padding_mask = self._build_key_padding_mask(attention_mask)
+        hidden = self.encoder(hidden, src_key_padding_mask=key_padding_mask)
+        hidden = self.final_norm(hidden)
+        return hidden, attention_mask
+
+
 class AntibodyMLM(nn.Module):
     """
     Transformer-encoder MLM for antibody/nanobody sequences.
@@ -147,93 +248,13 @@ class AntibodyMLM(nn.Module):
         super().__init__()
         config.validate()
         self.config = config
-        
-        self.token_embedding = nn.Embedding(
-            num_embeddings = config.vocab_size,
-            embedding_dim = config.d_model,
-            padding_idx = config.pad_token_id
-        )
-        
-        self.position_embedding = LearnedPositionalEmbedding(
-            max_length = config.max_length, 
-            d_model = config.d_model
-        )
-        
-        self.embed_drop = nn.Dropout(config.dropout)
-        
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model = config.d_model,
-            nhead = config.n_heads,
-            dim_feedforward = config.d_ff,
-            dropout = config.dropout, 
-            activation = config.activation,
-            batch_first = True, 
-            norm_first = False
-        )
-        
-        self.encoder = nn.TransformerEncoder(
-            encoder_layer, 
-            num_layers = config.n_layers,
-            enable_nested_tensor = False
-        )
-        
-        self.final_norm = nn.LayerNorm(config.d_model)
+        self.sequence_encoder = TransformerSequenceEncoder(config)
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias = False)
         self.pair_head = nn.Linear(config.d_model, 2)
         
         if config.tie_weights:
-            self.lm_head.weight = self.token_embedding.weight
+            self.lm_head.weight = self.sequence_encoder.token_embedding.weight
     
-    def _validate_inputs(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor | None 
-    ) -> torch.Tensor:
-        
-        """
-        Validate model inputs and construct attention mask (if needed).
-
-        Args:
-            input_ids (torch.Tensor): Tensor of token IDs with shape [batch_size, seq_len]
-            
-            attention_mask (torch.Tensor | None): Optional tensor with shape [batch_size, seq_len]. If None, the mask is 
-                inferred from input_ids != pad_token_id
-
-        Returns:
-            torch.Tensor: Valid attention_mask tensor with shape [batch_size, seq_len]
-            
-        Raises ValueError if shapes are wrong/sequence length exceeds max_length
-        """
-        if input_ids.dim() != 2: 
-            raise ValueError("input_ids must have shape [batch_size, seq_len]")
-        
-        batch_size, seq_len = input_ids.shape
-        if seq_len > self.config.max_length:
-            raise ValueError(
-                f"Input sequence length {seq_len} has to be less than the max length, equal to {self.config.max_length}"
-            )
-        
-        if attention_mask is None:
-            attention_mask = (input_ids != self.config.pad_token_id).long()
-        else:
-            if attention_mask.shape != input_ids.shape:
-                raise ValueError("attention_mask must have the same shape as input_ids")
-        
-        return attention_mask
-        
-    def _build_key_padding_mask(self, attention_mask: torch.Tensor) -> torch.Tensor:
-        """
-        Convert a standard attention mask into a transformer key padding mask.
-
-        Args:
-            attention_mask (torch.Tensor): Tensor of shape [batch_size, seq_len] with 1 for real tokens and 0 for padding
-
-        Returns:
-            torch.Tensor: Boolean tensor of shape [batch_size, seq_len] where True marks padding positions to be ignored 
-            by the transformer.
-        """
-        return attention_mask == 0
-
     def embed(
         self, 
         input_ids: torch.Tensor, 
@@ -251,11 +272,7 @@ class AntibodyMLM(nn.Module):
             torch.Tensor: Tensor of shape [batch_size, seq_len, d_model] containing the sum of token embeddings and positional embeddings, 
             followed by dropout.
         """
-        token_emb = self.token_embedding(input_ids)
-        pos_emb = self.position_embedding(attention_mask)
-        hidden = token_emb + pos_emb
-        hidden = self.embed_drop(hidden)
-        return hidden
+        return self.sequence_encoder.embed(input_ids, attention_mask)
 
     def encode(
         self,
@@ -274,11 +291,7 @@ class AntibodyMLM(nn.Module):
             torch.Tensor of shape [batch_size, seq_len, d_model] containing the contextual hidden states after the transformer encoder.
         """
         
-        attention_mask = self._validate_inputs(input_ids, attention_mask)
-        hidden = self.embed(input_ids, attention_mask)
-        key_padding_mask = self._build_key_padding_mask(attention_mask)
-        hidden = self.encoder(hidden, src_key_padding_mask = key_padding_mask)
-        hidden = self.final_norm(hidden)
+        hidden, _ = self.sequence_encoder(input_ids, attention_mask)
         return hidden
 
     def pooled_cls(
@@ -499,4 +512,205 @@ class AntibodyMLM(nn.Module):
             "loss": total_loss,
             "mlm_loss": mlm_loss,
             "pair_loss": pair_loss,
+        }
+
+
+class AntibodyAntigenCrossAttention(nn.Module):
+    """
+    Dual-encoder antibody-antigen model with cross-attention fusion.
+
+    The antibody branch remains the only branch decoded with the MLM head so
+    later HCDR3-focused masking can stay antibody-centric, while the joint
+    compatibility decision is made from cross-attended antibody/antigen
+    representations.
+    """
+
+    def __init__(self, config: MLMConfig) -> None:
+        super().__init__()
+        config.validate()
+        self.config = config
+
+        self.antibody_encoder = TransformerSequenceEncoder(config)
+        self.antigen_encoder = TransformerSequenceEncoder(config)
+
+        self.antibody_to_antigen = nn.MultiheadAttention(
+            embed_dim=config.d_model,
+            num_heads=config.n_heads,
+            dropout=config.dropout,
+            batch_first=True,
+        )
+        self.antigen_to_antibody = nn.MultiheadAttention(
+            embed_dim=config.d_model,
+            num_heads=config.n_heads,
+            dropout=config.dropout,
+            batch_first=True,
+        )
+        self.fusion_norm_antibody = nn.LayerNorm(config.d_model)
+        self.fusion_norm_antigen = nn.LayerNorm(config.d_model)
+        self.fusion_mlp = nn.Sequential(
+            nn.Linear(config.d_model * 2, config.d_model),
+            nn.GELU() if config.activation == "gelu" else nn.ReLU(),
+            nn.Dropout(config.dropout),
+        )
+
+        self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
+        self.compatibility_head = nn.Linear(config.d_model, 2)
+
+        if config.tie_weights:
+            self.lm_head.weight = self.antibody_encoder.token_embedding.weight
+
+    def encode_antibody(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.antibody_encoder(input_ids, attention_mask)
+
+    def encode_antigen(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.antigen_encoder(input_ids, attention_mask)
+
+    def fuse(
+        self,
+        antibody_hidden: torch.Tensor,
+        antibody_attention_mask: torch.Tensor,
+        antigen_hidden: torch.Tensor,
+        antigen_attention_mask: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Apply symmetric cross-attention between antibody and antigen branches.
+        """
+        antibody_ctx, _ = self.antibody_to_antigen(
+            query=antibody_hidden,
+            key=antigen_hidden,
+            value=antigen_hidden,
+            key_padding_mask=(antigen_attention_mask == 0),
+            need_weights=False,
+        )
+        antigen_ctx, _ = self.antigen_to_antibody(
+            query=antigen_hidden,
+            key=antibody_hidden,
+            value=antibody_hidden,
+            key_padding_mask=(antibody_attention_mask == 0),
+            need_weights=False,
+        )
+        antibody_hidden = self.fusion_norm_antibody(antibody_hidden + antibody_ctx)
+        antigen_hidden = self.fusion_norm_antigen(antigen_hidden + antigen_ctx)
+        return antibody_hidden, antigen_hidden
+
+    def joint_representation(
+        self,
+        antibody_hidden: torch.Tensor,
+        antigen_hidden: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Build one fused example-level embedding from the two [CLS] states.
+        """
+        joint = torch.cat([antibody_hidden[:, 0, :], antigen_hidden[:, 0, :]], dim=-1)
+        return self.fusion_mlp(joint)
+
+    def forward(
+        self,
+        antibody_input_ids: torch.Tensor,
+        antibody_attention_mask: torch.Tensor | None,
+        antigen_input_ids: torch.Tensor,
+        antigen_attention_mask: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Return antibody MLM logits plus antibody-antigen compatibility logits.
+        """
+        antibody_hidden, antibody_attention_mask = self.encode_antibody(
+            antibody_input_ids,
+            antibody_attention_mask,
+        )
+        antigen_hidden, antigen_attention_mask = self.encode_antigen(
+            antigen_input_ids,
+            antigen_attention_mask,
+        )
+        fused_antibody, fused_antigen = self.fuse(
+            antibody_hidden,
+            antibody_attention_mask,
+            antigen_hidden,
+            antigen_attention_mask,
+        )
+        mlm_logits = self.lm_head(fused_antibody)
+        joint_hidden = self.joint_representation(fused_antibody, fused_antigen)
+        compatibility_logits = self.compatibility_head(joint_hidden)
+        return mlm_logits, compatibility_logits
+
+    def compute_mlm_loss(
+        self,
+        logits: torch.Tensor,
+        labels: torch.Tensor,
+        ignore_index: int = -100,
+    ) -> torch.Tensor:
+        if logits.dim() != 3:
+            raise ValueError("logits must have shape [batch_size, seq_len, vocab_size]")
+        if labels.dim() != 2:
+            raise ValueError("labels must have shape [batch_size, seq_len]")
+        if logits.shape[:2] != labels.shape:
+            raise ValueError("logits and labels must agree on [batch_size, seq_len]")
+
+        return F.cross_entropy(
+            logits.reshape(-1, logits.size(-1)),
+            labels.reshape(-1),
+            ignore_index=ignore_index,
+        )
+
+    def compute_compatibility_loss(
+        self,
+        compatibility_logits: torch.Tensor,
+        compatibility_labels: torch.Tensor,
+        compatibility_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if compatibility_logits.dim() != 2 or compatibility_logits.size(-1) != 2:
+            raise ValueError("compatibility_logits must have shape [batch_size, 2]")
+        if compatibility_labels.dim() != 1:
+            raise ValueError("compatibility_labels must have shape [batch_size]")
+        if compatibility_logits.size(0) != compatibility_labels.size(0):
+            raise ValueError("compatibility_logits and compatibility_labels must agree on batch size")
+
+        if compatibility_mask is None:
+            compatibility_mask = torch.ones_like(compatibility_labels, dtype=torch.bool)
+        if compatibility_mask.dim() != 1 or compatibility_mask.size(0) != compatibility_labels.size(0):
+            raise ValueError("compatibility_mask must have shape [batch_size]")
+        if compatibility_mask.sum().item() == 0:
+            return compatibility_logits.sum() * 0.0
+
+        return F.cross_entropy(
+            compatibility_logits[compatibility_mask],
+            compatibility_labels[compatibility_mask],
+        )
+
+    def compute_losses(
+        self,
+        mlm_logits: torch.Tensor,
+        labels: torch.Tensor,
+        compatibility_logits: torch.Tensor | None = None,
+        compatibility_labels: torch.Tensor | None = None,
+        compatibility_mask: torch.Tensor | None = None,
+        ignore_index: int = -100,
+        compatibility_loss_weight: float = 1.0,
+    ) -> dict[str, torch.Tensor]:
+        """
+        Compute the antibody MLM loss plus optional compatibility loss.
+        """
+        mlm_loss = self.compute_mlm_loss(mlm_logits, labels, ignore_index=ignore_index)
+        if compatibility_logits is None or compatibility_labels is None:
+            compatibility_loss = mlm_loss.detach() * 0.0
+        else:
+            compatibility_loss = self.compute_compatibility_loss(
+                compatibility_logits,
+                compatibility_labels,
+                compatibility_mask,
+            )
+
+        total_loss = mlm_loss + (compatibility_loss_weight * compatibility_loss)
+        return {
+            "loss": total_loss,
+            "mlm_loss": mlm_loss,
+            "compatibility_loss": compatibility_loss,
         }
