@@ -6,6 +6,7 @@ from pathlib import Path
 import torch
 
 from smallAntibodyGen.data.MLMCollator import (
+    AntibodyAntigenCollator,
     ChainLengthBucketBatchSampler,
     MLMCollator,
     OASSequenceDataset
@@ -72,10 +73,18 @@ def make_processed_antibody_antigen_record(
     *,
     light_sequence=None,
     split="train",
+    dataset="asd-test",
+    affinity_type="bool",
+    affinity_raw="1.0",
+    processed_measurement_raw="1.0",
+    processed_measurement_float=1.0,
     binder_label=1,
+    is_strong_binder=True,
+    target_key="uniprot:p12345",
+    record_id="antigen-1",
 ):
     return {
-        "record_id": "antigen-1",
+        "record_id": record_id,
         "sequence": heavy_sequence,
         "sequence_heavy": heavy_sequence,
         "sequence_light": light_sequence,
@@ -84,17 +93,18 @@ def make_processed_antibody_antigen_record(
         "chain_group": "paired_antigen",
         "split": split,
         "length": len(heavy_sequence) + len(light_sequence or ""),
-        "target_key": "uniprot:p12345",
+        "target_key": target_key,
         "target_name": "test_target",
         "target_pdb": "1abc",
         "target_uniprot": "P12345",
-        "dataset": "asd-test",
+        "dataset": dataset,
         "confidence": "very_high",
-        "affinity_type": "bool",
-        "affinity_raw": "1.0",
-        "processed_measurement_raw": "1.0",
-        "processed_measurement_float": 1.0,
+        "affinity_type": affinity_type,
+        "affinity_raw": affinity_raw,
+        "processed_measurement_raw": processed_measurement_raw,
+        "processed_measurement_float": processed_measurement_float,
         "binder_label": binder_label,
+        "is_strong_binder": is_strong_binder,
         "is_nanobody": light_sequence is None,
         "scfv": False,
         "cdr3_aa_heavy": "CARDRST",
@@ -143,6 +153,7 @@ def test_dataset_loads_antibody_antigen_fields_without_breaking_existing_schema(
             antigen_sequence="ACDEFGHIKLMNPQRSTVWY",
             split="val",
             binder_label=0,
+            is_strong_binder=False,
         ),
     ]
     data_path = write_processed_jsonl_gz(tmp_path / "antibody_antigen.jsonl.gz", records)
@@ -157,14 +168,105 @@ def test_dataset_loads_antibody_antigen_fields_without_breaking_existing_schema(
     assert train_record.target_key == "uniprot:p12345"
     assert train_record.dataset_name == "asd-test"
     assert train_record.binder_label == 1
+    assert train_record.is_strong_binder is True
+    assert train_record.affinity_family == "binary_binding"
+    assert train_record.affinity_strength_label == 1
+    assert train_record.affinity_strength_score == 1.0
     assert train_record.is_nanobody is True
     assert train_record.is_paired is False
 
     assert val_record.sequence_light is not None
     assert val_record.sequence_antigen == "ACDEFGHIKLMNPQRSTVWY"
     assert val_record.binder_label == 0
+    assert val_record.is_strong_binder is False
+    assert val_record.affinity_family == "binary_binding"
+    assert val_record.affinity_strength_label == 0
     assert val_record.is_nanobody is False
     assert val_record.is_paired is True
+
+
+def test_dataset_derives_fuzzy_and_numeric_affinity_strength_annotations(
+    tmp_path: Path,
+    write_processed_jsonl_gz,
+):
+    fuzzy_high = make_processed_antibody_antigen_record(
+        heavy_sequence="EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVS",
+        light_sequence=None,
+        antigen_sequence="MKTIIALSYIFCLVFADYKDDDDK",
+        dataset="buzz-test",
+        affinity_type="fuzzy",
+        affinity_raw="h",
+        processed_measurement_raw="h",
+        processed_measurement_float=None,
+        binder_label=None,
+    )
+    fuzzy_mid = make_processed_antibody_antigen_record(
+        heavy_sequence="EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVT",
+        light_sequence=None,
+        antigen_sequence="MKTIIALSYIFCLVFADYKDDDDA",
+        dataset="buzz-test",
+        affinity_type="fuzzy",
+        affinity_raw="m",
+        processed_measurement_raw="m",
+        processed_measurement_float=None,
+        binder_label=None,
+    )
+    kd_low = make_processed_antibody_antigen_record(
+        heavy_sequence="QVQLQESGGGLVQAGGSLRLSCAASGFTFSSYAMGWFRQAPGKEREFVA",
+        light_sequence=None,
+        antigen_sequence="ACDEFGHIKLMNPQRSTVWY",
+        dataset="flab-test",
+        affinity_type="kd",
+        affinity_raw="0.001",
+        processed_measurement_raw="0.001",
+        processed_measurement_float=0.001,
+        binder_label=None,
+    )
+    kd_mid = make_processed_antibody_antigen_record(
+        heavy_sequence="QVQLQESGGGLVQAGGSLRLSCAASGFTFSSYAMGWFRQAPGKEREFVG",
+        light_sequence=None,
+        antigen_sequence="ACDEFGHIKLMNPQRSTVWF",
+        dataset="flab-test",
+        affinity_type="kd",
+        affinity_raw="0.1",
+        processed_measurement_raw="0.1",
+        processed_measurement_float=0.1,
+        binder_label=None,
+    )
+    kd_high = make_processed_antibody_antigen_record(
+        heavy_sequence="QVQLQESGGGLVQAGGSLRLSCAASGFTFSSYAMGWFRQAPGKEREFVY",
+        light_sequence=None,
+        antigen_sequence="ACDEFGHIKLMNPQRSTVWG",
+        dataset="flab-test",
+        affinity_type="kd",
+        affinity_raw="10.0",
+        processed_measurement_raw="10.0",
+        processed_measurement_float=10.0,
+        binder_label=None,
+    )
+    records = [fuzzy_high, fuzzy_mid] + [kd_low] * 10 + [kd_mid] * 10 + [kd_high] * 10
+    data_path = write_processed_jsonl_gz(tmp_path / "antibody_antigen_affinity.jsonl.gz", records)
+
+    ds = OASSequenceDataset(data_path, split="train")
+
+    assert ds[0].affinity_family == "ordered_strength"
+    assert ds[0].affinity_strength_label == 1
+    assert ds[0].affinity_strength_score == 1.0
+
+    assert ds[1].affinity_family == "ordered_strength"
+    assert ds[1].affinity_strength_label is None
+    assert ds[1].affinity_strength_score == 0.5
+
+    kd_records = [record for record in ds.records if record.affinity_type == "kd"]
+    low_group = kd_records[0:10]
+    mid_group = kd_records[10:20]
+    high_group = kd_records[20:30]
+
+    assert all(record.affinity_family == "ranking_regression" for record in kd_records)
+    assert all(record.affinity_strength_label == 1 for record in low_group)
+    assert all(record.affinity_strength_label is None for record in mid_group)
+    assert all(record.affinity_strength_label == 0 for record in high_group)
+    assert all(record.affinity_strength_score is not None for record in kd_records)
 
 
 def test_sampler_batches_are_chain_homogeneous_and_length_bucketed(tmp_path: Path, tokenizer, write_processed_jsonl_gz):
@@ -210,11 +312,27 @@ def test_collator_returns_expected_shapes(tmp_path: Path, tokenizer, write_proce
     )
     batch = collator([ds[0], ds[1]])
 
-    assert set(batch.keys()) == {"input_ids", "attention_mask", "labels", "pair_labels", "pair_mask"}
+    assert set(batch.keys()) == {
+        "input_ids",
+        "attention_mask",
+        "labels",
+        "pair_labels",
+        "pair_mask",
+        "affinity_strength_labels",
+        "affinity_strength_mask",
+        "affinity_strength_scores",
+        "affinity_strength_score_mask",
+        "affinity_family_ids",
+    }
     assert batch["input_ids"].shape == batch["attention_mask"].shape == batch["labels"].shape
     assert batch["input_ids"].dtype == torch.long
     assert batch["attention_mask"].dtype == torch.long
     assert batch["labels"].dtype == torch.long
+    assert batch["affinity_strength_labels"].dtype == torch.long
+    assert batch["affinity_strength_mask"].dtype == torch.bool
+    assert batch["affinity_strength_scores"].dtype == torch.float32
+    assert batch["affinity_strength_score_mask"].dtype == torch.bool
+    assert batch["affinity_family_ids"].dtype == torch.long
 
 
 def test_collator_never_targets_special_positions(tmp_path: Path, tokenizer, write_processed_jsonl_gz):
@@ -351,4 +469,170 @@ def test_collator_can_shuffle_paired_examples(tmp_path: Path, tokenizer, write_p
     assert batch["pair_mask"].tolist() == [True, True]
     assert batch["pair_labels"].tolist() == [0, 0]
     assert batch["input_ids"].shape == batch["labels"].shape
-        
+
+
+def test_collator_returns_affinity_strength_tensors(tmp_path: Path, tokenizer, write_processed_jsonl_gz):
+    records = [
+        make_processed_antibody_antigen_record(
+            heavy_sequence="EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVS",
+            light_sequence=None,
+            antigen_sequence="MKTIIALSYIFCLVFADYKDDDDK",
+            affinity_type="bool",
+            binder_label=1,
+        ),
+        make_processed_antibody_antigen_record(
+            heavy_sequence="QVQLQESGGGLVQAGGSLRLSCAASGFTFSSYAMGWFRQAPGKEREFVA",
+            light_sequence=None,
+            antigen_sequence="ACDEFGHIKLMNPQRSTVWY",
+            dataset="buzz-test",
+            affinity_type="fuzzy",
+            affinity_raw="m",
+            processed_measurement_raw="m",
+            processed_measurement_float=None,
+            binder_label=None,
+        ),
+    ]
+    data_path = write_processed_jsonl_gz(tmp_path / "antibody_antigen_batch.jsonl.gz", records)
+    ds = OASSequenceDataset(data_path, split="train")
+
+    collator = MLMCollator(
+        tokenizer=tokenizer,
+        max_length=64,
+        mask_probability=0.15,
+        hcdr3_span_probability=0.0,
+        rng_seed=42,
+    )
+    batch = collator([ds[0], ds[1]])
+
+    assert batch["affinity_strength_labels"].tolist() == [1, 0]
+    assert batch["affinity_strength_mask"].tolist() == [True, False]
+    assert batch["affinity_strength_score_mask"].tolist() == [True, True]
+    assert batch["affinity_family_ids"].tolist() == [1, 2]
+
+
+def test_antibody_antigen_collator_returns_dual_stream_batch(tmp_path: Path, tokenizer, write_processed_jsonl_gz):
+    records = [
+        make_processed_antibody_antigen_record(
+            heavy_sequence="EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVS",
+            light_sequence=None,
+            antigen_sequence="MKTIIALSYIFCLVFADYKDDDDK",
+            target_key="uniprot:p11111",
+            record_id="antigen-1",
+        ),
+        make_processed_antibody_antigen_record(
+            heavy_sequence="QVQLQESGGGLVQAGGSLRLSCAASGFTFSSYAMGWFRQAPGKEREFVA",
+            light_sequence=None,
+            antigen_sequence="ACDEFGHIKLMNPQRSTVWY",
+            target_key="uniprot:p22222",
+            record_id="antigen-2",
+        ),
+    ]
+    data_path = write_processed_jsonl_gz(tmp_path / "antibody_antigen_dual.jsonl.gz", records)
+    ds = OASSequenceDataset(data_path, split="train")
+
+    collator = AntibodyAntigenCollator(
+        tokenizer=tokenizer,
+        max_length=64,
+        mask_probability=0.15,
+        hcdr3_span_probability=0.0,
+        shuffle_antigen_probability=0.0,
+        rng_seed=42,
+    )
+    batch = collator([ds[0], ds[1]])
+
+    assert set(batch.keys()) == {
+        "antibody_input_ids",
+        "antibody_attention_mask",
+        "antibody_labels",
+        "antigen_input_ids",
+        "antigen_attention_mask",
+        "compatibility_labels",
+        "compatibility_mask",
+        "is_shuffled_antigen",
+        "record_ids",
+        "target_keys",
+    }
+    assert batch["antibody_input_ids"].shape == batch["antibody_attention_mask"].shape == batch["antibody_labels"].shape
+    assert batch["antigen_input_ids"].shape == batch["antigen_attention_mask"].shape
+    assert batch["compatibility_labels"].tolist() == [1, 1]
+    assert batch["compatibility_mask"].tolist() == [True, True]
+    assert batch["is_shuffled_antigen"].tolist() == [False, False]
+
+
+def test_antibody_antigen_collator_uses_configurable_shuffle_fraction(tmp_path: Path, tokenizer, write_processed_jsonl_gz):
+    records = [
+        make_processed_antibody_antigen_record(
+            heavy_sequence="EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVS",
+            light_sequence=None,
+            antigen_sequence="MKTIIALSYIFCLVFADYKDDDDK",
+            target_key="uniprot:p11111",
+            record_id="antigen-1",
+        ),
+        make_processed_antibody_antigen_record(
+            heavy_sequence="QVQLQESGGGLVQAGGSLRLSCAASGFTFSSYAMGWFRQAPGKEREFVA",
+            light_sequence=None,
+            antigen_sequence="ACDEFGHIKLMNPQRSTVWY",
+            target_key="uniprot:p22222",
+            record_id="antigen-2",
+        ),
+    ]
+    data_path = write_processed_jsonl_gz(tmp_path / "antibody_antigen_shuffle.jsonl.gz", records)
+    ds = OASSequenceDataset(data_path, split="train")
+
+    collator = AntibodyAntigenCollator(
+        tokenizer=tokenizer,
+        max_length=64,
+        mask_probability=0.15,
+        hcdr3_span_probability=0.0,
+        shuffle_antigen_probability=1.0,
+        rng_seed=42,
+    )
+    batch = collator([ds[0], ds[1]])
+
+    assert batch["compatibility_mask"].tolist() == [True, True]
+    assert batch["compatibility_labels"].tolist() == [0, 0]
+    assert batch["is_shuffled_antigen"].tolist() == [True, True]
+    assert batch["target_keys"][0] == "uniprot:p22222"
+    assert batch["target_keys"][1] == "uniprot:p11111"
+
+
+def test_antibody_antigen_collator_only_uses_strong_binders_for_compatibility(
+    tmp_path: Path,
+    tokenizer,
+    write_processed_jsonl_gz,
+):
+    records = [
+        make_processed_antibody_antigen_record(
+            heavy_sequence="EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVS",
+            light_sequence=None,
+            antigen_sequence="MKTIIALSYIFCLVFADYKDDDDK",
+            target_key="uniprot:p11111",
+            record_id="antigen-1",
+            is_strong_binder=True,
+        ),
+        make_processed_antibody_antigen_record(
+            heavy_sequence="QVQLQESGGGLVQAGGSLRLSCAASGFTFSSYAMGWFRQAPGKEREFVA",
+            light_sequence=None,
+            antigen_sequence="ACDEFGHIKLMNPQRSTVWY",
+            target_key="uniprot:p22222",
+            record_id="antigen-2",
+            is_strong_binder=False,
+            binder_label=0,
+        ),
+    ]
+    data_path = write_processed_jsonl_gz(tmp_path / "antibody_antigen_strong_only.jsonl.gz", records)
+    ds = OASSequenceDataset(data_path, split="train")
+
+    collator = AntibodyAntigenCollator(
+        tokenizer=tokenizer,
+        max_length=64,
+        mask_probability=0.15,
+        hcdr3_span_probability=0.0,
+        shuffle_antigen_probability=1.0,
+        rng_seed=42,
+    )
+    batch = collator([ds[0], ds[1]])
+
+    assert batch["compatibility_mask"].tolist() == [True, False]
+    assert batch["compatibility_labels"].tolist() == [1, 0]
+    assert batch["is_shuffled_antigen"].tolist() == [False, False]
