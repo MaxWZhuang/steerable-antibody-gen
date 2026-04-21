@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import math
 import gzip
 import json
 import random
+from bisect import bisect_left
+from bisect import bisect_right
+from collections import defaultdict
 from dataclasses import dataclass
 from dataclasses import replace
 from pathlib import Path
@@ -54,11 +58,49 @@ class OASRecord:
     processed_measurement_raw: str | None = None
     processed_measurement_float: float | None = None
     binder_label: int | None = None
+    affinity_type_normalized: str | None = None
+    affinity_family: str | None = None
+    affinity_strength_score: float | None = None
+    affinity_strength_label: int | None = None
+    record_id: str | None = None
+    source_file: str | None = None
+    antigen_length: int | None = None
+    is_strong_binder: bool = False
     is_nanobody: bool = False
     scfv: bool = False
+
+
+@dataclass(frozen=True)
+class AffinityGroupStats:
+    """
+    Cached rank statistics for one `(dataset, affinity_type)` group.
+
+    We use these only for affinity types that behave like ordered strength
+    measurements after direction correction. Small groups are intentionally left
+    unusable for strong/weak labeling.
+    """
+
+    sorted_scores: tuple[float, ...]
+    low_threshold: float | None
+    high_threshold: float | None
+
+    @property
+    def count(self) -> int:
+        return len(self.sorted_scores)
     
 class OASSequenceDataset(Dataset[OASRecord]):
     """Dataset that reads processed single-chain or paired OAS JSONL records."""
+
+    AFFINITY_TOP_FRACTION = 0.20
+    AFFINITY_MIN_GROUP_SIZE = 25
+    AFFINITY_FAMILY_IDS = {
+        "unknown": 0,
+        "binary_binding": 1,
+        "ordered_strength": 2,
+        "ranking_regression": 3,
+        "mutation_effect": 4,
+    }
+    _affinity_stats_cache: dict[Path, dict[tuple[str, str], AffinityGroupStats]] = {}
 
     def __init__(
         self, 
@@ -77,6 +119,205 @@ class OASSequenceDataset(Dataset[OASRecord]):
             for line in f: 
                 if line.strip(): 
                     yield json.loads(line)
+
+    @staticmethod
+    def _normalize_affinity_type(value: object) -> str:
+        """Return a stable lowercase affinity-type key."""
+        return str(value or "").strip().lower()
+
+    @classmethod
+    def _affinity_family_for_type(cls, affinity_type: object) -> str:
+        """
+        Map heterogeneous affinity types into conservative supervision families.
+        """
+        normalized = cls._normalize_affinity_type(affinity_type)
+        if normalized == "bool":
+            return "binary_binding"
+        if normalized == "fuzzy":
+            return "ordered_strength"
+        if normalized in {"kd", "-log kd", "ic_50", "alphaseq", "log_enrichment", "delta_g"}:
+            return "ranking_regression"
+        if normalized in {"ddg", "elisa_mut_to_wt_ratio"}:
+            return "mutation_effect"
+        return "unknown"
+
+    @classmethod
+    def _dataset_affinity_key(cls, record: Dict[str, object]) -> tuple[str, str]:
+        """
+        Build the grouping key used for percentile-based strong/weak labels.
+        """
+        dataset_name = str(record.get("dataset") or "").strip().lower()
+        affinity_type = cls._normalize_affinity_type(record.get("affinity_type"))
+        return dataset_name, affinity_type
+
+    @classmethod
+    def _base_affinity_strength_score(cls, record: Dict[str, object]) -> float | None:
+        """
+        Convert one record into a direction-corrected scalar where larger is
+        better, without yet comparing across datasets.
+        """
+        affinity_type = cls._normalize_affinity_type(record.get("affinity_type"))
+        family = cls._affinity_family_for_type(affinity_type)
+        measurement = record.get("processed_measurement_float")
+        binder_label = record.get("binder_label")
+
+        if family == "binary_binding":
+            if binder_label in (0, 1):
+                return float(binder_label)
+            return None
+
+        if affinity_type == "fuzzy":
+            raw_value = str(
+                record.get("processed_measurement_raw")
+                or record.get("affinity_raw")
+                or ""
+            ).strip().lower()
+            mapping = {"l": 0.0, "m": 0.5, "h": 1.0}
+            return mapping.get(raw_value)
+
+        if family != "ranking_regression":
+            return None
+
+        if not isinstance(measurement, (int, float)) or isinstance(measurement, bool):
+            return None
+        value = float(measurement)
+        if not math.isfinite(value):
+            return None
+
+        if affinity_type in {"kd", "ic_50"}:
+            return -math.log10(max(value, 1e-12))
+        if affinity_type == "delta_g":
+            return -value
+        return value
+
+    @classmethod
+    def _build_affinity_stats_cache(
+        cls,
+        path: Path,
+    ) -> dict[tuple[str, str], AffinityGroupStats]:
+        """
+        Precompute per-group percentiles from the whole processed file.
+        """
+        cached = cls._affinity_stats_cache.get(path)
+        if cached is not None:
+            return cached
+
+        grouped_scores: dict[tuple[str, str], list[float]] = defaultdict(list)
+        opener = gzip.open if path.suffix == ".gz" else open
+        with opener(path, "rt", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                record = json.loads(line)
+                if cls._affinity_family_for_type(record.get("affinity_type")) != "ranking_regression":
+                    continue
+                score = cls._base_affinity_strength_score(record)
+                if score is None:
+                    continue
+                grouped_scores[cls._dataset_affinity_key(record)].append(score)
+
+        stats_by_group: dict[tuple[str, str], AffinityGroupStats] = {}
+        for key, scores in grouped_scores.items():
+            scores.sort()
+            if len(scores) < cls.AFFINITY_MIN_GROUP_SIZE:
+                stats_by_group[key] = AffinityGroupStats(
+                    sorted_scores=tuple(scores),
+                    low_threshold=None,
+                    high_threshold=None,
+                )
+                continue
+
+            low_index = int(round((len(scores) - 1) * cls.AFFINITY_TOP_FRACTION))
+            high_index = int(round((len(scores) - 1) * (1.0 - cls.AFFINITY_TOP_FRACTION)))
+            stats_by_group[key] = AffinityGroupStats(
+                sorted_scores=tuple(scores),
+                low_threshold=float(scores[low_index]),
+                high_threshold=float(scores[high_index]),
+            )
+
+        cls._affinity_stats_cache[path] = stats_by_group
+        return stats_by_group
+
+    @staticmethod
+    def _percentile_rank(sorted_scores: tuple[float, ...], value: float) -> float | None:
+        """
+        Approximate the percentile rank of `value` within a sorted score list.
+        """
+        if not sorted_scores:
+            return None
+        left = bisect_left(sorted_scores, value)
+        right = bisect_right(sorted_scores, value)
+        midpoint = (left + right) / 2.0
+        return midpoint / len(sorted_scores)
+
+    def _annotate_affinity(
+        self,
+        record: Dict[str, object],
+        affinity_stats: dict[tuple[str, str], AffinityGroupStats],
+    ) -> dict[str, object]:
+        """
+        Derive conservative affinity supervision fields for one record.
+        """
+        affinity_type_normalized = self._normalize_affinity_type(record.get("affinity_type"))
+        affinity_family = self._affinity_family_for_type(affinity_type_normalized)
+        strength_score = self._base_affinity_strength_score(record)
+        strength_label: int | None = None
+
+        if affinity_family == "binary_binding":
+            if record.get("binder_label") in (0, 1):
+                strength_label = int(record["binder_label"])
+        elif affinity_type_normalized == "fuzzy":
+            raw_value = str(
+                record.get("processed_measurement_raw")
+                or record.get("affinity_raw")
+                or ""
+            ).strip().lower()
+            if raw_value == "h":
+                strength_label = 1
+            elif raw_value == "l":
+                strength_label = 0
+        elif affinity_family == "ranking_regression" and strength_score is not None:
+            stats = affinity_stats.get(self._dataset_affinity_key(record))
+            if stats is not None and stats.count >= self.AFFINITY_MIN_GROUP_SIZE:
+                if stats.low_threshold is not None and strength_score <= stats.low_threshold:
+                    strength_label = 0
+                elif stats.high_threshold is not None and strength_score >= stats.high_threshold:
+                    strength_label = 1
+                rank = self._percentile_rank(stats.sorted_scores, strength_score)
+                if rank is not None:
+                    strength_score = rank
+
+        return {
+            "affinity_type_normalized": affinity_type_normalized or None,
+            "affinity_family": affinity_family,
+            "affinity_strength_score": strength_score,
+            "affinity_strength_label": strength_label,
+        }
+
+    @classmethod
+    def _infer_is_strong_binder(cls, record: Dict[str, object]) -> bool:
+        """
+        Return the conservative phase-1 strong-binder flag used by the
+        antibody-antigen compatibility stage.
+
+        For the first pass we intentionally keep this narrow:
+        - explicit boolean binders with label 1
+        - fuzzy assay rows labeled "h"
+        """
+        if "is_strong_binder" in record:
+            return bool(record.get("is_strong_binder"))
+
+        affinity_type = cls._normalize_affinity_type(record.get("affinity_type"))
+        if affinity_type == "bool":
+            return record.get("binder_label") == 1
+        if affinity_type == "fuzzy":
+            raw_value = str(
+                record.get("processed_measurement_raw")
+                or record.get("affinity_raw")
+                or ""
+            ).strip().lower()
+            return raw_value == "h"
+        return False
     
     def _load(self) -> None: 
         """
@@ -87,10 +328,12 @@ class OASSequenceDataset(Dataset[OASRecord]):
         so the training code can switch between them based only on the contents
         of the processed JSONL file.
         """
+        affinity_stats = self._build_affinity_stats_cache(self.data_path)
         for record in self._iter_jsonl():
             # yields 1 line at a time, prefers over records
             if record.get("split") != self.split: 
                 continue
+            affinity_annotations = self._annotate_affinity(record, affinity_stats)
             token_ids = record.get("token_ids")
             token_length = record.get("token_length")
             if token_length is None:
@@ -138,6 +381,14 @@ class OASSequenceDataset(Dataset[OASRecord]):
                     processed_measurement_raw=record.get("processed_measurement_raw"),
                     processed_measurement_float=record.get("processed_measurement_float"),
                     binder_label=record.get("binder_label"),
+                    affinity_type_normalized=affinity_annotations["affinity_type_normalized"],
+                    affinity_family=affinity_annotations["affinity_family"],
+                    affinity_strength_score=affinity_annotations["affinity_strength_score"],
+                    affinity_strength_label=affinity_annotations["affinity_strength_label"],
+                    record_id=record.get("record_id"),
+                    source_file=record.get("source_file"),
+                    antigen_length=record.get("antigen_length"),
+                    is_strong_binder=self._infer_is_strong_binder(record),
                     is_nanobody=bool(record.get("is_nanobody")),
                     scfv=bool(record.get("scfv")),
                 )
@@ -483,12 +734,17 @@ class MLMCollator:
                 - cdr3_end_aa
                 
         Returns:
-            Dictionary["input_ids", "attention_mask", "labels", "pair_labels", "pair_mask"]: 
+            Dictionary containing MLM tensors plus auxiliary affinity targets.
                 - "input_ids": Tensor of shape [batch_size, seq_len] containing masked/corrupted token IDs for model input
                 - "attention_mask": Tensor of shape [batch_size, seq_len] where 1 indicates a real token and 0 indicates padding
                 - "labels": Tensor of shape [batch_size, seq_len] containing MLM targets at selected positions and -100 elsewhere
                 - "pair_labels": Tensor of shape [batch_size] with 1 for native pairs and 0 for shuffled negatives
                 - "pair_mask": Tensor of shape [batch_size] marking records that participate in the auxiliary pair loss
+                - "affinity_strength_labels": Tensor of shape [batch_size] with conservative strong/weak labels
+                - "affinity_strength_mask": Tensor of shape [batch_size] marking rows with usable strong/weak labels
+                - "affinity_strength_scores": Tensor of shape [batch_size] with direction-corrected scores or percentile ranks
+                - "affinity_strength_score_mask": Tensor of shape [batch_size] marking rows with usable scores
+                - "affinity_family_ids": Tensor of shape [batch_size] encoding broad affinity supervision families
         
         """
         
@@ -512,11 +768,259 @@ class MLMCollator:
         
         masked_input_ids, labels = self._mask_tokens(input_ids, effective_batch)
 
+        affinity_strength_labels = []
+        affinity_strength_mask = []
+        affinity_strength_scores = []
+        affinity_strength_score_mask = []
+        affinity_family_ids = []
+
+        for item in effective_batch:
+            label = item.affinity_strength_label
+            score = item.affinity_strength_score
+            affinity_strength_labels.append(0 if label is None else int(label))
+            affinity_strength_mask.append(label is not None)
+            affinity_strength_scores.append(0.0 if score is None else float(score))
+            affinity_strength_score_mask.append(score is not None)
+            affinity_family_ids.append(
+                OASSequenceDataset.AFFINITY_FAMILY_IDS.get(item.affinity_family or "unknown", 0)
+            )
+
         return {
             "input_ids": masked_input_ids,
             "attention_mask": attention_mask, 
             "labels": labels,
             "pair_labels": torch.tensor(pair_labels, dtype=torch.long),
             "pair_mask": torch.tensor(pair_mask, dtype=torch.bool),
+            "affinity_strength_labels": torch.tensor(affinity_strength_labels, dtype=torch.long),
+            "affinity_strength_mask": torch.tensor(affinity_strength_mask, dtype=torch.bool),
+            "affinity_strength_scores": torch.tensor(affinity_strength_scores, dtype=torch.float32),
+            "affinity_strength_score_mask": torch.tensor(affinity_strength_score_mask, dtype=torch.bool),
+            "affinity_family_ids": torch.tensor(affinity_family_ids, dtype=torch.long),
         }
-        
+
+
+class AntibodyAntigenCollator(MLMCollator):
+    """
+    Build dual-stream batches for the antibody-antigen cross-attention model.
+
+    Choice 1 policy:
+        - native positives come only from strong-binder rows
+        - negatives are created by shuffling antigens across strong-binder rows
+        - antigen shuffling is constrained by antibody format and antigen length
+    """
+
+    def __init__(
+        self,
+        tokenizer: AminoAcidTokenizer,
+        max_length: int,
+        mask_probability: float = 0.15,
+        hcdr3_span_probability: float = 0.5,
+        hcdr3_span_min: int = 3,
+        hcdr3_span_max: int = 8,
+        shuffle_antigen_probability: float = 0.5,
+        antigen_length_bucket_width: int = 64,
+        rng_seed: int = 42,
+    ) -> None:
+        super().__init__(
+            tokenizer=tokenizer,
+            max_length=max_length,
+            mask_probability=mask_probability,
+            hcdr3_span_probability=hcdr3_span_probability,
+            hcdr3_span_min=hcdr3_span_min,
+            hcdr3_span_max=hcdr3_span_max,
+            shuffle_pair_probability=0.0,
+            rng_seed=rng_seed,
+        )
+        self.shuffle_antigen_probability = shuffle_antigen_probability
+        self.antigen_length_bucket_width = antigen_length_bucket_width
+
+    def _is_antibody_antigen_eligible(self, item: OASRecord) -> bool:
+        """
+        Decide whether one record can participate in compatibility supervision.
+        """
+        antibody_sequence = (item.sequence_heavy or item.sequence or "").strip()
+        antigen_sequence = (item.sequence_antigen or "").strip()
+        return bool(item.is_strong_binder and antibody_sequence and antigen_sequence)
+
+    def _antibody_format_group(self, item: OASRecord) -> str:
+        """
+        Group examples by the antibody representation format used in the batch.
+        """
+        if item.is_paired and (item.sequence_light or "").strip():
+            return "paired"
+        return "heavy_only"
+
+    def _antigen_bucket(self, item: OASRecord) -> int:
+        """
+        Coarsen antigen length so negative sampling prefers similarly sized targets.
+        """
+        antigen_len = item.antigen_length
+        if antigen_len is None:
+            antigen_len = len((item.sequence_antigen or "").strip())
+        return int(antigen_len) // self.antigen_length_bucket_width
+
+    def _find_antigen_donor(
+        self,
+        idx: int,
+        native_batch: Sequence[OASRecord],
+        eligible_indices: Sequence[int],
+    ) -> int | None:
+        """
+        Choose one constrained donor antigen for a shuffled negative.
+        """
+        item = native_batch[idx]
+        format_group = self._antibody_format_group(item)
+        antigen_bucket = self._antigen_bucket(item)
+        same_target = item.target_key
+        same_antigen = (item.sequence_antigen or "").strip()
+        same_record = item.record_id
+
+        def valid(candidate_idx: int, require_same_bucket: bool) -> bool:
+            if candidate_idx == idx:
+                return False
+            candidate = native_batch[candidate_idx]
+            if self._antibody_format_group(candidate) != format_group:
+                return False
+            if require_same_bucket and self._antigen_bucket(candidate) != antigen_bucket:
+                return False
+            if same_target and candidate.target_key == same_target:
+                return False
+            if same_antigen and (candidate.sequence_antigen or "").strip() == same_antigen:
+                return False
+            if same_record and candidate.record_id == same_record:
+                return False
+            return True
+
+        strict_candidates = [
+            candidate_idx
+            for candidate_idx in eligible_indices
+            if valid(candidate_idx, require_same_bucket=True)
+        ]
+        if strict_candidates:
+            return self.rng.choice(strict_candidates)
+
+        relaxed_candidates = [
+            candidate_idx
+            for candidate_idx in eligible_indices
+            if valid(candidate_idx, require_same_bucket=False)
+        ]
+        if relaxed_candidates:
+            return self.rng.choice(relaxed_candidates)
+        return None
+
+    def _build_antibody_antigen_batch(
+        self,
+        batch: Sequence[OASRecord],
+    ) -> tuple[list[OASRecord], list[int], list[bool], list[bool]]:
+        """
+        Materialize native positives plus shuffled-antigen negatives.
+        """
+        native_batch = [replace(item) for item in batch]
+        effective_batch = [replace(item) for item in batch]
+        compatibility_labels = [0] * len(batch)
+        compatibility_mask = [False] * len(batch)
+        is_shuffled_antigen = [False] * len(batch)
+
+        eligible_indices = [
+            idx for idx, item in enumerate(native_batch)
+            if self._is_antibody_antigen_eligible(item)
+        ]
+        if len(eligible_indices) < 2:
+            for idx in eligible_indices:
+                compatibility_labels[idx] = 1
+                compatibility_mask[idx] = True
+            return effective_batch, compatibility_labels, compatibility_mask, is_shuffled_antigen
+
+        for idx in eligible_indices:
+            compatibility_labels[idx] = 1
+            compatibility_mask[idx] = True
+
+        shuffled_indices = [
+            idx
+            for idx in eligible_indices
+            if self.rng.random() < self.shuffle_antigen_probability
+        ]
+
+        if len(shuffled_indices) == 1 and len(eligible_indices) > 1:
+            donor_idx = self._find_antigen_donor(shuffled_indices[0], native_batch, eligible_indices)
+            if donor_idx is None:
+                shuffled_indices = []
+
+        for idx in shuffled_indices:
+            donor_idx = self._find_antigen_donor(idx, native_batch, eligible_indices)
+            if donor_idx is None:
+                continue
+            donor = native_batch[donor_idx]
+            effective_batch[idx] = replace(
+                effective_batch[idx],
+                sequence_antigen=donor.sequence_antigen,
+                antigen_length=donor.antigen_length,
+                target_key=donor.target_key,
+                target_name=donor.target_name,
+                target_pdb=donor.target_pdb,
+                target_uniprot=donor.target_uniprot,
+            )
+            compatibility_labels[idx] = 0
+            is_shuffled_antigen[idx] = True
+
+        return effective_batch, compatibility_labels, compatibility_mask, is_shuffled_antigen
+
+    def _encode_antigen(self, item: OASRecord) -> list[int]:
+        """
+        Encode the antigen stream as its own token sequence.
+        """
+        return self.tokenizer.encode_sequence(
+            item.sequence_antigen or "",
+            locus=None,
+            max_length=self.max_length,
+        )
+
+    def _pad_encoded(self, encoded: Sequence[list[int]]) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Pad one tokenized stream and return tensors plus its attention mask.
+        """
+        seq_lengths = [len(ids) for ids in encoded]
+        max_len = min(max(seq_lengths), self.max_length)
+        padded = []
+        attention_masks = []
+        for ids in encoded:
+            ids = ids[:max_len]
+            pad_len = max_len - len(ids)
+            padded.append(ids + [self.tokenizer.pad_id] * pad_len)
+            attention_masks.append([1] * len(ids) + [0] * pad_len)
+        return (
+            torch.tensor(padded, dtype=torch.long),
+            torch.tensor(attention_masks, dtype=torch.long),
+        )
+
+    def __call__(self, batch: Sequence[OASRecord]) -> Dict[str, torch.Tensor | list[str | None]]:
+        """
+        Build a dual-stream antibody-antigen batch with antibody MLM labels and
+        compatibility labels for native strong binders vs shuffled negatives.
+        """
+        effective_batch, compatibility_labels, compatibility_mask, is_shuffled_antigen = (
+            self._build_antibody_antigen_batch(batch)
+        )
+
+        antibody_encoded = [self._encode_record(item) for item in effective_batch]
+        antigen_encoded = [self._encode_antigen(item) for item in effective_batch]
+
+        antibody_input_ids, antibody_attention_mask = self._pad_encoded(antibody_encoded)
+        antigen_input_ids, antigen_attention_mask = self._pad_encoded(antigen_encoded)
+        antibody_masked_input_ids, antibody_labels = self._mask_tokens(
+            antibody_input_ids,
+            effective_batch,
+        )
+
+        return {
+            "antibody_input_ids": antibody_masked_input_ids,
+            "antibody_attention_mask": antibody_attention_mask,
+            "antibody_labels": antibody_labels,
+            "antigen_input_ids": antigen_input_ids,
+            "antigen_attention_mask": antigen_attention_mask,
+            "compatibility_labels": torch.tensor(compatibility_labels, dtype=torch.long),
+            "compatibility_mask": torch.tensor(compatibility_mask, dtype=torch.bool),
+            "is_shuffled_antigen": torch.tensor(is_shuffled_antigen, dtype=torch.bool),
+            "record_ids": [item.record_id for item in effective_batch],
+            "target_keys": [item.target_key for item in effective_batch],
+        }
