@@ -912,6 +912,15 @@ def run_smoke_test(
             print("smoke_test/antigen_input_ids:", tuple(batch["antigen_input_ids"].shape))
             print("smoke_test/logits:", tuple(logits.shape))
             print("smoke_test/compatibility_logits:", tuple(compatibility_logits.shape))
+            compatibility_mask_count = int(batch["compatibility_mask"].sum().item())
+            compatibility_positive_count = int(
+                batch["compatibility_labels"][batch["compatibility_mask"]].sum().item()
+            )
+            print(
+                "smoke_test/compatibility_batch:"
+                f" labeled={compatibility_mask_count}/{batch['compatibility_mask'].numel()}"
+                f" positives={compatibility_positive_count}"
+            )
         else:
             logits, pair_logits = model.forward_with_pairing(batch["input_ids"], batch["attention_mask"])
             losses = model.compute_losses(
@@ -927,7 +936,7 @@ def run_smoke_test(
             print("smoke_test/pair_logits:", tuple(pair_logits.shape))
         loss = losses["loss"]
 
-    print("smoke_test/loss:", float(loss))
+    print("smoke_test/loss:", float(loss.detach()))
 
     scaler.scale(loss).backward()
     scaler.unscale_(optimizer)
