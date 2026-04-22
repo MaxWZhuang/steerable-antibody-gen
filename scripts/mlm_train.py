@@ -14,7 +14,24 @@ import numpy as np
 import torch
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
-from tqdm.auto import tqdm
+try:
+    from tqdm.auto import tqdm
+except ImportError:  # pragma: no cover - exercised only when dependency is missing
+    class _TqdmFallback:
+        def __init__(self, iterable, *args, **kwargs):
+            self._iterable = iterable
+
+        def __iter__(self):
+            return iter(self._iterable)
+
+        def set_postfix(self, *args, **kwargs) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    def tqdm(iterable, *args, **kwargs):
+        return _TqdmFallback(iterable, *args, **kwargs)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
@@ -23,11 +40,12 @@ if str(SRC_ROOT) not in sys.path:
 
 from smallAntibodyGen.tokenizer import AminoAcidTokenizer
 from smallAntibodyGen.data.MLMCollator import (
+    AntibodyAntigenCollator,
     OASSequenceDataset,
     MLMCollator
 )
 from smallAntibodyGen.data.MLMSampler import ChainLengthBucketBatchSampler
-from smallAntibodyGen.models.mlm import AntibodyMLM, MLMConfig
+from smallAntibodyGen.models.mlm import AntibodyAntigenCrossAttention, AntibodyMLM, MLMConfig
 
 try:
     import yaml
@@ -112,6 +130,7 @@ class TrainConfig:
     hcdr3_span_min: int = 3
     hcdr3_span_max: int = 8
     shuffle_pair_probability: float = 0.5
+    shuffle_antigen_probability: float = 0.5
 
     d_model: int = 256
     n_heads: int = 8
@@ -123,6 +142,7 @@ class TrainConfig:
     weight_decay: float = 1e-2
     grad_clip_norm: float = 1.0
     pair_loss_weight: float = 1.0
+    compatibility_loss_weight: float = 1.0
     epochs: int = 5
     seed: int = 42
 
@@ -159,6 +179,8 @@ class TrainConfig:
             raise ValueError("hcdr3_span_probability must be in [0, 1]")
         if not (0.0 <= self.shuffle_pair_probability <= 1.0):
             raise ValueError("shuffle_pair_probability must be in [0, 1]")
+        if not (0.0 <= self.shuffle_antigen_probability <= 1.0):
+            raise ValueError("shuffle_antigen_probability must be in [0, 1]")
         if self.hcdr3_span_min <= 0 or self.hcdr3_span_max <= 0:
             raise ValueError("HCDR3 span lengths must be > 0")
         if self.hcdr3_span_min > self.hcdr3_span_max:
@@ -171,12 +193,14 @@ class TrainConfig:
             raise ValueError("grad_clip_norm must be > 0")
         if self.pair_loss_weight < 0:
             raise ValueError("pair_loss_weight must be >= 0")
+        if self.compatibility_loss_weight < 0:
+            raise ValueError("compatibility_loss_weight must be >= 0")
         if self.epochs <= 0:
             raise ValueError("epochs must be > 0")
         if self.train_num_workers < 0 or self.eval_num_workers < 0:
             raise ValueError("num_workers must be >= 0")
-        if self.training_stage not in {"base", "paired_refine"}:
-            raise ValueError("training_stage must be one of: base, paired_refine")
+        if self.training_stage not in {"base", "paired_refine", "antigen_refine"}:
+            raise ValueError("training_stage must be one of: base, paired_refine, antigen_refine")
         if self.training_stage == "paired_refine" and not self.init_checkpoint:
             raise ValueError(
                 "paired_refine training requires `init_checkpoint` so refinement "
@@ -339,7 +363,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=str, default=None)
     parser.add_argument("--data-path", type=str)
     parser.add_argument("--output-dir", type=str)
-    parser.add_argument("--training-stage", type=str, choices=("base", "paired_refine"))
+    parser.add_argument("--training-stage", type=str, choices=("base", "paired_refine", "antigen_refine"))
     parser.add_argument("--init-checkpoint", type=str)
     parser.add_argument("--resume-from-last", action="store_true", default=argparse.SUPPRESS)
     parser.add_argument("--no-resume-from-last", dest="resume_from_last", action="store_false", default=argparse.SUPPRESS)
@@ -356,6 +380,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hcdr3-span-min", type=int)
     parser.add_argument("--hcdr3-span-max", type=int)
     parser.add_argument("--shuffle-pair-probability", type=float)
+    parser.add_argument("--shuffle-antigen-probability", type=float)
 
     parser.add_argument("--d-model", type=int)
     parser.add_argument("--n-heads", type=int)
@@ -367,6 +392,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--weight-decay", type=float)
     parser.add_argument("--grad-clip-norm", type=float)
     parser.add_argument("--pair-loss-weight", type=float)
+    parser.add_argument("--compatibility-loss-weight", type=float)
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--seed", type=int)
 
@@ -414,8 +440,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> TrainConfig:
     merged_config.update(args_dict)
 
     output_dir_provided = ("output_dir" in file_config) or ("output_dir" in args_dict)
-    if (not output_dir_provided) and merged_config.get("training_stage") == "paired_refine":
-        merged_config["output_dir"] = "checkpoints/mlm_paired_refine"
+    if not output_dir_provided:
+        if merged_config.get("training_stage") == "paired_refine":
+            merged_config["output_dir"] = "checkpoints/mlm_paired_refine"
+        elif merged_config.get("training_stage") == "antigen_refine":
+            merged_config["output_dir"] = "checkpoints/mlm_antigen_refine"
 
     if "data_path" not in merged_config or not merged_config["data_path"]:
         parser.error("--data-path is required unless provided via --config")
@@ -564,16 +593,28 @@ def build_train_loader(
     if hasattr(sampler, "set_epoch"):
         sampler.set_epoch(epoch)
 
-    collator = MLMCollator(
-        tokenizer=tokenizer,
-        max_length=cfg.max_length,
-        mask_probability=cfg.mask_probability,
-        hcdr3_span_probability=cfg.hcdr3_span_probability,
-        hcdr3_span_min=cfg.hcdr3_span_min,
-        hcdr3_span_max=cfg.hcdr3_span_max,
-        shuffle_pair_probability=cfg.shuffle_pair_probability,
-        rng_seed=cfg.seed + epoch,
-    )
+    if cfg.training_stage == "antigen_refine":
+        collator = AntibodyAntigenCollator(
+            tokenizer=tokenizer,
+            max_length=cfg.max_length,
+            mask_probability=cfg.mask_probability,
+            hcdr3_span_probability=cfg.hcdr3_span_probability,
+            hcdr3_span_min=cfg.hcdr3_span_min,
+            hcdr3_span_max=cfg.hcdr3_span_max,
+            shuffle_antigen_probability=cfg.shuffle_antigen_probability,
+            rng_seed=cfg.seed + epoch,
+        )
+    else:
+        collator = MLMCollator(
+            tokenizer=tokenizer,
+            max_length=cfg.max_length,
+            mask_probability=cfg.mask_probability,
+            hcdr3_span_probability=cfg.hcdr3_span_probability,
+            hcdr3_span_min=cfg.hcdr3_span_min,
+            hcdr3_span_max=cfg.hcdr3_span_max,
+            shuffle_pair_probability=cfg.shuffle_pair_probability,
+            rng_seed=cfg.seed + epoch,
+        )
 
     loader = DataLoader(
         dataset,
@@ -616,16 +657,28 @@ def build_eval_loader(
         seed=cfg.seed + 10_000,
     )
 
-    collator = MLMCollator(
-        tokenizer=tokenizer,
-        max_length=cfg.max_length,
-        mask_probability=cfg.mask_probability,
-        hcdr3_span_probability=cfg.hcdr3_span_probability,
-        hcdr3_span_min=cfg.hcdr3_span_min,
-        hcdr3_span_max=cfg.hcdr3_span_max,
-        shuffle_pair_probability=cfg.shuffle_pair_probability,
-        rng_seed=cfg.seed + 20_000,
-    )
+    if cfg.training_stage == "antigen_refine":
+        collator = AntibodyAntigenCollator(
+            tokenizer=tokenizer,
+            max_length=cfg.max_length,
+            mask_probability=cfg.mask_probability,
+            hcdr3_span_probability=cfg.hcdr3_span_probability,
+            hcdr3_span_min=cfg.hcdr3_span_min,
+            hcdr3_span_max=cfg.hcdr3_span_max,
+            shuffle_antigen_probability=cfg.shuffle_antigen_probability,
+            rng_seed=cfg.seed + 20_000,
+        )
+    else:
+        collator = MLMCollator(
+            tokenizer=tokenizer,
+            max_length=cfg.max_length,
+            mask_probability=cfg.mask_probability,
+            hcdr3_span_probability=cfg.hcdr3_span_probability,
+            hcdr3_span_min=cfg.hcdr3_span_min,
+            hcdr3_span_max=cfg.hcdr3_span_max,
+            shuffle_pair_probability=cfg.shuffle_pair_probability,
+            rng_seed=cfg.seed + 20_000,
+        )
 
     loader = DataLoader(
         dataset,
@@ -642,7 +695,7 @@ def build_model(
     tokenizer: AminoAcidTokenizer,
     cfg: TrainConfig,
     device: torch.device,
-) -> AntibodyMLM:
+) -> torch.nn.Module:
     """
     Build the MLM model and move it to the chosen device.
 
@@ -667,11 +720,14 @@ def build_model(
         d_ff=cfg.d_ff,
         dropout=cfg.dropout,
     )
-    model = AntibodyMLM(model_cfg).to(device)
+    if cfg.training_stage == "antigen_refine":
+        model = AntibodyAntigenCrossAttention(model_cfg).to(device)
+    else:
+        model = AntibodyMLM(model_cfg).to(device)
     return model
 
 
-def build_optimizer(model: AntibodyMLM, cfg: TrainConfig) -> AdamW:
+def build_optimizer(model: torch.nn.Module, cfg: TrainConfig) -> AdamW:
     """
     Build the optimizer used for MLM training.
 
@@ -691,7 +747,7 @@ def build_optimizer(model: AntibodyMLM, cfg: TrainConfig) -> AdamW:
     )
 
 
-def move_batch_to_device(batch: Dict[str, torch.Tensor], device: torch.device) -> Dict[str, torch.Tensor]:
+def move_batch_to_device(batch: Dict[str, Any], device: torch.device) -> Dict[str, Any]:
     """
     Move all tensor values in a batch dictionary onto a device.
 
@@ -704,7 +760,13 @@ def move_batch_to_device(batch: Dict[str, torch.Tensor], device: torch.device) -
     Returns:
         New dictionary with all tensor values moved to `device`.
     """
-    return {k: v.to(device, non_blocking=True) for k, v in batch.items()}
+    moved: Dict[str, Any] = {}
+    for key, value in batch.items():
+        if isinstance(value, torch.Tensor):
+            moved[key] = value.to(device, non_blocking=True)
+        else:
+            moved[key] = value
+    return moved
 
 
 def masked_accuracy(logits: torch.Tensor, labels: torch.Tensor) -> float:
@@ -756,6 +818,20 @@ def pair_classification_accuracy(
     return (preds[pair_mask] == pair_labels[pair_mask]).float().mean().item()
 
 
+def compatibility_classification_accuracy(
+    compatibility_logits: torch.Tensor,
+    compatibility_labels: torch.Tensor,
+    compatibility_mask: torch.Tensor,
+) -> float:
+    """
+    Compute antibody-antigen compatibility accuracy on labeled rows only.
+    """
+    if compatibility_mask.sum().item() == 0:
+        return 0.0
+    preds = compatibility_logits.argmax(dim=-1)
+    return (preds[compatibility_mask] == compatibility_labels[compatibility_mask]).float().mean().item()
+
+
 def _make_progress_bar(
     iterable,
     *,
@@ -771,11 +847,12 @@ def _make_progress_bar(
 
 
 def run_smoke_test(
-    model: AntibodyMLM,
+    model: torch.nn.Module,
     train_loader: DataLoader,
     optimizer: AdamW,
     device: torch.device,
     use_amp: bool,
+    training_stage: str,
 ) -> None:
     """
     Run a minimal forward/backward/step proof of implementation.
@@ -811,20 +888,40 @@ def run_smoke_test(
     optimizer.zero_grad(set_to_none=True)
 
     with torch.autocast(device_type=device.type, enabled=(use_amp and device.type == "cuda")):
-        logits, pair_logits = model.forward_with_pairing(batch["input_ids"], batch["attention_mask"])
-        losses = model.compute_losses(
-            mlm_logits=logits,
-            labels=batch["labels"],
-            pair_logits=pair_logits,
-            pair_labels=batch["pair_labels"],
-            pair_mask=batch["pair_mask"],
-            pair_loss_weight=1.0,
-        )
+        if training_stage == "antigen_refine":
+            logits, compatibility_logits = model(
+                antibody_input_ids=batch["antibody_input_ids"],
+                antibody_attention_mask=batch["antibody_attention_mask"],
+                antigen_input_ids=batch["antigen_input_ids"],
+                antigen_attention_mask=batch["antigen_attention_mask"],
+            )
+            losses = model.compute_losses(
+                mlm_logits=logits,
+                labels=batch["antibody_labels"],
+                compatibility_logits=compatibility_logits,
+                compatibility_labels=batch["compatibility_labels"],
+                compatibility_mask=batch["compatibility_mask"],
+                compatibility_loss_weight=1.0,
+            )
+            print("smoke_test/antibody_input_ids:", tuple(batch["antibody_input_ids"].shape))
+            print("smoke_test/antigen_input_ids:", tuple(batch["antigen_input_ids"].shape))
+            print("smoke_test/logits:", tuple(logits.shape))
+            print("smoke_test/compatibility_logits:", tuple(compatibility_logits.shape))
+        else:
+            logits, pair_logits = model.forward_with_pairing(batch["input_ids"], batch["attention_mask"])
+            losses = model.compute_losses(
+                mlm_logits=logits,
+                labels=batch["labels"],
+                pair_logits=pair_logits,
+                pair_labels=batch["pair_labels"],
+                pair_mask=batch["pair_mask"],
+                pair_loss_weight=1.0,
+            )
+            print("smoke_test/input_ids:", tuple(batch["input_ids"].shape))
+            print("smoke_test/logits:", tuple(logits.shape))
+            print("smoke_test/pair_logits:", tuple(pair_logits.shape))
         loss = losses["loss"]
 
-    print("smoke_test/input_ids:", tuple(batch["input_ids"].shape))
-    print("smoke_test/logits:", tuple(logits.shape))
-    print("smoke_test/pair_logits:", tuple(pair_logits.shape))
     print("smoke_test/loss:", float(loss))
 
     scaler.scale(loss).backward()
@@ -839,7 +936,7 @@ def run_smoke_test(
 
 @torch.no_grad()
 def evaluate(
-    model: AntibodyMLM,
+    model: torch.nn.Module,
     val_dataset: OASSequenceDataset,
     tokenizer: AminoAcidTokenizer,
     cfg: TrainConfig,
@@ -868,9 +965,9 @@ def evaluate(
 
     total_loss = 0.0
     total_mlm_loss = 0.0
-    total_pair_loss = 0.0
+    total_aux_loss = 0.0
     total_acc = 0.0
-    total_pair_acc = 0.0
+    total_aux_acc = 0.0
     total_batches = 0
 
     progress = _make_progress_bar(
@@ -881,57 +978,96 @@ def evaluate(
     )
     for batch in progress:
         batch = move_batch_to_device(batch, device)
-        logits, pair_logits = model.forward_with_pairing(batch["input_ids"], batch["attention_mask"])
-        losses = model.compute_losses(
-            mlm_logits=logits,
-            labels=batch["labels"],
-            pair_logits=pair_logits,
-            pair_labels=batch["pair_labels"],
-            pair_mask=batch["pair_mask"],
-            pair_loss_weight=cfg.pair_loss_weight,
-        )
-        loss = losses["loss"]
-        mlm_loss = losses["mlm_loss"]
-        pair_loss = losses["pair_loss"]
-        acc = masked_accuracy(logits, batch["labels"])
-        pair_acc = pair_classification_accuracy(pair_logits, batch["pair_labels"], batch["pair_mask"])
+        if cfg.training_stage == "antigen_refine":
+            logits, compatibility_logits = model(
+                antibody_input_ids=batch["antibody_input_ids"],
+                antibody_attention_mask=batch["antibody_attention_mask"],
+                antigen_input_ids=batch["antigen_input_ids"],
+                antigen_attention_mask=batch["antigen_attention_mask"],
+            )
+            losses = model.compute_losses(
+                mlm_logits=logits,
+                labels=batch["antibody_labels"],
+                compatibility_logits=compatibility_logits,
+                compatibility_labels=batch["compatibility_labels"],
+                compatibility_mask=batch["compatibility_mask"],
+                compatibility_loss_weight=cfg.compatibility_loss_weight,
+            )
+            loss = losses["loss"]
+            mlm_loss = losses["mlm_loss"]
+            aux_loss = losses["compatibility_loss"]
+            acc = masked_accuracy(logits, batch["antibody_labels"])
+            aux_acc = compatibility_classification_accuracy(
+                compatibility_logits,
+                batch["compatibility_labels"],
+                batch["compatibility_mask"],
+            )
+            aux_loss_name = "compatibility_loss"
+            aux_acc_name = "compatibility_acc"
+        else:
+            logits, pair_logits = model.forward_with_pairing(batch["input_ids"], batch["attention_mask"])
+            losses = model.compute_losses(
+                mlm_logits=logits,
+                labels=batch["labels"],
+                pair_logits=pair_logits,
+                pair_labels=batch["pair_labels"],
+                pair_mask=batch["pair_mask"],
+                pair_loss_weight=cfg.pair_loss_weight,
+            )
+            loss = losses["loss"]
+            mlm_loss = losses["mlm_loss"]
+            aux_loss = losses["pair_loss"]
+            acc = masked_accuracy(logits, batch["labels"])
+            aux_acc = pair_classification_accuracy(pair_logits, batch["pair_labels"], batch["pair_mask"])
+            aux_loss_name = "pair_loss"
+            aux_acc_name = "pair_acc"
 
         total_loss += float(loss.item())
         total_mlm_loss += float(mlm_loss.item())
-        total_pair_loss += float(pair_loss.item())
+        total_aux_loss += float(aux_loss.item())
         total_acc += acc
-        total_pair_acc += pair_acc
+        total_aux_acc += aux_acc
         total_batches += 1
         progress.set_postfix(
             loss=f"{total_loss / total_batches:.4f}",
             mlm_loss=f"{total_mlm_loss / total_batches:.4f}",
-            pair_loss=f"{total_pair_loss / total_batches:.4f}",
+            **{aux_loss_name: f"{total_aux_loss / total_batches:.4f}"},
             mlm_acc=f"{total_acc / total_batches:.4f}",
-            pair_acc=f"{total_pair_acc / total_batches:.4f}",
+            **{aux_acc_name: f"{total_aux_acc / total_batches:.4f}"},
         )
 
     progress.close()
 
     if total_batches == 0:
-        return {
+        metrics = {
             "loss": float("nan"),
             "mlm_loss": float("nan"),
-            "pair_loss": float("nan"),
             "mlm_acc": float("nan"),
-            "pair_acc": float("nan"),
         }
+        if cfg.training_stage == "antigen_refine":
+            metrics["compatibility_loss"] = float("nan")
+            metrics["compatibility_acc"] = float("nan")
+        else:
+            metrics["pair_loss"] = float("nan")
+            metrics["pair_acc"] = float("nan")
+        return metrics
 
-    return {
+    metrics = {
         "loss": total_loss / total_batches,
         "mlm_loss": total_mlm_loss / total_batches,
-        "pair_loss": total_pair_loss / total_batches,
         "mlm_acc": total_acc / total_batches,
-        "pair_acc": total_pair_acc / total_batches,
     }
+    if cfg.training_stage == "antigen_refine":
+        metrics["compatibility_loss"] = total_aux_loss / total_batches
+        metrics["compatibility_acc"] = total_aux_acc / total_batches
+    else:
+        metrics["pair_loss"] = total_aux_loss / total_batches
+        metrics["pair_acc"] = total_aux_acc / total_batches
+    return metrics
 
 
 def train_one_epoch(
-    model: AntibodyMLM,
+    model: torch.nn.Module,
     train_dataset: OASSequenceDataset,
     tokenizer: AminoAcidTokenizer,
     optimizer: AdamW,
@@ -967,9 +1103,9 @@ def train_one_epoch(
 
     total_loss = 0.0
     total_mlm_loss = 0.0
-    total_pair_loss = 0.0
+    total_aux_loss = 0.0
     total_acc = 0.0
-    total_pair_acc = 0.0
+    total_aux_acc = 0.0
     total_batches = 0
 
     progress = _make_progress_bar(
@@ -983,18 +1119,37 @@ def train_one_epoch(
         optimizer.zero_grad(set_to_none=True)
 
         with torch.autocast(device_type=device.type, enabled=(cfg.use_amp and device.type == "cuda")):
-            logits, pair_logits = model.forward_with_pairing(batch["input_ids"], batch["attention_mask"])
-            losses = model.compute_losses(
-                mlm_logits=logits,
-                labels=batch["labels"],
-                pair_logits=pair_logits,
-                pair_labels=batch["pair_labels"],
-                pair_mask=batch["pair_mask"],
-                pair_loss_weight=cfg.pair_loss_weight,
-            )
-            loss = losses["loss"]
-            mlm_loss = losses["mlm_loss"]
-            pair_loss = losses["pair_loss"]
+            if cfg.training_stage == "antigen_refine":
+                logits, compatibility_logits = model(
+                    antibody_input_ids=batch["antibody_input_ids"],
+                    antibody_attention_mask=batch["antibody_attention_mask"],
+                    antigen_input_ids=batch["antigen_input_ids"],
+                    antigen_attention_mask=batch["antigen_attention_mask"],
+                )
+                losses = model.compute_losses(
+                    mlm_logits=logits,
+                    labels=batch["antibody_labels"],
+                    compatibility_logits=compatibility_logits,
+                    compatibility_labels=batch["compatibility_labels"],
+                    compatibility_mask=batch["compatibility_mask"],
+                    compatibility_loss_weight=cfg.compatibility_loss_weight,
+                )
+                loss = losses["loss"]
+                mlm_loss = losses["mlm_loss"]
+                aux_loss = losses["compatibility_loss"]
+            else:
+                logits, pair_logits = model.forward_with_pairing(batch["input_ids"], batch["attention_mask"])
+                losses = model.compute_losses(
+                    mlm_logits=logits,
+                    labels=batch["labels"],
+                    pair_logits=pair_logits,
+                    pair_labels=batch["pair_labels"],
+                    pair_mask=batch["pair_mask"],
+                    pair_loss_weight=cfg.pair_loss_weight,
+                )
+                loss = losses["loss"]
+                mlm_loss = losses["mlm_loss"]
+                aux_loss = losses["pair_loss"]
 
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
@@ -1002,50 +1157,72 @@ def train_one_epoch(
         scaler.step(optimizer)
         scaler.update()
 
-        acc = masked_accuracy(logits.detach(), batch["labels"])
-        pair_acc = pair_classification_accuracy(
-            pair_logits.detach(),
-            batch["pair_labels"],
-            batch["pair_mask"],
-        )
+        if cfg.training_stage == "antigen_refine":
+            acc = masked_accuracy(logits.detach(), batch["antibody_labels"])
+            aux_acc = compatibility_classification_accuracy(
+                compatibility_logits.detach(),
+                batch["compatibility_labels"],
+                batch["compatibility_mask"],
+            )
+            aux_loss_name = "compatibility_loss"
+            aux_acc_name = "compatibility_acc"
+        else:
+            acc = masked_accuracy(logits.detach(), batch["labels"])
+            aux_acc = pair_classification_accuracy(
+                pair_logits.detach(),
+                batch["pair_labels"],
+                batch["pair_mask"],
+            )
+            aux_loss_name = "pair_loss"
+            aux_acc_name = "pair_acc"
 
         total_loss += float(loss.item())
         total_mlm_loss += float(mlm_loss.item())
-        total_pair_loss += float(pair_loss.item())
+        total_aux_loss += float(aux_loss.item())
         total_acc += acc
-        total_pair_acc += pair_acc
+        total_aux_acc += aux_acc
         total_batches += 1
         progress.set_postfix(
             loss=f"{total_loss / total_batches:.4f}",
             mlm_loss=f"{total_mlm_loss / total_batches:.4f}",
-            pair_loss=f"{total_pair_loss / total_batches:.4f}",
+            **{aux_loss_name: f"{total_aux_loss / total_batches:.4f}"},
             mlm_acc=f"{total_acc / total_batches:.4f}",
-            pair_acc=f"{total_pair_acc / total_batches:.4f}",
+            **{aux_acc_name: f"{total_aux_acc / total_batches:.4f}"},
         )
 
     progress.close()
 
     if total_batches == 0:
-        return {
+        metrics = {
             "loss": float("nan"),
             "mlm_loss": float("nan"),
-            "pair_loss": float("nan"),
             "mlm_acc": float("nan"),
-            "pair_acc": float("nan"),
         }
+        if cfg.training_stage == "antigen_refine":
+            metrics["compatibility_loss"] = float("nan")
+            metrics["compatibility_acc"] = float("nan")
+        else:
+            metrics["pair_loss"] = float("nan")
+            metrics["pair_acc"] = float("nan")
+        return metrics
 
-    return {
+    metrics = {
         "loss": total_loss / total_batches,
         "mlm_loss": total_mlm_loss / total_batches,
-        "pair_loss": total_pair_loss / total_batches,
         "mlm_acc": total_acc / total_batches,
-        "pair_acc": total_pair_acc / total_batches,
     }
+    if cfg.training_stage == "antigen_refine":
+        metrics["compatibility_loss"] = total_aux_loss / total_batches
+        metrics["compatibility_acc"] = total_aux_acc / total_batches
+    else:
+        metrics["pair_loss"] = total_aux_loss / total_batches
+        metrics["pair_acc"] = total_aux_acc / total_batches
+    return metrics
 
 
 def save_checkpoint(
     path: Path,
-    model: AntibodyMLM,
+    model: torch.nn.Module,
     optimizer: AdamW,
     cfg: TrainConfig,
     epoch: int,
@@ -1238,7 +1415,7 @@ def main() -> None:
 
     if cfg.smoke_test_only:
         smoke_loader = build_train_loader(train_dataset, tokenizer, cfg, epoch=0)
-        run_smoke_test(model, smoke_loader, optimizer, device, cfg.use_amp)
+        run_smoke_test(model, smoke_loader, optimizer, device, cfg.use_amp, cfg.training_stage)
         return
 
     best_val_loss = float("inf")
@@ -1291,19 +1468,25 @@ def main() -> None:
 
         train_loss = train_metrics["loss"]
         val_loss = val_metrics["loss"]
+        if cfg.training_stage == "antigen_refine":
+            aux_loss_name = "compatibility_loss"
+            aux_acc_name = "compatibility_acc"
+        else:
+            aux_loss_name = "pair_loss"
+            aux_acc_name = "pair_acc"
 
         print(
             f"[epoch {epoch+1}/{cfg.epochs}] "
             f"train_loss={train_metrics['loss']:.4f} "
             f"train_mlm_loss={train_metrics['mlm_loss']:.4f} "
-            f"train_pair_loss={train_metrics['pair_loss']:.4f} "
+            f"train_{aux_loss_name}={train_metrics[aux_loss_name]:.4f} "
             f"train_mlm_acc={train_metrics['mlm_acc']:.4f} "
-            f"train_pair_acc={train_metrics['pair_acc']:.4f} "
+            f"train_{aux_acc_name}={train_metrics[aux_acc_name]:.4f} "
             f"val_loss={val_metrics['loss']:.4f} "
             f"val_mlm_loss={val_metrics['mlm_loss']:.4f} "
-            f"val_pair_loss={val_metrics['pair_loss']:.4f} "
+            f"val_{aux_loss_name}={val_metrics[aux_loss_name]:.4f} "
             f"val_mlm_acc={val_metrics['mlm_acc']:.4f} "
-            f"val_pair_acc={val_metrics['pair_acc']:.4f}"
+            f"val_{aux_acc_name}={val_metrics[aux_acc_name]:.4f}"
         )
 
         save_checkpoint(
