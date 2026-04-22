@@ -161,6 +161,8 @@ def test_parse_args_antigen_refine_defaults_to_separate_output_dir(tmp_path: Pat
     mlm_train = load_mlm_train_module(project_root)
     data_path = tmp_path / "tiny_antigen.jsonl.gz"
     data_path.write_text("", encoding="utf-8")
+    init_ckpt = tmp_path / "best.pt"
+    init_ckpt.write_text("placeholder", encoding="utf-8")
 
     cfg = mlm_train.parse_args(
         [
@@ -168,11 +170,29 @@ def test_parse_args_antigen_refine_defaults_to_separate_output_dir(tmp_path: Pat
             str(data_path),
             "--training-stage",
             "antigen_refine",
+            "--init-checkpoint",
+            str(init_ckpt),
         ]
     )
 
     assert cfg.training_stage == "antigen_refine"
     assert cfg.output_dir == "checkpoints/mlm_antigen_refine"
+
+
+def test_parse_args_antigen_refine_requires_init_checkpoint(tmp_path: Path, project_root: Path):
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = tmp_path / "tiny_antigen.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="requires `init_checkpoint`"):
+        mlm_train.parse_args(
+            [
+                "--data-path",
+                str(data_path),
+                "--training-stage",
+                "antigen_refine",
+            ]
+        )
 
 
 def test_antigen_refine_uses_dual_stream_collator_and_model(tmp_path: Path, project_root: Path):
@@ -216,6 +236,8 @@ def test_antigen_refine_uses_dual_stream_collator_and_model(tmp_path: Path, proj
     with gzip.open(data_path, "wt", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
         f.write(json.dumps({**record, "record_id": "antigen-2", "target_key": "uniprot:p22222", "sequence_antigen": "ACDEFGHIKLMNPQRSTVWY"}) + "\n")
+    init_ckpt = tmp_path / "best.pt"
+    init_ckpt.write_text("placeholder", encoding="utf-8")
 
     cfg = mlm_train.parse_args(
         [
@@ -223,6 +245,8 @@ def test_antigen_refine_uses_dual_stream_collator_and_model(tmp_path: Path, proj
             str(data_path),
             "--training-stage",
             "antigen_refine",
+            "--init-checkpoint",
+            str(init_ckpt),
             "--batch-size",
             "2",
             "--eval-batch-size",
@@ -241,3 +265,103 @@ def test_antigen_refine_uses_dual_stream_collator_and_model(tmp_path: Path, proj
     assert "antibody_input_ids" in batch
     assert "antigen_input_ids" in batch
     assert "compatibility_labels" in batch
+
+
+def test_build_antigen_refine_init_state_dict_clones_encoder_into_both_branches(project_root: Path):
+    mlm_train = load_mlm_train_module(project_root)
+
+    checkpoint_state_dict = {
+        "sequence_encoder.token_embedding.weight": mlm_train.torch.tensor([[1.0, 2.0], [3.0, 4.0]]),
+        "sequence_encoder.final_norm.weight": mlm_train.torch.tensor([5.0, 6.0]),
+        "sequence_encoder.final_norm.bias": mlm_train.torch.tensor([7.0, 8.0]),
+        "lm_head.weight": mlm_train.torch.tensor([[9.0, 10.0], [11.0, 12.0]]),
+        "pair_head.weight": mlm_train.torch.tensor([[13.0, 14.0], [15.0, 16.0]]),
+    }
+
+    translated = mlm_train.build_antigen_refine_init_state_dict(checkpoint_state_dict)
+
+    assert "antibody_encoder.token_embedding.weight" in translated
+    assert "antigen_encoder.token_embedding.weight" in translated
+    assert "antibody_encoder.final_norm.weight" in translated
+    assert "antigen_encoder.final_norm.bias" in translated
+    assert "lm_head.weight" in translated
+    assert "pair_head.weight" not in translated
+    assert mlm_train.torch.equal(
+        translated["antibody_encoder.token_embedding.weight"],
+        checkpoint_state_dict["sequence_encoder.token_embedding.weight"],
+    )
+    assert mlm_train.torch.equal(
+        translated["antigen_encoder.token_embedding.weight"],
+        checkpoint_state_dict["sequence_encoder.token_embedding.weight"],
+    )
+
+
+def test_initialize_antigen_refine_from_checkpoint_loads_both_encoders_and_lm_head(
+    tmp_path: Path,
+    project_root: Path,
+):
+    mlm_train = load_mlm_train_module(project_root)
+    from smallAntibodyGen.models.mlm import AntibodyAntigenCrossAttention, AntibodyMLM, MLMConfig
+
+    config = MLMConfig(
+        vocab_size=32,
+        pad_token_id=0,
+        max_length=16,
+        d_model=8,
+        n_heads=2,
+        n_layers=1,
+        d_ff=16,
+        dropout=0.0,
+    )
+    source_model = AntibodyMLM(config)
+    for _, param in source_model.named_parameters():
+        if param.requires_grad:
+            param.data.fill_(0.25)
+
+    ckpt_path = tmp_path / "paired_init.pt"
+    mlm_train.torch.save(
+        {
+            "model_state_dict": source_model.state_dict(),
+            "train_config": {
+                "d_model": 8,
+                "n_heads": 2,
+                "n_layers": 1,
+                "d_ff": 16,
+                "dropout": 0.0,
+                "max_length": 16,
+            },
+        },
+        ckpt_path,
+    )
+
+    target_model = AntibodyAntigenCrossAttention(config)
+    for _, param in target_model.named_parameters():
+        if param.requires_grad:
+            param.data.zero_()
+
+    mlm_train.initialize_antigen_refine_from_checkpoint(
+        path=ckpt_path,
+        model=target_model,
+        map_location="cpu",
+    )
+
+    assert mlm_train.torch.allclose(
+        target_model.antibody_encoder.token_embedding.weight,
+        source_model.sequence_encoder.token_embedding.weight,
+    )
+    assert mlm_train.torch.allclose(
+        target_model.antigen_encoder.token_embedding.weight,
+        source_model.sequence_encoder.token_embedding.weight,
+    )
+    assert mlm_train.torch.allclose(
+        target_model.antibody_encoder.final_norm.weight,
+        source_model.sequence_encoder.final_norm.weight,
+    )
+    assert mlm_train.torch.allclose(
+        target_model.antigen_encoder.final_norm.bias,
+        source_model.sequence_encoder.final_norm.bias,
+    )
+    assert mlm_train.torch.allclose(
+        target_model.lm_head.weight,
+        source_model.lm_head.weight,
+    )

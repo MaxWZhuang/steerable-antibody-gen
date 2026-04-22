@@ -206,6 +206,11 @@ class TrainConfig:
                 "paired_refine training requires `init_checkpoint` so refinement "
                 "starts from a pretrained model."
             )
+        if self.training_stage == "antigen_refine" and not self.init_checkpoint:
+            raise ValueError(
+                "antigen_refine training requires `init_checkpoint` so the "
+                "dual-stream model starts from a paired-refine checkpoint."
+            )
 
 
 def _train_config_defaults() -> Dict[str, Any]:
@@ -1297,6 +1302,64 @@ def load_checkpoint(
     return checkpoint
 
 
+def build_antigen_refine_init_state_dict(
+    checkpoint_state_dict: Dict[str, torch.Tensor],
+) -> Dict[str, torch.Tensor]:
+    """
+    Translate an antibody-only / paired-refine checkpoint into the subset of
+    weights that can initialize the dual-stream antibody-antigen model.
+
+    Initialization policy:
+    - copy `sequence_encoder.*` into both `antibody_encoder.*` and `antigen_encoder.*`
+    - copy `lm_head.*` directly
+    - intentionally do not initialize cross-attention, fusion, or compatibility
+      layers from the checkpoint
+    - intentionally ignore `pair_head.*`
+    """
+    translated: Dict[str, torch.Tensor] = {}
+
+    for key, value in checkpoint_state_dict.items():
+        if key.startswith("sequence_encoder."):
+            suffix = key[len("sequence_encoder."):]
+            translated[f"antibody_encoder.{suffix}"] = value
+            translated[f"antigen_encoder.{suffix}"] = value
+        elif key.startswith("lm_head."):
+            translated[key] = value
+
+    return translated
+
+
+def initialize_antigen_refine_from_checkpoint(
+    path: Path,
+    model: torch.nn.Module,
+    map_location: str | torch.device = "cpu",
+) -> dict:
+    """
+    Warm-start the dual-stream antigen model from a paired-refine checkpoint.
+
+    This clones the pretrained antibody sequence encoder into both the
+    antibody and antigen branches, reuses the MLM head, and leaves the new
+    interaction/classification layers randomly initialized.
+    """
+    checkpoint = torch.load(path, map_location=map_location)
+    translated_state_dict = build_antigen_refine_init_state_dict(checkpoint["model_state_dict"])
+    incompatible = model.load_state_dict(translated_state_dict, strict=False)
+
+    print(f"[checkpoint] antigen_refine init <- {path}")
+    print(
+        "[checkpoint] antigen_refine reused components: "
+        "antibody_encoder.*, antigen_encoder.*, lm_head.*"
+    )
+    missing = list(getattr(incompatible, "missing_keys", []))
+    unexpected = list(getattr(incompatible, "unexpected_keys", []))
+    if missing:
+        print(f"[checkpoint] antigen_refine missing keys (left randomly initialized): {missing}")
+    if unexpected:
+        print(f"[checkpoint] antigen_refine unexpected translated keys: {unexpected}")
+
+    return checkpoint
+
+
 def validate_init_checkpoint_compatibility(
     cfg: TrainConfig,
     init_ckpt_path: Path | None,
@@ -1436,14 +1499,23 @@ def main() -> None:
         best_val_loss = checkpoint.get("val_loss", float("inf"))
         print(f"Resuming from epoch {start_epoch}")
     elif init_ckpt_path is not None:
-        load_checkpoint(
-            path=init_ckpt_path,
-            model=model,
-            optimizer=None,
-            map_location=device,
-            strict=False,
-        )
-        print("[checkpoint] initialized model weights from init_checkpoint")
+        if cfg.training_stage == "antigen_refine":
+            initialize_antigen_refine_from_checkpoint(
+                path=init_ckpt_path,
+                model=model,
+                map_location=device,
+            )
+        else:
+            load_checkpoint(
+                path=init_ckpt_path,
+                model=model,
+                optimizer=None,
+                map_location=device,
+                strict=False,
+            )
+            print("[checkpoint] initialized model weights from init_checkpoint")
+        if cfg.training_stage == "antigen_refine":
+            print("[checkpoint] initialized antigen_refine model weights from init_checkpoint")
         if last_ckpt_path.exists() and not cfg.resume_from_last:
             print("[checkpoint] ignored existing last.pt because resume_from_last=False")
 
