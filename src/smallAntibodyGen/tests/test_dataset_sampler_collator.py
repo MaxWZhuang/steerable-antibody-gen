@@ -79,11 +79,11 @@ def make_processed_antibody_antigen_record(
     processed_measurement_raw="1.0",
     processed_measurement_float=1.0,
     binder_label=1,
-    is_strong_binder=True,
+    is_strong_binder=None,
     target_key="uniprot:p12345",
     record_id="antigen-1",
 ):
-    return {
+    record = {
         "record_id": record_id,
         "sequence": heavy_sequence,
         "sequence_heavy": heavy_sequence,
@@ -104,7 +104,6 @@ def make_processed_antibody_antigen_record(
         "processed_measurement_raw": processed_measurement_raw,
         "processed_measurement_float": processed_measurement_float,
         "binder_label": binder_label,
-        "is_strong_binder": is_strong_binder,
         "is_nanobody": light_sequence is None,
         "scfv": False,
         "cdr3_aa_heavy": "CARDRST",
@@ -119,6 +118,9 @@ def make_processed_antibody_antigen_record(
         "metadata": {},
         "source_file": "tiny_antigen.parquet",
     }
+    if is_strong_binder is not None:
+        record["is_strong_binder"] = is_strong_binder
+    return record
 
 
 def test_dataset_loads_and_filters_by_split(tmp_path: Path, tokenizer, write_processed_jsonl_gz):
@@ -185,88 +187,87 @@ def test_dataset_loads_antibody_antigen_fields_without_breaking_existing_schema(
     assert val_record.is_paired is True
 
 
-def test_dataset_derives_fuzzy_and_numeric_affinity_strength_annotations(
+def test_dataset_derives_bool_and_kd_threshold_affinity_strength_annotations(
     tmp_path: Path,
     write_processed_jsonl_gz,
 ):
-    fuzzy_high = make_processed_antibody_antigen_record(
+    kd_strong = make_processed_antibody_antigen_record(
         heavy_sequence="EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVS",
         light_sequence=None,
         antigen_sequence="MKTIIALSYIFCLVFADYKDDDDK",
+        dataset="flab-test",
+        affinity_type="kd",
+        affinity_raw="1e-10",
+        processed_measurement_raw="1e-10",
+        processed_measurement_float=1e-10,
+        binder_label=None,
+    )
+    kd_not_strong = make_processed_antibody_antigen_record(
+        heavy_sequence="EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVT",
+        light_sequence=None,
+        antigen_sequence="MKTIIALSYIFCLVFADYKDDDDA",
+        dataset="flab-test",
+        affinity_type="kd",
+        affinity_raw="1e-8",
+        processed_measurement_raw="1e-8",
+        processed_measurement_float=1e-8,
+        binder_label=None,
+    )
+    neg_log_kd_strong = make_processed_antibody_antigen_record(
+        heavy_sequence="QVQLQESGGGLVQAGGSLRLSCAASGFTFSSYAMGWFRQAPGKEREFVA",
+        light_sequence=None,
+        antigen_sequence="ACDEFGHIKLMNPQRSTVWY",
+        dataset="flab-test",
+        affinity_type="-log KD",
+        affinity_raw="9.5",
+        processed_measurement_raw="9.5",
+        processed_measurement_float=9.5,
+        binder_label=None,
+    )
+    neg_log_kd_not_strong = make_processed_antibody_antigen_record(
+        heavy_sequence="QVQLQESGGGLVQAGGSLRLSCAASGFTFSSYAMGWFRQAPGKEREFVG",
+        light_sequence=None,
+        antigen_sequence="ACDEFGHIKLMNPQRSTVWF",
+        dataset="flab-test",
+        affinity_type="-log KD",
+        affinity_raw="8.5",
+        processed_measurement_raw="8.5",
+        processed_measurement_float=8.5,
+        binder_label=None,
+    )
+    fuzzy_high = make_processed_antibody_antigen_record(
+        heavy_sequence="QVQLQESGGGLVQAGGSLRLSCAASGFTFSSYAMGWFRQAPGKEREFVY",
+        light_sequence=None,
+        antigen_sequence="ACDEFGHIKLMNPQRSTVWG",
         dataset="buzz-test",
         affinity_type="fuzzy",
         affinity_raw="h",
         processed_measurement_raw="h",
         processed_measurement_float=None,
         binder_label=None,
+        is_strong_binder=False,
     )
-    fuzzy_mid = make_processed_antibody_antigen_record(
-        heavy_sequence="EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVT",
-        light_sequence=None,
-        antigen_sequence="MKTIIALSYIFCLVFADYKDDDDA",
-        dataset="buzz-test",
-        affinity_type="fuzzy",
-        affinity_raw="m",
-        processed_measurement_raw="m",
-        processed_measurement_float=None,
-        binder_label=None,
-    )
-    kd_low = make_processed_antibody_antigen_record(
-        heavy_sequence="QVQLQESGGGLVQAGGSLRLSCAASGFTFSSYAMGWFRQAPGKEREFVA",
-        light_sequence=None,
-        antigen_sequence="ACDEFGHIKLMNPQRSTVWY",
-        dataset="flab-test",
-        affinity_type="kd",
-        affinity_raw="0.001",
-        processed_measurement_raw="0.001",
-        processed_measurement_float=0.001,
-        binder_label=None,
-    )
-    kd_mid = make_processed_antibody_antigen_record(
-        heavy_sequence="QVQLQESGGGLVQAGGSLRLSCAASGFTFSSYAMGWFRQAPGKEREFVG",
-        light_sequence=None,
-        antigen_sequence="ACDEFGHIKLMNPQRSTVWF",
-        dataset="flab-test",
-        affinity_type="kd",
-        affinity_raw="0.1",
-        processed_measurement_raw="0.1",
-        processed_measurement_float=0.1,
-        binder_label=None,
-    )
-    kd_high = make_processed_antibody_antigen_record(
-        heavy_sequence="QVQLQESGGGLVQAGGSLRLSCAASGFTFSSYAMGWFRQAPGKEREFVY",
-        light_sequence=None,
-        antigen_sequence="ACDEFGHIKLMNPQRSTVWG",
-        dataset="flab-test",
-        affinity_type="kd",
-        affinity_raw="10.0",
-        processed_measurement_raw="10.0",
-        processed_measurement_float=10.0,
-        binder_label=None,
-    )
-    records = [fuzzy_high, fuzzy_mid] + [kd_low] * 10 + [kd_mid] * 10 + [kd_high] * 10
+    records = [kd_strong, kd_not_strong, neg_log_kd_strong, neg_log_kd_not_strong, fuzzy_high]
     data_path = write_processed_jsonl_gz(tmp_path / "antibody_antigen_affinity.jsonl.gz", records)
 
     ds = OASSequenceDataset(data_path, split="train")
-
-    assert ds[0].affinity_family == "ordered_strength"
-    assert ds[0].affinity_strength_label == 1
-    assert ds[0].affinity_strength_score == 1.0
-
-    assert ds[1].affinity_family == "ordered_strength"
-    assert ds[1].affinity_strength_label is None
-    assert ds[1].affinity_strength_score == 0.5
-
     kd_records = [record for record in ds.records if record.affinity_type == "kd"]
-    low_group = kd_records[0:10]
-    mid_group = kd_records[10:20]
-    high_group = kd_records[20:30]
+    assert kd_records[0].affinity_family == "ranking_regression"
+    assert kd_records[0].affinity_strength_label == 1
+    assert kd_records[0].affinity_strength_score == 10.0
+    assert kd_records[1].affinity_strength_label is None
+    assert kd_records[1].affinity_strength_score == 8.0
 
-    assert all(record.affinity_family == "ranking_regression" for record in kd_records)
-    assert all(record.affinity_strength_label == 1 for record in low_group)
-    assert all(record.affinity_strength_label is None for record in mid_group)
-    assert all(record.affinity_strength_label == 0 for record in high_group)
-    assert all(record.affinity_strength_score is not None for record in kd_records)
+    neg_log_records = [record for record in ds.records if record.affinity_type == "-log KD"]
+    assert neg_log_records[0].affinity_strength_label == 1
+    assert neg_log_records[0].affinity_strength_score == 9.5
+    assert neg_log_records[1].affinity_strength_label is None
+    assert neg_log_records[1].affinity_strength_score == 8.5
+
+    fuzzy_record = next(record for record in ds.records if record.affinity_type == "fuzzy")
+    assert fuzzy_record.affinity_family == "unknown"
+    assert fuzzy_record.affinity_strength_label is None
+    assert fuzzy_record.affinity_strength_score is None
 
 
 def test_sampler_batches_are_chain_homogeneous_and_length_bucketed(tmp_path: Path, tokenizer, write_processed_jsonl_gz):
@@ -484,12 +485,13 @@ def test_collator_returns_affinity_strength_tensors(tmp_path: Path, tokenizer, w
             heavy_sequence="QVQLQESGGGLVQAGGSLRLSCAASGFTFSSYAMGWFRQAPGKEREFVA",
             light_sequence=None,
             antigen_sequence="ACDEFGHIKLMNPQRSTVWY",
-            dataset="buzz-test",
-            affinity_type="fuzzy",
-            affinity_raw="m",
-            processed_measurement_raw="m",
-            processed_measurement_float=None,
+            dataset="flab-test",
+            affinity_type="kd",
+            affinity_raw="1e-8",
+            processed_measurement_raw="1e-8",
+            processed_measurement_float=1e-8,
             binder_label=None,
+            is_strong_binder=False,
         ),
     ]
     data_path = write_processed_jsonl_gz(tmp_path / "antibody_antigen_batch.jsonl.gz", records)
@@ -507,7 +509,7 @@ def test_collator_returns_affinity_strength_tensors(tmp_path: Path, tokenizer, w
     assert batch["affinity_strength_labels"].tolist() == [1, 0]
     assert batch["affinity_strength_mask"].tolist() == [True, False]
     assert batch["affinity_strength_score_mask"].tolist() == [True, True]
-    assert batch["affinity_family_ids"].tolist() == [1, 2]
+    assert batch["affinity_family_ids"].tolist() == [1, 3]
 
 
 def test_antibody_antigen_collator_returns_dual_stream_batch(tmp_path: Path, tokenizer, write_processed_jsonl_gz):
