@@ -260,10 +260,10 @@ def test_prepare_antibody_antigen_only_assigns_binder_label_for_bool_rows(
     assert by_type["bool"]["binder_label"] == 0
     assert by_type["kd"]["binder_label"] is None
     assert by_type["bool"]["is_strong_binder"] is False
-    assert by_type["kd"]["is_strong_binder"] is False
+    assert by_type["kd"]["is_strong_binder"] is True
 
 
-def test_prepare_antibody_antigen_marks_bool_positive_and_fuzzy_high_as_strong_binders(
+def test_prepare_antibody_antigen_marks_requested_strong_binder_categories(
     tmp_path: Path,
     antigen_script_path: Path,
     write_antibody_antigen_parquet,
@@ -292,15 +292,43 @@ def test_prepare_antibody_antigen_marks_bool_positive_and_fuzzy_high_as_strong_b
         target_uniprot="Q22222",
         target_pdb="",
     )
+    kd_strong = make_antibody_antigen_row(
+        affinity_type="kd",
+        processed_measurement="1e-10",
+        antigen_sequence="GGGGGGGGGGGGGGGGGGGG",
+        target_uniprot="Q33333",
+        target_pdb="",
+    )
+    kd_weak = make_antibody_antigen_row(
+        affinity_type="kd",
+        processed_measurement="1e-8",
+        antigen_sequence="TTTTTTTTTTTTTTTTTTTT",
+        target_uniprot="Q44444",
+        target_pdb="",
+    )
+    neg_log_kd_strong = make_antibody_antigen_row(
+        affinity_type="-log KD",
+        processed_measurement="9.5",
+        antigen_sequence="VVVVVVVVVVVVVVVVVVVV",
+        target_uniprot="Q55555",
+        target_pdb="",
+    )
+    neg_log_kd_weak = make_antibody_antigen_row(
+        affinity_type="-log KD",
+        processed_measurement="8.5",
+        antigen_sequence="YYYYYYYYYYYYYYYYYYYY",
+        target_uniprot="Q66666",
+        target_pdb="",
+    )
     write_antibody_antigen_parquet(
         raw_dir / "part-00000.parquet",
-        [bool_positive, fuzzy_high, fuzzy_mid],
+        [bool_positive, fuzzy_high, fuzzy_mid, kd_strong, kd_weak, neg_log_kd_strong, neg_log_kd_weak],
     )
 
     run_prepare_antibody_antigen(antigen_script_path, raw_dir, out_path)
     rows = load_jsonl_gz(out_path)
 
-    assert len(rows) == 3
+    assert len(rows) == 7
     by_type_and_measurement = {
         (row["affinity_type"], row["processed_measurement_raw"]): row
         for row in rows
@@ -308,6 +336,10 @@ def test_prepare_antibody_antigen_marks_bool_positive_and_fuzzy_high_as_strong_b
     assert by_type_and_measurement[("bool", "1.0")]["is_strong_binder"] is True
     assert by_type_and_measurement[("fuzzy", "h")]["is_strong_binder"] is True
     assert by_type_and_measurement[("fuzzy", "m")]["is_strong_binder"] is False
+    assert by_type_and_measurement[("kd", "1e-10")]["is_strong_binder"] is True
+    assert by_type_and_measurement[("kd", "1e-8")]["is_strong_binder"] is False
+    assert by_type_and_measurement[("-log KD", "9.5")]["is_strong_binder"] is True
+    assert by_type_and_measurement[("-log KD", "8.5")]["is_strong_binder"] is False
 
 
 def test_prepare_antibody_antigen_filters_by_confidence_and_antigen_length(
