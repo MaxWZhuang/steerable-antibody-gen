@@ -4,9 +4,6 @@ import math
 import gzip
 import json
 import random
-from bisect import bisect_left
-from bisect import bisect_right
-from collections import defaultdict
 from dataclasses import dataclass
 from dataclasses import replace
 from pathlib import Path
@@ -69,30 +66,11 @@ class OASRecord:
     is_nanobody: bool = False
     scfv: bool = False
 
-
-@dataclass(frozen=True)
-class AffinityGroupStats:
-    """
-    Cached rank statistics for one `(dataset, affinity_type)` group.
-
-    We use these only for affinity types that behave like ordered strength
-    measurements after direction correction. Small groups are intentionally left
-    unusable for strong/weak labeling.
-    """
-
-    sorted_scores: tuple[float, ...]
-    low_threshold: float | None
-    high_threshold: float | None
-
-    @property
-    def count(self) -> int:
-        return len(self.sorted_scores)
-    
 class OASSequenceDataset(Dataset[OASRecord]):
     """Dataset that reads processed single-chain or paired OAS JSONL records."""
 
-    AFFINITY_TOP_FRACTION = 0.20
-    AFFINITY_MIN_GROUP_SIZE = 25
+    KD_STRONG_THRESHOLD_MOLAR = 1e-9
+    NEG_LOG_KD_STRONG_THRESHOLD = 9.0
     AFFINITY_FAMILY_IDS = {
         "unknown": 0,
         "binary_binding": 1,
@@ -100,7 +78,6 @@ class OASSequenceDataset(Dataset[OASRecord]):
         "ranking_regression": 3,
         "mutation_effect": 4,
     }
-    _affinity_stats_cache: dict[Path, dict[tuple[str, str], AffinityGroupStats]] = {}
 
     def __init__(
         self, 
@@ -133,28 +110,16 @@ class OASSequenceDataset(Dataset[OASRecord]):
         normalized = cls._normalize_affinity_type(affinity_type)
         if normalized == "bool":
             return "binary_binding"
-        if normalized == "fuzzy":
-            return "ordered_strength"
-        if normalized in {"kd", "-log kd", "ic_50", "alphaseq", "log_enrichment", "delta_g"}:
+        if normalized in {"kd", "-log kd"}:
             return "ranking_regression"
         if normalized in {"ddg", "elisa_mut_to_wt_ratio"}:
             return "mutation_effect"
         return "unknown"
 
     @classmethod
-    def _dataset_affinity_key(cls, record: Dict[str, object]) -> tuple[str, str]:
-        """
-        Build the grouping key used for percentile-based strong/weak labels.
-        """
-        dataset_name = str(record.get("dataset") or "").strip().lower()
-        affinity_type = cls._normalize_affinity_type(record.get("affinity_type"))
-        return dataset_name, affinity_type
-
-    @classmethod
     def _base_affinity_strength_score(cls, record: Dict[str, object]) -> float | None:
         """
-        Convert one record into a direction-corrected scalar where larger is
-        better, without yet comparing across datasets.
+        Convert one record into a simple scalar used by affinity supervision.
         """
         affinity_type = cls._normalize_affinity_type(record.get("affinity_type"))
         family = cls._affinity_family_for_type(affinity_type)
@@ -166,15 +131,6 @@ class OASSequenceDataset(Dataset[OASRecord]):
                 return float(binder_label)
             return None
 
-        if affinity_type == "fuzzy":
-            raw_value = str(
-                record.get("processed_measurement_raw")
-                or record.get("affinity_raw")
-                or ""
-            ).strip().lower()
-            mapping = {"l": 0.0, "m": 0.5, "h": 1.0}
-            return mapping.get(raw_value)
-
         if family != "ranking_regression":
             return None
 
@@ -184,76 +140,13 @@ class OASSequenceDataset(Dataset[OASRecord]):
         if not math.isfinite(value):
             return None
 
-        if affinity_type in {"kd", "ic_50"}:
+        if affinity_type == "kd":
             return -math.log10(max(value, 1e-12))
-        if affinity_type == "delta_g":
-            return -value
         return value
-
-    @classmethod
-    def _build_affinity_stats_cache(
-        cls,
-        path: Path,
-    ) -> dict[tuple[str, str], AffinityGroupStats]:
-        """
-        Precompute per-group percentiles from the whole processed file.
-        """
-        cached = cls._affinity_stats_cache.get(path)
-        if cached is not None:
-            return cached
-
-        grouped_scores: dict[tuple[str, str], list[float]] = defaultdict(list)
-        opener = gzip.open if path.suffix == ".gz" else open
-        with opener(path, "rt", encoding="utf-8") as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                record = json.loads(line)
-                if cls._affinity_family_for_type(record.get("affinity_type")) != "ranking_regression":
-                    continue
-                score = cls._base_affinity_strength_score(record)
-                if score is None:
-                    continue
-                grouped_scores[cls._dataset_affinity_key(record)].append(score)
-
-        stats_by_group: dict[tuple[str, str], AffinityGroupStats] = {}
-        for key, scores in grouped_scores.items():
-            scores.sort()
-            if len(scores) < cls.AFFINITY_MIN_GROUP_SIZE:
-                stats_by_group[key] = AffinityGroupStats(
-                    sorted_scores=tuple(scores),
-                    low_threshold=None,
-                    high_threshold=None,
-                )
-                continue
-
-            low_index = int(round((len(scores) - 1) * cls.AFFINITY_TOP_FRACTION))
-            high_index = int(round((len(scores) - 1) * (1.0 - cls.AFFINITY_TOP_FRACTION)))
-            stats_by_group[key] = AffinityGroupStats(
-                sorted_scores=tuple(scores),
-                low_threshold=float(scores[low_index]),
-                high_threshold=float(scores[high_index]),
-            )
-
-        cls._affinity_stats_cache[path] = stats_by_group
-        return stats_by_group
-
-    @staticmethod
-    def _percentile_rank(sorted_scores: tuple[float, ...], value: float) -> float | None:
-        """
-        Approximate the percentile rank of `value` within a sorted score list.
-        """
-        if not sorted_scores:
-            return None
-        left = bisect_left(sorted_scores, value)
-        right = bisect_right(sorted_scores, value)
-        midpoint = (left + right) / 2.0
-        return midpoint / len(sorted_scores)
 
     def _annotate_affinity(
         self,
         record: Dict[str, object],
-        affinity_stats: dict[tuple[str, str], AffinityGroupStats],
     ) -> dict[str, object]:
         """
         Derive conservative affinity supervision fields for one record.
@@ -266,26 +159,9 @@ class OASSequenceDataset(Dataset[OASRecord]):
         if affinity_family == "binary_binding":
             if record.get("binder_label") in (0, 1):
                 strength_label = int(record["binder_label"])
-        elif affinity_type_normalized == "fuzzy":
-            raw_value = str(
-                record.get("processed_measurement_raw")
-                or record.get("affinity_raw")
-                or ""
-            ).strip().lower()
-            if raw_value == "h":
-                strength_label = 1
-            elif raw_value == "l":
-                strength_label = 0
         elif affinity_family == "ranking_regression" and strength_score is not None:
-            stats = affinity_stats.get(self._dataset_affinity_key(record))
-            if stats is not None and stats.count >= self.AFFINITY_MIN_GROUP_SIZE:
-                if stats.low_threshold is not None and strength_score <= stats.low_threshold:
-                    strength_label = 0
-                elif stats.high_threshold is not None and strength_score >= stats.high_threshold:
-                    strength_label = 1
-                rank = self._percentile_rank(stats.sorted_scores, strength_score)
-                if rank is not None:
-                    strength_score = rank
+            if strength_score >= self.NEG_LOG_KD_STRONG_THRESHOLD:
+                strength_label = 1
 
         return {
             "affinity_type_normalized": affinity_type_normalized or None,
@@ -300,9 +176,10 @@ class OASSequenceDataset(Dataset[OASRecord]):
         Return the conservative phase-1 strong-binder flag used by the
         antibody-antigen compatibility stage.
 
-        For the first pass we intentionally keep this narrow:
+        Strong binders are intentionally narrow:
         - explicit boolean binders with label 1
-        - fuzzy assay rows labeled "h"
+        - `kd <= 1e-9`
+        - `-log KD >= 9`
         """
         if "is_strong_binder" in record:
             return bool(record.get("is_strong_binder"))
@@ -310,13 +187,16 @@ class OASSequenceDataset(Dataset[OASRecord]):
         affinity_type = cls._normalize_affinity_type(record.get("affinity_type"))
         if affinity_type == "bool":
             return record.get("binder_label") == 1
-        if affinity_type == "fuzzy":
-            raw_value = str(
-                record.get("processed_measurement_raw")
-                or record.get("affinity_raw")
-                or ""
-            ).strip().lower()
-            return raw_value == "h"
+        measurement = record.get("processed_measurement_float")
+        if not isinstance(measurement, (int, float)) or isinstance(measurement, bool):
+            return False
+        value = float(measurement)
+        if not math.isfinite(value):
+            return False
+        if affinity_type == "kd":
+            return value <= cls.KD_STRONG_THRESHOLD_MOLAR
+        if affinity_type == "-log kd":
+            return value >= cls.NEG_LOG_KD_STRONG_THRESHOLD
         return False
     
     def _load(self) -> None: 
@@ -328,12 +208,11 @@ class OASSequenceDataset(Dataset[OASRecord]):
         so the training code can switch between them based only on the contents
         of the processed JSONL file.
         """
-        affinity_stats = self._build_affinity_stats_cache(self.data_path)
         for record in self._iter_jsonl():
             # yields 1 line at a time, prefers over records
             if record.get("split") != self.split: 
                 continue
-            affinity_annotations = self._annotate_affinity(record, affinity_stats)
+            affinity_annotations = self._annotate_affinity(record)
             token_ids = record.get("token_ids")
             token_length = record.get("token_length")
             if token_length is None:
