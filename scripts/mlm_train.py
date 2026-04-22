@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional, Sequence, Tuple
 import numpy as np
 import torch
 from torch.optim import AdamW
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 try:
     from tqdm.auto import tqdm
 except ImportError:  # pragma: no cover - exercised only when dependency is missing
@@ -559,6 +559,122 @@ def build_datasets(cfg: TrainConfig) -> Tuple[OASSequenceDataset, OASSequenceDat
     train_dataset = OASSequenceDataset(cfg.data_path, split="train")
     val_dataset = OASSequenceDataset(cfg.data_path, split="val")
     return train_dataset, val_dataset
+
+
+class RecordSubsetDataset(Dataset):
+    """
+    Lightweight in-memory dataset view used for diagnostic probes.
+
+    The training/eval loaders in this script expect a `.records` attribute, so
+    this wrapper mirrors the shape of `OASSequenceDataset` closely enough to
+    reuse the existing samplers and collators without changing the data format.
+    """
+
+    def __init__(self, records: Sequence[Any], split: str) -> None:
+        self.records = list(records)
+        self.split = split
+
+    def __len__(self) -> int:
+        return len(self.records)
+
+    def __getitem__(self, idx: int) -> Any:
+        return self.records[idx]
+
+
+def choose_probe_size(total_records: int, eval_batch_size: int) -> int:
+    """
+    Pick a small deterministic probe size for extra evaluations.
+    """
+    if total_records <= 1:
+        return 0
+    target = max(eval_batch_size * 32, 1024)
+    return min(total_records - 1, target, 4096)
+
+
+def build_diagnostic_datasets(
+    train_dataset: OASSequenceDataset,
+    cfg: TrainConfig,
+) -> tuple[OASSequenceDataset | RecordSubsetDataset, RecordSubsetDataset | None, RecordSubsetDataset | None]:
+    """
+    Derive lightweight diagnostic datasets without changing the processed file.
+
+    Returns:
+        Tuple of:
+        - training dataset used by the optimizer
+        - known-target probe sampled from the retained training rows
+        - row-random held-out probe removed from training rows
+    """
+    probe_size = choose_probe_size(len(train_dataset.records), cfg.eval_batch_size)
+    if probe_size == 0:
+        return train_dataset, None, None
+
+    rng = random.Random(cfg.seed + 30_000)
+    indices = list(range(len(train_dataset.records)))
+    rng.shuffle(indices)
+
+    row_random_probe_indices = set(indices[:probe_size])
+    retained_records = [
+        record
+        for idx, record in enumerate(train_dataset.records)
+        if idx not in row_random_probe_indices
+    ]
+    row_random_probe_records = [
+        train_dataset.records[idx]
+        for idx in indices[:probe_size]
+    ]
+
+    known_target_probe_size = min(probe_size, len(retained_records))
+    known_target_probe_indices = list(range(len(retained_records)))
+    rng.shuffle(known_target_probe_indices)
+    known_target_probe_records = [
+        retained_records[idx]
+        for idx in known_target_probe_indices[:known_target_probe_size]
+    ]
+
+    return (
+        RecordSubsetDataset(retained_records, split="train"),
+        RecordSubsetDataset(known_target_probe_records, split="train_probe"),
+        RecordSubsetDataset(row_random_probe_records, split="row_random_probe"),
+    )
+
+
+def summarize_target_overlap(
+    train_dataset: OASSequenceDataset | RecordSubsetDataset,
+    val_dataset: OASSequenceDataset | RecordSubsetDataset,
+) -> dict[str, int]:
+    """
+    Summarize target-key overlap between two datasets.
+    """
+    train_targets = {record.target_key for record in train_dataset.records if record.target_key}
+    val_targets = {record.target_key for record in val_dataset.records if record.target_key}
+    return {
+        "train_targets": len(train_targets),
+        "val_targets": len(val_targets),
+        "overlap": len(train_targets & val_targets),
+    }
+
+
+def format_metric_summary(
+    metrics: Dict[str, float],
+    cfg: TrainConfig,
+    prefix: str,
+) -> str:
+    """
+    Render one metric dictionary into a compact log line.
+    """
+    if cfg.training_stage == "antigen_refine":
+        aux_loss_name = "compatibility_loss"
+        aux_acc_name = "compatibility_acc"
+    else:
+        aux_loss_name = "pair_loss"
+        aux_acc_name = "pair_acc"
+    return (
+        f"{prefix}_loss={metrics['loss']:.4f} "
+        f"{prefix}_mlm_loss={metrics['mlm_loss']:.4f} "
+        f"{prefix}_{aux_loss_name}={metrics[aux_loss_name]:.4f} "
+        f"{prefix}_mlm_acc={metrics['mlm_acc']:.4f} "
+        f"{prefix}_{aux_acc_name}={metrics[aux_acc_name]:.4f}"
+    )
 
 
 def build_train_loader(
@@ -1476,11 +1592,34 @@ def main() -> None:
 
     tokenizer = build_tokenizer()
     train_dataset, val_dataset = build_datasets(cfg)
+    train_dataset, train_known_target_probe, row_random_probe = build_diagnostic_datasets(
+        train_dataset,
+        cfg,
+    )
 
     print(f"device: {device}")
     print(f"train examples: {len(train_dataset)}")
     print(f"val examples:   {len(val_dataset)}")
     print(f"vocab size:     {tokenizer.vocab_size}")
+    if train_known_target_probe is not None:
+        print(f"train_known_target_probe examples: {len(train_known_target_probe)}")
+    if row_random_probe is not None:
+        print(f"row_random_probe examples:         {len(row_random_probe)}")
+    val_overlap = summarize_target_overlap(train_dataset, val_dataset)
+    print(
+        "[split] known_target_train_vs_val: "
+        f"train_targets={val_overlap['train_targets']} "
+        f"val_targets={val_overlap['val_targets']} "
+        f"overlap={val_overlap['overlap']}"
+    )
+    if row_random_probe is not None:
+        probe_overlap = summarize_target_overlap(train_dataset, row_random_probe)
+        print(
+            "[split] known_target_train_vs_row_random_probe: "
+            f"train_targets={probe_overlap['train_targets']} "
+            f"probe_targets={probe_overlap['val_targets']} "
+            f"overlap={probe_overlap['overlap']}"
+        )
 
     model = build_model(tokenizer, cfg, device)
     optimizer = build_optimizer(model, cfg)
@@ -1528,6 +1667,40 @@ def main() -> None:
         if last_ckpt_path.exists() and not cfg.resume_from_last:
             print("[checkpoint] ignored existing last.pt because resume_from_last=False")
 
+    pretrain_train_probe_metrics = None
+    pretrain_row_random_metrics = None
+    pretrain_val_metrics = evaluate(
+        model=model,
+        val_dataset=val_dataset,
+        tokenizer=tokenizer,
+        cfg=cfg,
+        device=device,
+    )
+    if train_known_target_probe is not None and len(train_known_target_probe) > 0:
+        pretrain_train_probe_metrics = evaluate(
+            model=model,
+            val_dataset=train_known_target_probe,
+            tokenizer=tokenizer,
+            cfg=cfg,
+            device=device,
+        )
+    if row_random_probe is not None and len(row_random_probe) > 0:
+        pretrain_row_random_metrics = evaluate(
+            model=model,
+            val_dataset=row_random_probe,
+            tokenizer=tokenizer,
+            cfg=cfg,
+            device=device,
+        )
+
+    pretrain_parts = []
+    if pretrain_train_probe_metrics is not None:
+        pretrain_parts.append(format_metric_summary(pretrain_train_probe_metrics, cfg, "pretrain_known_target"))
+    if pretrain_row_random_metrics is not None:
+        pretrain_parts.append(format_metric_summary(pretrain_row_random_metrics, cfg, "pretrain_row_random"))
+    pretrain_parts.append(format_metric_summary(pretrain_val_metrics, cfg, "pretrain_val"))
+    print("[epoch 0/0] " + " ".join(pretrain_parts))
+
     for epoch in range(start_epoch, cfg.epochs):
         train_metrics = train_one_epoch(
             model=model,
@@ -1538,6 +1711,25 @@ def main() -> None:
             device=device,
             epoch=epoch,
         )
+
+        train_known_target_metrics = None
+        row_random_metrics = None
+        if train_known_target_probe is not None and len(train_known_target_probe) > 0:
+            train_known_target_metrics = evaluate(
+                model=model,
+                val_dataset=train_known_target_probe,
+                tokenizer=tokenizer,
+                cfg=cfg,
+                device=device,
+            )
+        if row_random_probe is not None and len(row_random_probe) > 0:
+            row_random_metrics = evaluate(
+                model=model,
+                val_dataset=row_random_probe,
+                tokenizer=tokenizer,
+                cfg=cfg,
+                device=device,
+            )
 
         val_metrics = evaluate(
             model=model,
@@ -1556,19 +1748,13 @@ def main() -> None:
             aux_loss_name = "pair_loss"
             aux_acc_name = "pair_acc"
 
-        print(
-            f"[epoch {epoch+1}/{cfg.epochs}] "
-            f"train_loss={train_metrics['loss']:.4f} "
-            f"train_mlm_loss={train_metrics['mlm_loss']:.4f} "
-            f"train_{aux_loss_name}={train_metrics[aux_loss_name]:.4f} "
-            f"train_mlm_acc={train_metrics['mlm_acc']:.4f} "
-            f"train_{aux_acc_name}={train_metrics[aux_acc_name]:.4f} "
-            f"val_loss={val_metrics['loss']:.4f} "
-            f"val_mlm_loss={val_metrics['mlm_loss']:.4f} "
-            f"val_{aux_loss_name}={val_metrics[aux_loss_name]:.4f} "
-            f"val_mlm_acc={val_metrics['mlm_acc']:.4f} "
-            f"val_{aux_acc_name}={val_metrics[aux_acc_name]:.4f}"
-        )
+        summary_parts = [format_metric_summary(train_metrics, cfg, "train")]
+        if train_known_target_metrics is not None:
+            summary_parts.append(format_metric_summary(train_known_target_metrics, cfg, "known_target_probe"))
+        if row_random_metrics is not None:
+            summary_parts.append(format_metric_summary(row_random_metrics, cfg, "row_random_probe"))
+        summary_parts.append(format_metric_summary(val_metrics, cfg, "val"))
+        print(f"[epoch {epoch+1}/{cfg.epochs}] " + " ".join(summary_parts))
 
         save_checkpoint(
             path=output_dir / "last.pt",

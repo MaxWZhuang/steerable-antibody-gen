@@ -368,6 +368,8 @@ def infer_is_strong_binder(
     Current policy:
     - explicit boolean binder rows with positive labels
     - fuzzy assay rows labeled "h"
+    - kd rows with processed measurement <= 1e-9
+    - -log KD rows with processed measurement >= 9
     """
     normalized_type = clean_text(affinity_type).lower()
     if normalized_type == "bool":
@@ -375,6 +377,13 @@ def infer_is_strong_binder(
     if normalized_type == "fuzzy":
         raw_value = clean_text(processed_measurement or affinity_raw).lower()
         return raw_value == "h"
+    measurement = safe_float(processed_measurement)
+    if measurement is None:
+        return False
+    if normalized_type == "kd":
+        return measurement <= 1e-9
+    if normalized_type == "-log kd":
+        return measurement >= 9.0
     return False
 
 
