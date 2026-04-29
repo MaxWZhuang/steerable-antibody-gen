@@ -902,4 +902,7 @@ class AntibodyAntigenCollator(MLMCollator):
             "is_shuffled_antigen": torch.tensor(is_shuffled_antigen, dtype=torch.bool),
             "record_ids": [item.record_id for item in effective_batch],
             "target_keys": [item.target_key for item in effective_batch],
+            "dataset_names": [item.dataset_name for item in effective_batch],
+            "antibody_format_groups": [self._antibody_format_group(item) for item in effective_batch],
+            "antigen_length_buckets": [self._antigen_bucket(item) for item in effective_batch],
         }

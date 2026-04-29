@@ -6,6 +6,7 @@ import json
 import os
 import random
 import sys
+from collections import Counter, defaultdict
 from dataclasses import MISSING, asdict, dataclass, fields
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence, Tuple
@@ -591,6 +592,16 @@ def choose_probe_size(total_records: int, eval_batch_size: int) -> int:
     return min(total_records - 1, target, 4096)
 
 
+def choose_baseline_fit_size(total_records: int, eval_batch_size: int) -> int:
+    """
+    Pick a deterministic sample size for fitting lightweight diagnostic baselines.
+    """
+    if total_records <= 0:
+        return 0
+    target = max(eval_batch_size * 128, 4096)
+    return min(total_records, target, 16384)
+
+
 def build_diagnostic_datasets(
     train_dataset: OASSequenceDataset,
     cfg: TrainConfig,
@@ -674,6 +685,171 @@ def format_metric_summary(
         f"{prefix}_{aux_loss_name}={metrics[aux_loss_name]:.4f} "
         f"{prefix}_mlm_acc={metrics['mlm_acc']:.4f} "
         f"{prefix}_{aux_acc_name}={metrics[aux_acc_name]:.4f}"
+    )
+
+
+def sample_records_for_diagnostics(
+    dataset: OASSequenceDataset | RecordSubsetDataset,
+    sample_size: int,
+    seed: int,
+    split_name: str,
+) -> OASSequenceDataset | RecordSubsetDataset:
+    """
+    Return a deterministic in-memory subset for cheaper diagnostic passes.
+    """
+    if sample_size <= 0 or len(dataset.records) <= sample_size:
+        return dataset
+    rng = random.Random(seed)
+    indices = list(range(len(dataset.records)))
+    rng.shuffle(indices)
+    sampled_records = [dataset.records[idx] for idx in indices[:sample_size]]
+    return RecordSubsetDataset(sampled_records, split=split_name)
+
+
+def _masked_metadata_values(batch: Dict[str, Any], key: str) -> list[str]:
+    """
+    Extract one metadata field for labeled compatibility rows only.
+    """
+    mask_tensor = batch["compatibility_mask"]
+    masked_values: list[str] = []
+    for idx, keep in enumerate(mask_tensor.tolist()):
+        if not keep:
+            continue
+        value = batch[key][idx]
+        if value is None or value == "":
+            masked_values.append("missing")
+        else:
+            masked_values.append(str(value))
+    return masked_values
+
+
+def fit_group_majority_baselines(
+    dataset: OASSequenceDataset | RecordSubsetDataset,
+    tokenizer: AminoAcidTokenizer,
+    cfg: TrainConfig,
+) -> dict[str, Any]:
+    """
+    Fit simple group-majority baselines on a deterministic sampled training view.
+    """
+    if cfg.training_stage != "antigen_refine":
+        return {}
+
+    fit_size = choose_baseline_fit_size(len(dataset.records), cfg.eval_batch_size)
+    fit_dataset = sample_records_for_diagnostics(
+        dataset,
+        sample_size=fit_size,
+        seed=cfg.seed + 40_000,
+        split_name="baseline_fit",
+    )
+    loader = build_eval_loader(fit_dataset, tokenizer, cfg)
+
+    grouped_counts: dict[str, dict[str, Counter[int]]] = {
+        "target_keys": defaultdict(Counter),
+        "dataset_names": defaultdict(Counter),
+        "antibody_format_groups": defaultdict(Counter),
+        "antigen_length_buckets": defaultdict(Counter),
+    }
+    global_counts: Counter[int] = Counter()
+    labeled_examples = 0
+
+    for batch in loader:
+        labels = batch["compatibility_labels"][batch["compatibility_mask"]].tolist()
+        labeled_examples += len(labels)
+        global_counts.update(labels)
+        for group_name, counters in grouped_counts.items():
+            values = _masked_metadata_values(batch, group_name)
+            for value, label in zip(values, labels):
+                counters[value][int(label)] += 1
+
+    if labeled_examples == 0:
+        return {}
+
+    fallback_label = 1 if global_counts[1] >= global_counts[0] else 0
+    majority_maps: dict[str, dict[str, int]] = {}
+    for group_name, counters in grouped_counts.items():
+        majority_maps[group_name] = {
+            value: (1 if counts[1] >= counts[0] else 0)
+            for value, counts in counters.items()
+        }
+
+    return {
+        "fit_records": len(fit_dataset.records),
+        "fit_labeled_examples": labeled_examples,
+        "positive_rate": global_counts[1] / labeled_examples,
+        "fallback_label": fallback_label,
+        "majority_maps": majority_maps,
+    }
+
+
+def evaluate_group_majority_baselines(
+    dataset: OASSequenceDataset | RecordSubsetDataset,
+    tokenizer: AminoAcidTokenizer,
+    cfg: TrainConfig,
+    baselines: dict[str, Any],
+) -> dict[str, float]:
+    """
+    Evaluate simple non-neural baselines on the synthetic compatibility task.
+    """
+    if cfg.training_stage != "antigen_refine" or not baselines:
+        return {}
+
+    loader = build_eval_loader(dataset, tokenizer, cfg)
+    labeled_examples = 0
+    positive_examples = 0
+    always_positive_correct = 0
+    group_correct = {
+        "target_keys": 0,
+        "dataset_names": 0,
+        "antibody_format_groups": 0,
+        "antigen_length_buckets": 0,
+    }
+
+    for batch in loader:
+        labels = batch["compatibility_labels"][batch["compatibility_mask"]].tolist()
+        labeled_examples += len(labels)
+        positive_examples += sum(int(label) for label in labels)
+        always_positive_correct += sum(int(label) for label in labels)
+
+        for group_name in group_correct:
+            values = _masked_metadata_values(batch, group_name)
+            group_map = baselines["majority_maps"][group_name]
+            fallback_label = baselines["fallback_label"]
+            correct = 0
+            for value, label in zip(values, labels):
+                pred = group_map.get(value, fallback_label)
+                if pred == int(label):
+                    correct += 1
+            group_correct[group_name] += correct
+
+    if labeled_examples == 0:
+        return {}
+
+    return {
+        "labeled_examples": float(labeled_examples),
+        "positive_rate": positive_examples / labeled_examples,
+        "always_positive_acc": always_positive_correct / labeled_examples,
+        "target_key_majority_acc": group_correct["target_keys"] / labeled_examples,
+        "dataset_majority_acc": group_correct["dataset_names"] / labeled_examples,
+        "format_majority_acc": group_correct["antibody_format_groups"] / labeled_examples,
+        "antigen_bucket_majority_acc": group_correct["antigen_length_buckets"] / labeled_examples,
+    }
+
+
+def format_baseline_summary(
+    metrics: dict[str, float],
+    prefix: str,
+) -> str:
+    """
+    Render one baseline metrics dictionary into a compact log line.
+    """
+    return (
+        f"{prefix}_labeled={int(metrics['labeled_examples'])} "
+        f"{prefix}_pos_rate={metrics['positive_rate']:.4f} "
+        f"{prefix}_always_pos_acc={metrics['always_positive_acc']:.4f} "
+        f"{prefix}_target_majority_acc={metrics['target_key_majority_acc']:.4f} "
+        f"{prefix}_dataset_majority_acc={metrics['dataset_majority_acc']:.4f} "
+        f"{prefix}_format_majority_acc={metrics['format_majority_acc']:.4f} "
+        f"{prefix}_antigen_bucket_majority_acc={metrics['antigen_bucket_majority_acc']:.4f}"
     )
 
 
@@ -1674,6 +1850,43 @@ def main() -> None:
             f"probe_targets={probe_overlap['val_targets']} "
             f"overlap={probe_overlap['overlap']}"
         )
+    if cfg.training_stage == "antigen_refine":
+        baseline_fit = fit_group_majority_baselines(train_dataset, tokenizer, cfg)
+        if baseline_fit:
+            print(
+                "[compat-baseline-fit] "
+                f"fit_records={baseline_fit['fit_records']} "
+                f"fit_labeled={baseline_fit['fit_labeled_examples']} "
+                f"fit_pos_rate={baseline_fit['positive_rate']:.4f} "
+                f"fallback_label={baseline_fit['fallback_label']}"
+            )
+            baseline_parts = []
+            train_baseline = evaluate_group_majority_baselines(train_dataset, tokenizer, cfg, baseline_fit)
+            if train_baseline:
+                baseline_parts.append(format_baseline_summary(train_baseline, "train"))
+            if train_known_target_probe is not None and len(train_known_target_probe) > 0:
+                known_target_baseline = evaluate_group_majority_baselines(
+                    train_known_target_probe,
+                    tokenizer,
+                    cfg,
+                    baseline_fit,
+                )
+                if known_target_baseline:
+                    baseline_parts.append(format_baseline_summary(known_target_baseline, "known_target_probe"))
+            if row_random_probe is not None and len(row_random_probe) > 0:
+                row_random_baseline = evaluate_group_majority_baselines(
+                    row_random_probe,
+                    tokenizer,
+                    cfg,
+                    baseline_fit,
+                )
+                if row_random_baseline:
+                    baseline_parts.append(format_baseline_summary(row_random_baseline, "row_random_probe"))
+            val_baseline = evaluate_group_majority_baselines(val_dataset, tokenizer, cfg, baseline_fit)
+            if val_baseline:
+                baseline_parts.append(format_baseline_summary(val_baseline, "val"))
+            if baseline_parts:
+                print("[compat-baseline] " + " ".join(baseline_parts))
 
     model = build_model(tokenizer, cfg, device)
     optimizer = build_optimizer(model, cfg)
