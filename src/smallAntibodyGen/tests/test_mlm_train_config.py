@@ -265,6 +265,119 @@ def test_antigen_refine_uses_dual_stream_collator_and_model(tmp_path: Path, proj
     assert "antibody_input_ids" in batch
     assert "antigen_input_ids" in batch
     assert "compatibility_labels" in batch
+    assert "target_keys" in batch
+    assert "dataset_names" in batch
+    assert "antibody_format_groups" in batch
+    assert "antigen_length_buckets" in batch
+
+
+def test_antigen_refine_baseline_diagnostics_return_expected_keys(tmp_path: Path, project_root: Path):
+    mlm_train = load_mlm_train_module(project_root)
+
+    data_path = tmp_path / "tiny_antigen_diag.jsonl.gz"
+    base_record = {
+        "sequence": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVS",
+        "sequence_heavy": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVS",
+        "sequence_antigen": "MKTIIALSYIFCLVFADYKDDDDK",
+        "locus": "PAIRED_ANTIGEN",
+        "chain_group": "paired_antigen",
+        "split": "train",
+        "length": 56,
+        "target_name": "test_target",
+        "target_pdb": "1abc",
+        "target_uniprot": "P12345",
+        "dataset": "asd-test",
+        "confidence": "very_high",
+        "affinity_type": "bool",
+        "affinity_raw": "1.0",
+        "processed_measurement_raw": "1.0",
+        "processed_measurement_float": 1.0,
+        "binder_label": 1,
+        "is_strong_binder": True,
+        "is_nanobody": False,
+        "scfv": False,
+        "cdr3_aa_heavy": "CARDRST",
+        "cdr3_start_aa_heavy": 10,
+        "cdr3_end_aa_heavy": 17,
+        "heavy_locus": "IGH",
+        "light_locus": None,
+        "is_paired": False,
+        "metadata": {},
+        "source_file": "tiny_antigen.parquet",
+    }
+    records = [
+        {
+            **base_record,
+            "record_id": "train-1",
+            "target_key": "uniprot:p11111",
+            "antigen_length": 24,
+            "split": "train",
+        },
+        {
+            **base_record,
+            "record_id": "train-2",
+            "target_key": "uniprot:p22222",
+            "dataset": "asd-alt",
+            "sequence_antigen": "ACDEFGHIKLMNPQRSTVWYACDE",
+            "antigen_length": 24,
+            "split": "train",
+        },
+        {
+            **base_record,
+            "record_id": "val-1",
+            "target_key": "uniprot:p33333",
+            "sequence_antigen": "QRSTVWYACDEFGHIKLMNPQRST",
+            "antigen_length": 24,
+            "split": "val",
+        },
+        {
+            **base_record,
+            "record_id": "val-2",
+            "target_key": "uniprot:p44444",
+            "dataset": "asd-alt",
+            "sequence_antigen": "LMNPQRSTVWYACDEFGHIKLMNP",
+            "antigen_length": 24,
+            "split": "val",
+        },
+    ]
+    with gzip.open(data_path, "wt", encoding="utf-8") as f:
+        for record in records:
+            f.write(json.dumps(record) + "\n")
+
+    init_ckpt = tmp_path / "best.pt"
+    init_ckpt.write_text("placeholder", encoding="utf-8")
+
+    cfg = mlm_train.parse_args(
+        [
+            "--data-path",
+            str(data_path),
+            "--training-stage",
+            "antigen_refine",
+            "--init-checkpoint",
+            str(init_ckpt),
+            "--batch-size",
+            "2",
+            "--eval-batch-size",
+            "2",
+            "--max-length",
+            "64",
+        ]
+    )
+    tokenizer = mlm_train.build_tokenizer()
+    train_dataset, val_dataset = mlm_train.build_datasets(cfg)
+
+    baselines = mlm_train.fit_group_majority_baselines(train_dataset, tokenizer, cfg)
+    metrics = mlm_train.evaluate_group_majority_baselines(val_dataset, tokenizer, cfg, baselines)
+
+    assert baselines["fit_records"] == len(train_dataset)
+    assert baselines["fit_labeled_examples"] > 0
+    assert "majority_maps" in baselines
+    assert int(metrics["labeled_examples"]) > 0
+    assert 0.0 <= metrics["always_positive_acc"] <= 1.0
+    assert 0.0 <= metrics["target_key_majority_acc"] <= 1.0
+    assert 0.0 <= metrics["dataset_majority_acc"] <= 1.0
+    assert 0.0 <= metrics["format_majority_acc"] <= 1.0
+    assert 0.0 <= metrics["antigen_bucket_majority_acc"] <= 1.0
 
 
 def test_build_antigen_refine_init_state_dict_clones_encoder_into_both_branches(project_root: Path):
