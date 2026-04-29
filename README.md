@@ -95,6 +95,20 @@ Once the ASD-derived dataset is prepared, train an antibody-antigen model that c
 - produce a joint antibody-antigen representation,
 - and train conservative early tasks such as compatibility or binder-vs-non-binder prediction.
 
+#### Current implementation status
+
+- `scripts/mlm_train.py` now includes an `antigen_refine` stage that reports `compatibility_loss` and `compatibility_acc`.
+- `compatibility_acc` is aggregated over all labeled compatibility rows in the epoch, not as a simple average of per-batch accuracies.
+- This matters because the collator can produce different numbers of labeled compatibility examples per batch, so per-batch averaging can distort the headline metric.
+
+#### Important caveat about the current compatibility task
+
+- The current `antigen_refine` objective is still a conservative proxy task.
+- Positives are strong-binder rows.
+- Negatives are created on the fly by shuffling antigens across strong-binder rows while loosely matching format and antigen length.
+- Because of that, a high `compatibility_acc` should be interpreted as success on a synthetic compatibility discrimination task, not as proof of real binder-vs-nonbinder generalization.
+- The intended next step is to move toward assay-aware, hard-negative, grouped evaluation rather than relying on shuffled negatives alone.
+
 #### Why this stage is separate from paired refinement
 
 Paired VH/VL refinement teaches internal antibody consistency. Antigen-conditioned modeling teaches whether an antibody context is compatible with a target. Those are related, but not the same problem, so they should remain distinct stages.
@@ -263,6 +277,8 @@ This repository is no longer only a high-level roadmap. It now includes working 
 - and ASD-based antibody-antigen parquet preprocessing.
 
 The antigen-conditioned model itself is still the next major build step, but the preprocessing foundation for that stage now exists.
+
+For the current `antigen_refine` training stage, treat `compatibility_acc` as a cleaned-up diagnostic metric for the synthetic shuffled-antigen task rather than a final scientific benchmark.
 
 ---
 

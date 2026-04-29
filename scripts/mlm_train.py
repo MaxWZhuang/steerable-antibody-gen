@@ -953,6 +953,26 @@ def compatibility_classification_accuracy(
     return (preds[compatibility_mask] == compatibility_labels[compatibility_mask]).float().mean().item()
 
 
+def masked_classification_counts(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    mask: torch.Tensor,
+) -> tuple[int, int]:
+    """
+    Count correct masked classifications and the number of labeled rows.
+
+    This helper lets epoch metrics aggregate classification accuracy over all
+    labeled examples instead of averaging per-batch accuracies, which can skew
+    results when batches contain different numbers of supervised rows.
+    """
+    if mask.sum().item() == 0:
+        return 0, 0
+    preds = logits.argmax(dim=-1)
+    correct = int((preds[mask] == labels[mask]).sum().item())
+    total = int(mask.sum().item())
+    return correct, total
+
+
 def _make_progress_bar(
     iterable,
     *,
@@ -1097,7 +1117,8 @@ def evaluate(
     total_mlm_loss = 0.0
     total_aux_loss = 0.0
     total_acc = 0.0
-    total_aux_acc = 0.0
+    total_aux_correct = 0
+    total_aux_labeled = 0
     total_batches = 0
 
     progress = _make_progress_bar(
@@ -1132,6 +1153,11 @@ def evaluate(
                 batch["compatibility_labels"],
                 batch["compatibility_mask"],
             )
+            aux_correct, aux_labeled = masked_classification_counts(
+                compatibility_logits,
+                batch["compatibility_labels"],
+                batch["compatibility_mask"],
+            )
             aux_loss_name = "compatibility_loss"
             aux_acc_name = "compatibility_acc"
         else:
@@ -1149,6 +1175,11 @@ def evaluate(
             aux_loss = losses["pair_loss"]
             acc = masked_accuracy(logits, batch["labels"])
             aux_acc = pair_classification_accuracy(pair_logits, batch["pair_labels"], batch["pair_mask"])
+            aux_correct, aux_labeled = masked_classification_counts(
+                pair_logits,
+                batch["pair_labels"],
+                batch["pair_mask"],
+            )
             aux_loss_name = "pair_loss"
             aux_acc_name = "pair_acc"
 
@@ -1156,14 +1187,16 @@ def evaluate(
         total_mlm_loss += float(mlm_loss.item())
         total_aux_loss += float(aux_loss.item())
         total_acc += acc
-        total_aux_acc += aux_acc
+        total_aux_correct += aux_correct
+        total_aux_labeled += aux_labeled
         total_batches += 1
+        running_aux_acc = (total_aux_correct / total_aux_labeled) if total_aux_labeled > 0 else 0.0
         progress.set_postfix(
             loss=f"{total_loss / total_batches:.4f}",
             mlm_loss=f"{total_mlm_loss / total_batches:.4f}",
             **{aux_loss_name: f"{total_aux_loss / total_batches:.4f}"},
             mlm_acc=f"{total_acc / total_batches:.4f}",
-            **{aux_acc_name: f"{total_aux_acc / total_batches:.4f}"},
+            **{aux_acc_name: f"{running_aux_acc:.4f}"},
         )
 
     progress.close()
@@ -1189,10 +1222,14 @@ def evaluate(
     }
     if cfg.training_stage == "antigen_refine":
         metrics["compatibility_loss"] = total_aux_loss / total_batches
-        metrics["compatibility_acc"] = total_aux_acc / total_batches
+        metrics["compatibility_acc"] = (
+            total_aux_correct / total_aux_labeled if total_aux_labeled > 0 else float("nan")
+        )
     else:
         metrics["pair_loss"] = total_aux_loss / total_batches
-        metrics["pair_acc"] = total_aux_acc / total_batches
+        metrics["pair_acc"] = (
+            total_aux_correct / total_aux_labeled if total_aux_labeled > 0 else float("nan")
+        )
     return metrics
 
 
@@ -1235,7 +1272,8 @@ def train_one_epoch(
     total_mlm_loss = 0.0
     total_aux_loss = 0.0
     total_acc = 0.0
-    total_aux_acc = 0.0
+    total_aux_correct = 0
+    total_aux_labeled = 0
     total_batches = 0
 
     progress = _make_progress_bar(
@@ -1294,11 +1332,21 @@ def train_one_epoch(
                 batch["compatibility_labels"],
                 batch["compatibility_mask"],
             )
+            aux_correct, aux_labeled = masked_classification_counts(
+                compatibility_logits.detach(),
+                batch["compatibility_labels"],
+                batch["compatibility_mask"],
+            )
             aux_loss_name = "compatibility_loss"
             aux_acc_name = "compatibility_acc"
         else:
             acc = masked_accuracy(logits.detach(), batch["labels"])
             aux_acc = pair_classification_accuracy(
+                pair_logits.detach(),
+                batch["pair_labels"],
+                batch["pair_mask"],
+            )
+            aux_correct, aux_labeled = masked_classification_counts(
                 pair_logits.detach(),
                 batch["pair_labels"],
                 batch["pair_mask"],
@@ -1310,14 +1358,16 @@ def train_one_epoch(
         total_mlm_loss += float(mlm_loss.item())
         total_aux_loss += float(aux_loss.item())
         total_acc += acc
-        total_aux_acc += aux_acc
+        total_aux_correct += aux_correct
+        total_aux_labeled += aux_labeled
         total_batches += 1
+        running_aux_acc = (total_aux_correct / total_aux_labeled) if total_aux_labeled > 0 else 0.0
         progress.set_postfix(
             loss=f"{total_loss / total_batches:.4f}",
             mlm_loss=f"{total_mlm_loss / total_batches:.4f}",
             **{aux_loss_name: f"{total_aux_loss / total_batches:.4f}"},
             mlm_acc=f"{total_acc / total_batches:.4f}",
-            **{aux_acc_name: f"{total_aux_acc / total_batches:.4f}"},
+            **{aux_acc_name: f"{running_aux_acc:.4f}"},
         )
 
     progress.close()
@@ -1343,10 +1393,14 @@ def train_one_epoch(
     }
     if cfg.training_stage == "antigen_refine":
         metrics["compatibility_loss"] = total_aux_loss / total_batches
-        metrics["compatibility_acc"] = total_aux_acc / total_batches
+        metrics["compatibility_acc"] = (
+            total_aux_correct / total_aux_labeled if total_aux_labeled > 0 else float("nan")
+        )
     else:
         metrics["pair_loss"] = total_aux_loss / total_batches
-        metrics["pair_acc"] = total_aux_acc / total_batches
+        metrics["pair_acc"] = (
+            total_aux_correct / total_aux_labeled if total_aux_labeled > 0 else float("nan")
+        )
     return metrics
 
 
