@@ -20,7 +20,7 @@ def project_root() -> Path:
 
 @pytest.fixture
 def script_path(project_root: Path) -> Path:
-    return project_root / "scripts" / "prepare_oas.py"
+    return project_root.parents[1] / "scripts" / "prepare_oas.py"
 
 
 @pytest.fixture

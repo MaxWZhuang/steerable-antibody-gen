@@ -906,3 +906,29 @@ class AntibodyAntigenCollator(MLMCollator):
             "antibody_format_groups": [self._antibody_format_group(item) for item in effective_batch],
             "antigen_length_buckets": [self._antigen_bucket(item) for item in effective_batch],
         }
+
+
+class AntibodyAntigenRealLabelCollator(AntibodyAntigenCollator):
+    """
+    Build dual-stream antibody-antigen batches using experimental binder labels.
+
+    Unlike `AntibodyAntigenCollator`, this collator does not synthesize
+    shuffled-antigen negatives. Compatibility labels come only from
+    `binder_label` values where 0 means measured non-binder and 1 means binder.
+    """
+
+    def _build_antibody_antigen_batch(
+        self,
+        batch: Sequence[OASRecord],
+    ) -> tuple[list[OASRecord], list[int], list[bool], list[bool]]:
+        effective_batch = [replace(item) for item in batch]
+        compatibility_labels = [0] * len(batch)
+        compatibility_mask = [False] * len(batch)
+        is_shuffled_antigen = [False] * len(batch)
+
+        for idx, item in enumerate(effective_batch):
+            if item.binder_label in (0, 1):
+                compatibility_labels[idx] = int(item.binder_label)
+                compatibility_mask[idx] = True
+
+        return effective_batch, compatibility_labels, compatibility_mask, is_shuffled_antigen

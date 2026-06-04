@@ -195,6 +195,50 @@ def test_parse_args_antigen_refine_requires_init_checkpoint(tmp_path: Path, proj
         )
 
 
+def test_parse_args_antigen_real_label_refine_defaults_to_separate_output_dir(
+    tmp_path: Path,
+    project_root: Path,
+):
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = tmp_path / "tiny_antigen.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+    init_ckpt = tmp_path / "best.pt"
+    init_ckpt.write_text("placeholder", encoding="utf-8")
+
+    cfg = mlm_train.parse_args(
+        [
+            "--data-path",
+            str(data_path),
+            "--training-stage",
+            "antigen_real_label_refine",
+            "--init-checkpoint",
+            str(init_ckpt),
+        ]
+    )
+
+    assert cfg.training_stage == "antigen_real_label_refine"
+    assert cfg.output_dir == "checkpoints/mlm_antigen_real_label_refine"
+
+
+def test_parse_args_antigen_real_label_refine_requires_init_checkpoint(
+    tmp_path: Path,
+    project_root: Path,
+):
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = tmp_path / "tiny_antigen.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="requires `init_checkpoint`"):
+        mlm_train.parse_args(
+            [
+                "--data-path",
+                str(data_path),
+                "--training-stage",
+                "antigen_real_label_refine",
+            ]
+        )
+
+
 def test_antigen_refine_uses_dual_stream_collator_and_model(tmp_path: Path, project_root: Path):
     mlm_train = load_mlm_train_module(project_root)
     from smallAntibodyGen.models.mlm import AntibodyAntigenCrossAttention
@@ -269,6 +313,103 @@ def test_antigen_refine_uses_dual_stream_collator_and_model(tmp_path: Path, proj
     assert "dataset_names" in batch
     assert "antibody_format_groups" in batch
     assert "antigen_length_buckets" in batch
+
+
+def test_antigen_real_label_refine_filters_to_binary_labels_and_uses_dual_stream(
+    tmp_path: Path,
+    project_root: Path,
+):
+    mlm_train = load_mlm_train_module(project_root)
+    from smallAntibodyGen.models.mlm import AntibodyAntigenCrossAttention
+
+    data_path = tmp_path / "tiny_antigen_real_label.jsonl.gz"
+    record = {
+        "record_id": "antigen-1",
+        "sequence": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVS",
+        "sequence_heavy": "EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVS",
+        "sequence_antigen": "MKTIIALSYIFCLVFADYKDDDDK",
+        "locus": "PAIRED_ANTIGEN",
+        "chain_group": "paired_antigen",
+        "split": "train",
+        "length": 56,
+        "target_key": "uniprot:p11111",
+        "target_name": "test_target",
+        "target_pdb": "1abc",
+        "target_uniprot": "P12345",
+        "dataset": "asd-test",
+        "confidence": "very_high",
+        "affinity_type": "bool",
+        "affinity_raw": "1.0",
+        "processed_measurement_raw": "1.0",
+        "processed_measurement_float": 1.0,
+        "binder_label": 1,
+        "is_strong_binder": True,
+        "is_nanobody": True,
+        "scfv": False,
+        "cdr3_aa_heavy": "CARDRST",
+        "cdr3_start_aa_heavy": 10,
+        "cdr3_end_aa_heavy": 17,
+        "heavy_locus": "IGH",
+        "light_locus": None,
+        "is_paired": False,
+        "antigen_length": 24,
+        "metadata": {},
+        "source_file": "tiny_antigen.parquet",
+    }
+    with gzip.open(data_path, "wt", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+        f.write(json.dumps({**record, "record_id": "antigen-2", "target_key": "uniprot:p22222", "binder_label": 0, "is_strong_binder": False}) + "\n")
+        f.write(json.dumps({**record, "record_id": "antigen-3", "target_key": "uniprot:p33333", "binder_label": None, "is_strong_binder": False}) + "\n")
+    init_ckpt = tmp_path / "best.pt"
+    init_ckpt.write_text("placeholder", encoding="utf-8")
+
+    cfg = mlm_train.parse_args(
+        [
+            "--data-path",
+            str(data_path),
+            "--training-stage",
+            "antigen_real_label_refine",
+            "--init-checkpoint",
+            str(init_ckpt),
+            "--batch-size",
+            "2",
+            "--eval-batch-size",
+            "2",
+            "--max-length",
+            "64",
+        ]
+    )
+    tokenizer = mlm_train.build_tokenizer()
+    train_dataset, _ = mlm_train.build_datasets(cfg)
+    loader = mlm_train.build_train_loader(train_dataset, tokenizer, cfg, epoch=0)
+    batch = next(iter(loader))
+    model = mlm_train.build_model(tokenizer, cfg, device=mlm_train.torch.device("cpu"))
+
+    assert len(train_dataset.records) == 2
+    assert isinstance(model, AntibodyAntigenCrossAttention)
+    assert batch["compatibility_mask"].tolist() == [True, True]
+    assert sorted(batch["compatibility_labels"].tolist()) == [0, 1]
+    assert batch["is_shuffled_antigen"].tolist() == [False, False]
+
+
+def test_compatibility_binary_metrics_are_deterministic(project_root: Path):
+    mlm_train = load_mlm_train_module(project_root)
+
+    metrics = mlm_train.compatibility_binary_metrics(
+        labels=[1, 0, 1, 0],
+        scores=[0.9, 0.8, 0.4, 0.1],
+        preds=[1, 1, 0, 0],
+    )
+
+    assert metrics["compatibility_labeled_count"] == 4
+    assert metrics["compatibility_positive_rate"] == pytest.approx(0.5)
+    assert metrics["compatibility_precision"] == pytest.approx(0.5)
+    assert metrics["compatibility_recall"] == pytest.approx(0.5)
+    assert metrics["compatibility_specificity"] == pytest.approx(0.5)
+    assert metrics["compatibility_balanced_acc"] == pytest.approx(0.5)
+    assert metrics["compatibility_mcc"] == pytest.approx(0.0)
+    assert metrics["compatibility_auroc"] == pytest.approx(0.75)
+    assert metrics["compatibility_auprc"] == pytest.approx(5 / 6)
 
 
 def test_antigen_refine_baseline_diagnostics_return_expected_keys(tmp_path: Path, project_root: Path):
@@ -406,6 +547,31 @@ def test_build_antigen_refine_init_state_dict_clones_encoder_into_both_branches(
     assert mlm_train.torch.equal(
         translated["antigen_encoder.token_embedding.weight"],
         checkpoint_state_dict["sequence_encoder.token_embedding.weight"],
+    )
+
+
+def test_build_antigen_refine_init_state_dict_accepts_bare_encoder_keys(project_root: Path):
+    mlm_train = load_mlm_train_module(project_root)
+
+    checkpoint_state_dict = {
+        "token_embedding.weight": mlm_train.torch.tensor([[1.0, 2.0], [3.0, 4.0]]),
+        "final_norm.bias": mlm_train.torch.tensor([5.0, 6.0]),
+        "lm_head.weight": mlm_train.torch.tensor([[7.0, 8.0], [9.0, 10.0]]),
+    }
+
+    translated = mlm_train.build_antigen_refine_init_state_dict(checkpoint_state_dict)
+
+    assert mlm_train.torch.equal(
+        translated["antibody_encoder.token_embedding.weight"],
+        checkpoint_state_dict["token_embedding.weight"],
+    )
+    assert mlm_train.torch.equal(
+        translated["antigen_encoder.final_norm.bias"],
+        checkpoint_state_dict["final_norm.bias"],
+    )
+    assert mlm_train.torch.equal(
+        translated["lm_head.weight"],
+        checkpoint_state_dict["lm_head.weight"],
     )
 
 
