@@ -127,6 +127,43 @@ python scripts/mlm_train.py --config configs/refine_antigen_real_label.yaml --sm
 
 The stage is designed to start from `checkpoints/mlm_3m_paired_refine_hcdr3_01/best.pt` rather than from the older shuffled-antigen checkpoint, so the compatibility head does not inherit the synthetic shortcut objective.
 
+If YAML support is not installed, the equivalent explicit CLI command is:
+
+```bash
+python scripts/mlm_train.py \
+  --data-path data/processed/antibody_antigen/antibody_antigen.jsonl.gz \
+  --training-stage antigen_real_label_refine \
+  --init-checkpoint checkpoints/mlm_3m_paired_refine_hcdr3_01/best.pt \
+  --output-dir checkpoints/mlm_antigen_real_label_refine \
+  --resume-from-last \
+  --max-length 192 \
+  --batch-size 16 \
+  --eval-batch-size 16 \
+  --train-num-workers 0 \
+  --eval-num-workers 0 \
+  --bucket-width 8 \
+  --mask-probability 0.10 \
+  --hcdr3-span-probability 0.0 \
+  --hcdr3-span-min 3 \
+  --hcdr3-span-max 8 \
+  --shuffle-pair-probability 0.0 \
+  --shuffle-antigen-probability 0.0 \
+  --d-model 256 \
+  --n-heads 8 \
+  --n-layers 6 \
+  --d-ff 1024 \
+  --dropout 0.1 \
+  --learning-rate 0.00005 \
+  --weight-decay 0.01 \
+  --grad-clip-norm 1.0 \
+  --pair-loss-weight 0.0 \
+  --compatibility-loss-weight 1.0 \
+  --epochs 12 \
+  --seed 42 \
+  --use-amp \
+  --device cuda
+```
+
 #### Why this stage is separate from paired refinement
 
 Paired VH/VL refinement teaches internal antibody consistency. Antigen-conditioned modeling teaches whether an antibody context is compatible with a target. Those are related, but not the same problem, so they should remain distinct stages.
@@ -178,6 +215,129 @@ Rather than unconstrained de novo generation, the early focus is:
 
 This makes the generation problem more realistic for lead refinement and better aligned with the project goal of steerable design.
 
+#### Current implementation status
+
+The repository now includes a fixed-length antigen-conditioned HCDR3 infilling stage:
+
+- `antigen_hcdr3_infill_refine` fine-tunes the dual-stream antibody/antigen model on positive binder rows only.
+- It keeps the antibody framework, optional light chain, and antigen visible.
+- It masks the entire known heavy-chain CDR3 span and trains the MLM head to reconstruct those residues.
+- Compatibility loss is set to `0.0` in this stage because the goal is residue infilling for positive binders, not binder-vs-non-binder classification.
+- HCDR3-specific metrics include token accuracy, full-span exact match, target-token count, and valid-span count.
+
+This is fixed-length infilling because the number of `[MASK]` tokens equals the HCDR3 length. That makes the first design task intentionally narrower: the model learns what residues belong in a known-size HCDR3 hole. Unknown-length generation is handled as a separate proposal step: choose one or more candidate lengths first, then run the same fixed-length infiller for each proposed length.
+
+The initial unknown-length infrastructure lives in `src/smallAntibodyGen/infill/hcdr3.py`:
+
+- `FixedLengthHCDR3Infiller` builds masked antibody/antigen inputs and samples HCDR3 residues.
+- `LengthProposalStrategy` defines the interface for future length predictors.
+- `EmpiricalHCDR3LengthPrior` is the first usable length proposer, sampling lengths from positive-binder HCDR3s.
+- `AntigenCompatibilityScorer` can rank generated candidates with the real-label compatibility head.
+
+#### Running HCDR3 infill refinement
+
+The checked-in YAML config is:
+
+```bash
+python scripts/mlm_train.py --config configs/refine_antigen_hcdr3_infill.yaml
+```
+
+Equivalent explicit CLI command:
+
+```bash
+python scripts/mlm_train.py \
+  --data-path data/processed/antibody_antigen/antibody_antigen.jsonl.gz \
+  --training-stage antigen_hcdr3_infill_refine \
+  --init-checkpoint checkpoints/mlm_antigen_real_label_refine/best.pt \
+  --output-dir checkpoints/mlm_antigen_hcdr3_infill_refine \
+  --resume-from-last \
+  --max-length 192 \
+  --batch-size 16 \
+  --eval-batch-size 16 \
+  --train-num-workers 0 \
+  --eval-num-workers 0 \
+  --bucket-width 8 \
+  --mask-probability 0.10 \
+  --hcdr3-span-probability 1.0 \
+  --hcdr3-span-min 3 \
+  --hcdr3-span-max 8 \
+  --hcdr3-mask-mode full_span \
+  --mask-replacement-strategy always_mask \
+  --shuffle-pair-probability 0.0 \
+  --shuffle-antigen-probability 0.0 \
+  --d-model 256 \
+  --n-heads 8 \
+  --n-layers 6 \
+  --d-ff 1024 \
+  --dropout 0.1 \
+  --learning-rate 0.00003 \
+  --weight-decay 0.01 \
+  --grad-clip-norm 1.0 \
+  --pair-loss-weight 0.0 \
+  --compatibility-loss-weight 0.0 \
+  --epochs 8 \
+  --seed 42 \
+  --use-amp \
+  --device cuda
+```
+
+For a CPU smoke test without YAML:
+
+```bash
+python scripts/mlm_train.py \
+  --data-path data/processed/antibody_antigen/antibody_antigen.jsonl.gz \
+  --training-stage antigen_hcdr3_infill_refine \
+  --init-checkpoint checkpoints/mlm_antigen_real_label_refine/best.pt \
+  --output-dir checkpoints/.tmp_hcdr3_infill_smoke \
+  --no-resume-from-last \
+  --smoke-test-only \
+  --max-length 192 \
+  --batch-size 1 \
+  --eval-batch-size 1 \
+  --hcdr3-mask-mode full_span \
+  --mask-replacement-strategy always_mask \
+  --compatibility-loss-weight 0.0 \
+  --device cpu \
+  --no-progress
+```
+
+#### Generating candidates
+
+Fixed-length candidate generation uses the known HCDR3 length from each target record:
+
+```bash
+python scripts/hcdr3_infill.py \
+  --checkpoint checkpoints/mlm_antigen_hcdr3_infill_refine/best.pt \
+  --data-path data/processed/antibody_antigen/antibody_antigen.jsonl.gz \
+  --split val \
+  --num-records 5 \
+  --num-samples 16 \
+  --length-mode fixed \
+  --temperature 1.0 \
+  --top-k 10 \
+  --device cuda \
+  --output-path outputs/hcdr3_fixed_candidates.jsonl
+```
+
+Empirical unknown-length candidate generation samples proposed HCDR3 lengths from the positive-binder training distribution, then infills each proposed length:
+
+```bash
+python scripts/hcdr3_infill.py \
+  --checkpoint checkpoints/mlm_antigen_hcdr3_infill_refine/best.pt \
+  --data-path data/processed/antibody_antigen/antibody_antigen.jsonl.gz \
+  --split val \
+  --num-records 5 \
+  --num-samples 16 \
+  --length-mode empirical \
+  --temperature 1.0 \
+  --top-k 10 \
+  --score-checkpoint checkpoints/mlm_antigen_real_label_refine/best.pt \
+  --device cuda \
+  --output-path outputs/hcdr3_empirical_length_candidates.jsonl
+```
+
+Each JSONL row includes the record identity, target metadata, true HCDR3 if known, proposed length, generated HCDR3, generated heavy-chain sequence, MLM log probability, and optional compatibility score.
+
 ---
 
 ## Data Pipeline
@@ -191,7 +351,10 @@ The repository now has a clearer staged preprocessing story:
   Cleans ASD parquet shards into processed antibody-antigen JSONL files, keeps heavy/light plus antigen context, preserves nested numbering metadata, computes HCDR3 spans when possible, and assigns leakage-aware splits.
 
 - `scripts/mlm_train.py`
-  Trains antibody MLM, paired-refinement, synthetic antigen refinement, and real-label antibody-antigen compatibility refinement stages.
+  Trains antibody MLM, paired-refinement, synthetic antigen refinement, real-label antibody-antigen compatibility refinement, and fixed-length antigen-conditioned HCDR3 infill refinement stages.
+
+- `scripts/hcdr3_infill.py`
+  Generates fixed-length or empirical-length HCDR3 candidates from a trained antigen-conditioned infill checkpoint, with optional compatibility scoring.
 
 ---
 
@@ -294,11 +457,14 @@ This repository is no longer only a high-level roadmap. It now includes working 
 - paired VH/VL refinement,
 - ASD-based antibody-antigen parquet preprocessing,
 - synthetic shuffled-antigen compatibility refinement,
-- and real-label antibody-antigen compatibility refinement from ASD binary binder labels.
+- real-label antibody-antigen compatibility refinement from ASD binary binder labels,
+- and fixed-length antigen-conditioned HCDR3 infill refinement on positive binder rows.
 
 The antigen-conditioned model now exists as a dual-stream antibody/antigen cross-attention model. The main open research question is no longer whether the stage is wired, but how well different compatibility objectives avoid shortcut learning and generalize across targets, assay families, and antibody families.
 
 For the original `antigen_refine` stage, treat compatibility metrics as diagnostics for the synthetic shuffled-antigen task. For `antigen_real_label_refine`, treat metrics as real binary-label diagnostics, but still audit them against source, target, assay, and split effects before interpreting them biologically.
+
+For `antigen_hcdr3_infill_refine`, treat HCDR3 reconstruction metrics as evidence about antigen-conditioned residue infilling given a known span length. They should not be read as proof of fully unconstrained binder design, because fixed-length infilling supplies the HCDR3 length through the number of mask tokens.
 
 ---
 
