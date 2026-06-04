@@ -1,0 +1,36 @@
+training_stage: antigen_real_label_refine
+data_path: data/processed/antibody_antigen/antibody_antigen.jsonl.gz
+init_checkpoint: checkpoints/mlm_3m_paired_refine_hcdr3_01/best.pt
+output_dir: checkpoints/mlm_antigen_real_label_refine
+resume_from_last: true
+
+seed: 42
+batch_size: 16
+eval_batch_size: 16
+train_num_workers: 0
+eval_num_workers: 0
+max_length: 192
+bucket_width: 8
+
+mask_probability: 0.10
+hcdr3_span_probability: 0.0
+hcdr3_span_min: 3
+hcdr3_span_max: 8
+shuffle_pair_probability: 0.0
+shuffle_antigen_probability: 0.0
+
+d_model: 256
+n_heads: 8
+n_layers: 6
+d_ff: 1024
+dropout: 0.1
+
+learning_rate: 0.00005
+weight_decay: 0.01
+grad_clip_norm: 1.0
+pair_loss_weight: 0.0
+compatibility_loss_weight: 1.0
+epochs: 12
+use_amp: true
+show_progress: true
+device: cuda
