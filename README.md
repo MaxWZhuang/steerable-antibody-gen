@@ -97,17 +97,35 @@ Once the ASD-derived dataset is prepared, train an antibody-antigen model that c
 
 #### Current implementation status
 
-- `scripts/mlm_train.py` now includes an `antigen_refine` stage that reports `compatibility_loss` and `compatibility_acc`.
-- `compatibility_acc` is aggregated over all labeled compatibility rows in the epoch, not as a simple average of per-batch accuracies.
-- This matters because the collator can produce different numbers of labeled compatibility examples per batch, so per-batch averaging can distort the headline metric.
+- `scripts/mlm_train.py` includes the original `antigen_refine` stage, which trains a synthetic native-vs-shuffled antigen compatibility objective.
+- `scripts/mlm_train.py` also includes `antigen_real_label_refine`, which trains the same dual-stream cross-attention model using only experimental `binder_label` rows where the label is exactly `0` or `1`.
+- `antigen_real_label_refine` filters out unlabeled / non-binary ASD rows for the compatibility objective and uses measured binders/non-binders instead of shuffled strong-binder negatives.
+- Compatibility accuracy is aggregated over all labeled compatibility rows in the epoch, not as a simple average of per-batch accuracies.
+- Antigen-stage metrics now include accuracy, balanced accuracy, precision, recall, specificity, MCC, AUROC, AUPRC, positive rate, and labeled-example count.
+- Per-epoch metrics are written to `metrics.jsonl` in the output directory for easier analysis after training.
 
-#### Important caveat about the current compatibility task
+#### Compatibility task variants
 
-- The current `antigen_refine` objective is still a conservative proxy task.
-- Positives are strong-binder rows.
-- Negatives are created on the fly by shuffling antigens across strong-binder rows while loosely matching format and antigen length.
-- Because of that, a high `compatibility_acc` should be interpreted as success on a synthetic compatibility discrimination task, not as proof of real binder-vs-nonbinder generalization.
-- The intended next step is to move toward assay-aware, hard-negative, grouped evaluation rather than relying on shuffled negatives alone.
+- `antigen_refine` remains useful as a synthetic diagnostic, but it is shortcut-prone. Positives are strong-binder rows, and negatives are created by shuffling antigens across strong-binder rows while loosely matching format and antigen length.
+- Because of that, high `antigen_refine` compatibility metrics should be interpreted as success on a synthetic cognate-vs-shuffled discrimination task, not as proof of real binder-vs-nonbinder generalization.
+- `antigen_real_label_refine` is the preferred next training stage for real binder classification. It treats `binder_label=1` as positive and `binder_label=0` as negative, and it does not create shuffled antigen negatives.
+- This is still not a final biological benchmark: the labels remain assay-heterogeneous and target-held-out validation may still differ from true prospective antibody-antigen generalization.
+
+#### Running real-label antigen refinement
+
+The repository includes `configs/refine_antigen_real_label.yaml`, which initializes from the paired OAS refinement checkpoint:
+
+```bash
+python scripts/mlm_train.py --config configs/refine_antigen_real_label.yaml
+```
+
+For a quick implementation check:
+
+```bash
+python scripts/mlm_train.py --config configs/refine_antigen_real_label.yaml --smoke-test-only
+```
+
+The stage is designed to start from `checkpoints/mlm_3m_paired_refine_hcdr3_01/best.pt` rather than from the older shuffled-antigen checkpoint, so the compatibility head does not inherit the synthetic shortcut objective.
 
 #### Why this stage is separate from paired refinement
 
@@ -173,7 +191,7 @@ The repository now has a clearer staged preprocessing story:
   Cleans ASD parquet shards into processed antibody-antigen JSONL files, keeps heavy/light plus antigen context, preserves nested numbering metadata, computes HCDR3 spans when possible, and assigns leakage-aware splits.
 
 - `scripts/mlm_train.py`
-  Trains the current antibody MLM and paired-refinement stages from the processed OAS datasets.
+  Trains antibody MLM, paired-refinement, synthetic antigen refinement, and real-label antibody-antigen compatibility refinement stages.
 
 ---
 
@@ -274,11 +292,13 @@ This repository is no longer only a high-level roadmap. It now includes working 
 - paired VH/VL OAS preprocessing,
 - antibody MLM training,
 - paired VH/VL refinement,
-- and ASD-based antibody-antigen parquet preprocessing.
+- ASD-based antibody-antigen parquet preprocessing,
+- synthetic shuffled-antigen compatibility refinement,
+- and real-label antibody-antigen compatibility refinement from ASD binary binder labels.
 
-The antigen-conditioned model itself is still the next major build step, but the preprocessing foundation for that stage now exists.
+The antigen-conditioned model now exists as a dual-stream antibody/antigen cross-attention model. The main open research question is no longer whether the stage is wired, but how well different compatibility objectives avoid shortcut learning and generalize across targets, assay families, and antibody families.
 
-For the current `antigen_refine` training stage, treat `compatibility_acc` as a cleaned-up diagnostic metric for the synthetic shuffled-antigen task rather than a final scientific benchmark.
+For the original `antigen_refine` stage, treat compatibility metrics as diagnostics for the synthetic shuffled-antigen task. For `antigen_real_label_refine`, treat metrics as real binary-label diagnostics, but still audit them against source, target, assay, and split effects before interpreting them biologically.
 
 ---
 

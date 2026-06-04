@@ -42,6 +42,7 @@ if str(SRC_ROOT) not in sys.path:
 from smallAntibodyGen.tokenizer import AminoAcidTokenizer
 from smallAntibodyGen.data.MLMCollator import (
     AntibodyAntigenCollator,
+    AntibodyAntigenRealLabelCollator,
     OASSequenceDataset,
     MLMCollator
 )
@@ -52,6 +53,13 @@ try:
     import yaml
 except ImportError:  # pragma: no cover - exercised only when dependency is missing
     yaml = None
+
+
+ANTIGEN_STAGES = {"antigen_refine", "antigen_real_label_refine"}
+
+
+def is_antigen_stage(training_stage: str) -> bool:
+    return training_stage in ANTIGEN_STAGES
 
 
 @dataclass
@@ -200,16 +208,19 @@ class TrainConfig:
             raise ValueError("epochs must be > 0")
         if self.train_num_workers < 0 or self.eval_num_workers < 0:
             raise ValueError("num_workers must be >= 0")
-        if self.training_stage not in {"base", "paired_refine", "antigen_refine"}:
-            raise ValueError("training_stage must be one of: base, paired_refine, antigen_refine")
+        if self.training_stage not in {"base", "paired_refine", *ANTIGEN_STAGES}:
+            raise ValueError(
+                "training_stage must be one of: base, paired_refine, "
+                "antigen_refine, antigen_real_label_refine"
+            )
         if self.training_stage == "paired_refine" and not self.init_checkpoint:
             raise ValueError(
                 "paired_refine training requires `init_checkpoint` so refinement "
                 "starts from a pretrained model."
             )
-        if self.training_stage == "antigen_refine" and not self.init_checkpoint:
+        if is_antigen_stage(self.training_stage) and not self.init_checkpoint:
             raise ValueError(
-                "antigen_refine training requires `init_checkpoint` so the "
+                f"{self.training_stage} training requires `init_checkpoint` so the "
                 "dual-stream model starts from a paired-refine checkpoint."
             )
 
@@ -369,7 +380,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=str, default=None)
     parser.add_argument("--data-path", type=str)
     parser.add_argument("--output-dir", type=str)
-    parser.add_argument("--training-stage", type=str, choices=("base", "paired_refine", "antigen_refine"))
+    parser.add_argument(
+        "--training-stage",
+        type=str,
+        choices=("base", "paired_refine", "antigen_refine", "antigen_real_label_refine"),
+    )
     parser.add_argument("--init-checkpoint", type=str)
     parser.add_argument("--resume-from-last", action="store_true", default=argparse.SUPPRESS)
     parser.add_argument("--no-resume-from-last", dest="resume_from_last", action="store_false", default=argparse.SUPPRESS)
@@ -451,6 +466,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> TrainConfig:
             merged_config["output_dir"] = "checkpoints/mlm_paired_refine"
         elif merged_config.get("training_stage") == "antigen_refine":
             merged_config["output_dir"] = "checkpoints/mlm_antigen_refine"
+        elif merged_config.get("training_stage") == "antigen_real_label_refine":
+            merged_config["output_dir"] = "checkpoints/mlm_antigen_real_label_refine"
 
     if "data_path" not in merged_config or not merged_config["data_path"]:
         parser.error("--data-path is required unless provided via --config")
@@ -559,6 +576,13 @@ def build_datasets(cfg: TrainConfig) -> Tuple[OASSequenceDataset, OASSequenceDat
     """
     train_dataset = OASSequenceDataset(cfg.data_path, split="train")
     val_dataset = OASSequenceDataset(cfg.data_path, split="val")
+    if cfg.training_stage == "antigen_real_label_refine":
+        train_dataset.records = [
+            record for record in train_dataset.records if record.binder_label in (0, 1)
+        ]
+        val_dataset.records = [
+            record for record in val_dataset.records if record.binder_label in (0, 1)
+        ]
     return train_dataset, val_dataset
 
 
@@ -673,19 +697,52 @@ def format_metric_summary(
     """
     Render one metric dictionary into a compact log line.
     """
-    if cfg.training_stage == "antigen_refine":
+    if is_antigen_stage(cfg.training_stage):
         aux_loss_name = "compatibility_loss"
         aux_acc_name = "compatibility_acc"
     else:
         aux_loss_name = "pair_loss"
         aux_acc_name = "pair_acc"
-    return (
+    summary = (
         f"{prefix}_loss={metrics['loss']:.4f} "
         f"{prefix}_mlm_loss={metrics['mlm_loss']:.4f} "
         f"{prefix}_{aux_loss_name}={metrics[aux_loss_name]:.4f} "
         f"{prefix}_mlm_acc={metrics['mlm_acc']:.4f} "
         f"{prefix}_{aux_acc_name}={metrics[aux_acc_name]:.4f}"
     )
+    if is_antigen_stage(cfg.training_stage) and "compatibility_balanced_acc" in metrics:
+        summary += (
+            f" {prefix}_compat_labeled={int(metrics['compatibility_labeled_count'])}"
+            f" {prefix}_compat_bal_acc={metrics['compatibility_balanced_acc']:.4f}"
+            f" {prefix}_compat_mcc={metrics['compatibility_mcc']:.4f}"
+            f" {prefix}_compat_auroc={metrics['compatibility_auroc']:.4f}"
+            f" {prefix}_compat_auprc={metrics['compatibility_auprc']:.4f}"
+        )
+    return summary
+
+
+def _json_safe(value: Any) -> Any:
+    """
+    Convert non-finite floats to null so metrics.jsonl is strict JSON.
+    """
+    if isinstance(value, float):
+        return value if np.isfinite(value) else None
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
+
+
+def append_metrics_jsonl(
+    output_dir: Path,
+    record: Dict[str, Any],
+) -> None:
+    """
+    Append one metrics record to the run's JSONL log.
+    """
+    with open(output_dir / "metrics.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps(_json_safe(record), sort_keys=True) + "\n")
 
 
 def sample_records_for_diagnostics(
@@ -731,7 +788,7 @@ def fit_group_majority_baselines(
     """
     Fit simple group-majority baselines on a deterministic sampled training view.
     """
-    if cfg.training_stage != "antigen_refine":
+    if not is_antigen_stage(cfg.training_stage):
         return {}
 
     fit_size = choose_baseline_fit_size(len(dataset.records), cfg.eval_batch_size)
@@ -790,7 +847,7 @@ def evaluate_group_majority_baselines(
     """
     Evaluate simple non-neural baselines on the synthetic compatibility task.
     """
-    if cfg.training_stage != "antigen_refine" or not baselines:
+    if not is_antigen_stage(cfg.training_stage) or not baselines:
         return {}
 
     loader = build_eval_loader(dataset, tokenizer, cfg)
@@ -890,7 +947,18 @@ def build_train_loader(
     if hasattr(sampler, "set_epoch"):
         sampler.set_epoch(epoch)
 
-    if cfg.training_stage == "antigen_refine":
+    if cfg.training_stage == "antigen_real_label_refine":
+        collator = AntibodyAntigenRealLabelCollator(
+            tokenizer=tokenizer,
+            max_length=cfg.max_length,
+            mask_probability=cfg.mask_probability,
+            hcdr3_span_probability=cfg.hcdr3_span_probability,
+            hcdr3_span_min=cfg.hcdr3_span_min,
+            hcdr3_span_max=cfg.hcdr3_span_max,
+            shuffle_antigen_probability=0.0,
+            rng_seed=cfg.seed + epoch,
+        )
+    elif cfg.training_stage == "antigen_refine":
         collator = AntibodyAntigenCollator(
             tokenizer=tokenizer,
             max_length=cfg.max_length,
@@ -965,6 +1033,17 @@ def build_eval_loader(
             shuffle_antigen_probability=cfg.shuffle_antigen_probability,
             rng_seed=cfg.seed + 20_000,
         )
+    elif cfg.training_stage == "antigen_real_label_refine":
+        collator = AntibodyAntigenRealLabelCollator(
+            tokenizer=tokenizer,
+            max_length=cfg.max_length,
+            mask_probability=cfg.mask_probability,
+            hcdr3_span_probability=cfg.hcdr3_span_probability,
+            hcdr3_span_min=cfg.hcdr3_span_min,
+            hcdr3_span_max=cfg.hcdr3_span_max,
+            shuffle_antigen_probability=0.0,
+            rng_seed=cfg.seed + 20_000,
+        )
     else:
         collator = MLMCollator(
             tokenizer=tokenizer,
@@ -1017,7 +1096,7 @@ def build_model(
         d_ff=cfg.d_ff,
         dropout=cfg.dropout,
     )
-    if cfg.training_stage == "antigen_refine":
+    if is_antigen_stage(cfg.training_stage):
         model = AntibodyAntigenCrossAttention(model_cfg).to(device)
     else:
         model = AntibodyMLM(model_cfg).to(device)
@@ -1149,6 +1228,116 @@ def masked_classification_counts(
     return correct, total
 
 
+def binary_auroc(labels: Sequence[int], scores: Sequence[float]) -> float:
+    """
+    Compute AUROC for binary labels using average ranks for tied scores.
+    """
+    y = np.asarray(labels, dtype=np.int64)
+    s = np.asarray(scores, dtype=np.float64)
+    if y.size == 0:
+        return float("nan")
+    pos_count = int((y == 1).sum())
+    neg_count = int((y == 0).sum())
+    if pos_count == 0 or neg_count == 0:
+        return float("nan")
+
+    order = np.argsort(s)
+    sorted_scores = s[order]
+    ranks = np.empty_like(s, dtype=np.float64)
+    start = 0
+    while start < len(sorted_scores):
+        end = start + 1
+        while end < len(sorted_scores) and sorted_scores[end] == sorted_scores[start]:
+            end += 1
+        average_rank = (start + 1 + end) / 2.0
+        ranks[order[start:end]] = average_rank
+        start = end
+
+    pos_rank_sum = float(ranks[y == 1].sum())
+    return (pos_rank_sum - (pos_count * (pos_count + 1) / 2.0)) / (pos_count * neg_count)
+
+
+def binary_average_precision(labels: Sequence[int], scores: Sequence[float]) -> float:
+    """
+    Compute average precision / area under the precision-recall curve.
+    """
+    y = np.asarray(labels, dtype=np.int64)
+    s = np.asarray(scores, dtype=np.float64)
+    if y.size == 0:
+        return float("nan")
+    pos_count = int((y == 1).sum())
+    if pos_count == 0:
+        return float("nan")
+
+    order = np.argsort(-s, kind="mergesort")
+    sorted_labels = y[order]
+    tp = np.cumsum(sorted_labels == 1)
+    seen = np.arange(1, len(sorted_labels) + 1)
+    precision = tp / seen
+    return float(precision[sorted_labels == 1].sum() / pos_count)
+
+
+def compatibility_binary_metrics(
+    labels: Sequence[int],
+    scores: Sequence[float],
+    preds: Sequence[int],
+) -> Dict[str, float]:
+    """
+    Compute compatibility metrics over all labeled rows in an epoch/eval pass.
+    """
+    y = np.asarray(labels, dtype=np.int64)
+    p = np.asarray(preds, dtype=np.int64)
+    labeled = int(y.size)
+    if labeled == 0:
+        return {
+            "compatibility_labeled_count": 0.0,
+            "compatibility_positive_rate": float("nan"),
+            "compatibility_precision": float("nan"),
+            "compatibility_recall": float("nan"),
+            "compatibility_specificity": float("nan"),
+            "compatibility_balanced_acc": float("nan"),
+            "compatibility_mcc": float("nan"),
+            "compatibility_auroc": float("nan"),
+            "compatibility_auprc": float("nan"),
+            "compatibility_tp": 0.0,
+            "compatibility_tn": 0.0,
+            "compatibility_fp": 0.0,
+            "compatibility_fn": 0.0,
+        }
+
+    tp = int(((p == 1) & (y == 1)).sum())
+    tn = int(((p == 0) & (y == 0)).sum())
+    fp = int(((p == 1) & (y == 0)).sum())
+    fn = int(((p == 0) & (y == 1)).sum())
+
+    precision = tp / (tp + fp) if (tp + fp) > 0 else float("nan")
+    recall = tp / (tp + fn) if (tp + fn) > 0 else float("nan")
+    specificity = tn / (tn + fp) if (tn + fp) > 0 else float("nan")
+    if np.isfinite(recall) and np.isfinite(specificity):
+        balanced_acc = (recall + specificity) / 2.0
+    else:
+        balanced_acc = float("nan")
+
+    mcc_denom = float((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
+    mcc = ((tp * tn) - (fp * fn)) / np.sqrt(mcc_denom) if mcc_denom > 0 else float("nan")
+
+    return {
+        "compatibility_labeled_count": float(labeled),
+        "compatibility_positive_rate": float((y == 1).sum() / labeled),
+        "compatibility_precision": float(precision),
+        "compatibility_recall": float(recall),
+        "compatibility_specificity": float(specificity),
+        "compatibility_balanced_acc": float(balanced_acc),
+        "compatibility_mcc": float(mcc),
+        "compatibility_auroc": float(binary_auroc(labels, scores)),
+        "compatibility_auprc": float(binary_average_precision(labels, scores)),
+        "compatibility_tp": float(tp),
+        "compatibility_tn": float(tn),
+        "compatibility_fp": float(fp),
+        "compatibility_fn": float(fn),
+    }
+
+
 def _make_progress_bar(
     iterable,
     *,
@@ -1205,7 +1394,7 @@ def run_smoke_test(
     optimizer.zero_grad(set_to_none=True)
 
     with torch.autocast(device_type=device.type, enabled=(use_amp and device.type == "cuda")):
-        if training_stage == "antigen_refine":
+        if is_antigen_stage(training_stage):
             logits, compatibility_logits = model(
                 antibody_input_ids=batch["antibody_input_ids"],
                 antibody_attention_mask=batch["antibody_attention_mask"],
@@ -1296,6 +1485,9 @@ def evaluate(
     total_aux_correct = 0
     total_aux_labeled = 0
     total_batches = 0
+    compatibility_labels_all: list[int] = []
+    compatibility_scores_all: list[float] = []
+    compatibility_preds_all: list[int] = []
 
     progress = _make_progress_bar(
         val_loader,
@@ -1305,7 +1497,7 @@ def evaluate(
     )
     for batch in progress:
         batch = move_batch_to_device(batch, device)
-        if cfg.training_stage == "antigen_refine":
+        if is_antigen_stage(cfg.training_stage):
             logits, compatibility_logits = model(
                 antibody_input_ids=batch["antibody_input_ids"],
                 antibody_attention_mask=batch["antibody_attention_mask"],
@@ -1334,6 +1526,17 @@ def evaluate(
                 batch["compatibility_labels"],
                 batch["compatibility_mask"],
             )
+            mask = batch["compatibility_mask"].bool()
+            if mask.sum().item() > 0:
+                compatibility_labels_all.extend(
+                    batch["compatibility_labels"][mask].detach().cpu().tolist()
+                )
+                compatibility_scores_all.extend(
+                    torch.softmax(compatibility_logits.detach(), dim=-1)[mask, 1].cpu().tolist()
+                )
+                compatibility_preds_all.extend(
+                    compatibility_logits.detach().argmax(dim=-1)[mask].cpu().tolist()
+                )
             aux_loss_name = "compatibility_loss"
             aux_acc_name = "compatibility_acc"
         else:
@@ -1383,9 +1586,10 @@ def evaluate(
             "mlm_loss": float("nan"),
             "mlm_acc": float("nan"),
         }
-        if cfg.training_stage == "antigen_refine":
+        if is_antigen_stage(cfg.training_stage):
             metrics["compatibility_loss"] = float("nan")
             metrics["compatibility_acc"] = float("nan")
+            metrics.update(compatibility_binary_metrics([], [], []))
         else:
             metrics["pair_loss"] = float("nan")
             metrics["pair_acc"] = float("nan")
@@ -1396,10 +1600,17 @@ def evaluate(
         "mlm_loss": total_mlm_loss / total_batches,
         "mlm_acc": total_acc / total_batches,
     }
-    if cfg.training_stage == "antigen_refine":
+    if is_antigen_stage(cfg.training_stage):
         metrics["compatibility_loss"] = total_aux_loss / total_batches
         metrics["compatibility_acc"] = (
             total_aux_correct / total_aux_labeled if total_aux_labeled > 0 else float("nan")
+        )
+        metrics.update(
+            compatibility_binary_metrics(
+                compatibility_labels_all,
+                compatibility_scores_all,
+                compatibility_preds_all,
+            )
         )
     else:
         metrics["pair_loss"] = total_aux_loss / total_batches
@@ -1451,6 +1662,9 @@ def train_one_epoch(
     total_aux_correct = 0
     total_aux_labeled = 0
     total_batches = 0
+    compatibility_labels_all: list[int] = []
+    compatibility_scores_all: list[float] = []
+    compatibility_preds_all: list[int] = []
 
     progress = _make_progress_bar(
         train_loader,
@@ -1463,7 +1677,7 @@ def train_one_epoch(
         optimizer.zero_grad(set_to_none=True)
 
         with torch.autocast(device_type=device.type, enabled=(cfg.use_amp and device.type == "cuda")):
-            if cfg.training_stage == "antigen_refine":
+            if is_antigen_stage(cfg.training_stage):
                 logits, compatibility_logits = model(
                     antibody_input_ids=batch["antibody_input_ids"],
                     antibody_attention_mask=batch["antibody_attention_mask"],
@@ -1501,7 +1715,7 @@ def train_one_epoch(
         scaler.step(optimizer)
         scaler.update()
 
-        if cfg.training_stage == "antigen_refine":
+        if is_antigen_stage(cfg.training_stage):
             acc = masked_accuracy(logits.detach(), batch["antibody_labels"])
             aux_acc = compatibility_classification_accuracy(
                 compatibility_logits.detach(),
@@ -1513,6 +1727,17 @@ def train_one_epoch(
                 batch["compatibility_labels"],
                 batch["compatibility_mask"],
             )
+            mask = batch["compatibility_mask"].bool()
+            if mask.sum().item() > 0:
+                compatibility_labels_all.extend(
+                    batch["compatibility_labels"][mask].detach().cpu().tolist()
+                )
+                compatibility_scores_all.extend(
+                    torch.softmax(compatibility_logits.detach(), dim=-1)[mask, 1].cpu().tolist()
+                )
+                compatibility_preds_all.extend(
+                    compatibility_logits.detach().argmax(dim=-1)[mask].cpu().tolist()
+                )
             aux_loss_name = "compatibility_loss"
             aux_acc_name = "compatibility_acc"
         else:
@@ -1554,9 +1779,10 @@ def train_one_epoch(
             "mlm_loss": float("nan"),
             "mlm_acc": float("nan"),
         }
-        if cfg.training_stage == "antigen_refine":
+        if is_antigen_stage(cfg.training_stage):
             metrics["compatibility_loss"] = float("nan")
             metrics["compatibility_acc"] = float("nan")
+            metrics.update(compatibility_binary_metrics([], [], []))
         else:
             metrics["pair_loss"] = float("nan")
             metrics["pair_acc"] = float("nan")
@@ -1567,10 +1793,17 @@ def train_one_epoch(
         "mlm_loss": total_mlm_loss / total_batches,
         "mlm_acc": total_acc / total_batches,
     }
-    if cfg.training_stage == "antigen_refine":
+    if is_antigen_stage(cfg.training_stage):
         metrics["compatibility_loss"] = total_aux_loss / total_batches
         metrics["compatibility_acc"] = (
             total_aux_correct / total_aux_labeled if total_aux_labeled > 0 else float("nan")
+        )
+        metrics.update(
+            compatibility_binary_metrics(
+                compatibility_labels_all,
+                compatibility_scores_all,
+                compatibility_preds_all,
+            )
         )
     else:
         metrics["pair_loss"] = total_aux_loss / total_batches
@@ -1678,6 +1911,14 @@ def build_antigen_refine_init_state_dict(
             suffix = key[len("sequence_encoder."):]
             translated[f"antibody_encoder.{suffix}"] = value
             translated[f"antigen_encoder.{suffix}"] = value
+        elif (
+            key.startswith("token_embedding.")
+            or key.startswith("position_embedding.")
+            or key.startswith("encoder.")
+            or key.startswith("final_norm.")
+        ):
+            translated[f"antibody_encoder.{key}"] = value
+            translated[f"antigen_encoder.{key}"] = value
         elif key.startswith("lm_head."):
             translated[key] = value
 
@@ -1697,14 +1938,20 @@ def initialize_antigen_refine_from_checkpoint(
     interaction/classification layers randomly initialized.
     """
     checkpoint = torch.load(path, map_location=map_location)
-    translated_state_dict = build_antigen_refine_init_state_dict(checkpoint["model_state_dict"])
-    incompatible = model.load_state_dict(translated_state_dict, strict=False)
+    checkpoint_state_dict = checkpoint["model_state_dict"]
+    has_dual_stream_weights = any(
+        key.startswith("antibody_encoder.") for key in checkpoint_state_dict
+    )
+    if has_dual_stream_weights:
+        incompatible = model.load_state_dict(checkpoint_state_dict, strict=False)
+        reused_message = "dual-stream checkpoint weights"
+    else:
+        translated_state_dict = build_antigen_refine_init_state_dict(checkpoint_state_dict)
+        incompatible = model.load_state_dict(translated_state_dict, strict=False)
+        reused_message = "antibody_encoder.*, antigen_encoder.*, lm_head.*"
 
     print(f"[checkpoint] antigen_refine init <- {path}")
-    print(
-        "[checkpoint] antigen_refine reused components: "
-        "antibody_encoder.*, antigen_encoder.*, lm_head.*"
-    )
+    print(f"[checkpoint] antigen_refine reused components: {reused_message}")
     missing = list(getattr(incompatible, "missing_keys", []))
     unexpected = list(getattr(incompatible, "unexpected_keys", []))
     if missing:
@@ -1891,11 +2138,6 @@ def main() -> None:
     model = build_model(tokenizer, cfg, device)
     optimizer = build_optimizer(model, cfg)
 
-    if cfg.smoke_test_only:
-        smoke_loader = build_train_loader(train_dataset, tokenizer, cfg, epoch=0)
-        run_smoke_test(model, smoke_loader, optimizer, device, cfg.use_amp, cfg.training_stage)
-        return
-
     best_val_loss = float("inf")
     start_epoch = 0
 
@@ -1914,7 +2156,7 @@ def main() -> None:
         best_val_loss = checkpoint.get("val_loss", float("inf"))
         print(f"Resuming from epoch {start_epoch}")
     elif init_ckpt_path is not None:
-        if cfg.training_stage == "antigen_refine":
+        if is_antigen_stage(cfg.training_stage):
             initialize_antigen_refine_from_checkpoint(
                 path=init_ckpt_path,
                 model=model,
@@ -1929,10 +2171,15 @@ def main() -> None:
                 strict=False,
             )
             print("[checkpoint] initialized model weights from init_checkpoint")
-        if cfg.training_stage == "antigen_refine":
-            print("[checkpoint] initialized antigen_refine model weights from init_checkpoint")
+        if is_antigen_stage(cfg.training_stage):
+            print(f"[checkpoint] initialized {cfg.training_stage} model weights from init_checkpoint")
         if last_ckpt_path.exists() and not cfg.resume_from_last:
             print("[checkpoint] ignored existing last.pt because resume_from_last=False")
+
+    if cfg.smoke_test_only:
+        smoke_loader = build_train_loader(train_dataset, tokenizer, cfg, epoch=0)
+        run_smoke_test(model, smoke_loader, optimizer, device, cfg.use_amp, cfg.training_stage)
+        return
 
     pretrain_train_probe_metrics = None
     pretrain_row_random_metrics = None
@@ -1967,6 +2214,17 @@ def main() -> None:
         pretrain_parts.append(format_metric_summary(pretrain_row_random_metrics, cfg, "pretrain_row_random"))
     pretrain_parts.append(format_metric_summary(pretrain_val_metrics, cfg, "pretrain_val"))
     print("[epoch 0/0] " + " ".join(pretrain_parts))
+    pretrain_metrics_record: Dict[str, Any] = {
+        "epoch": 0,
+        "phase": "pretrain_eval",
+        "training_stage": cfg.training_stage,
+        "pretrain_val": pretrain_val_metrics,
+    }
+    if pretrain_train_probe_metrics is not None:
+        pretrain_metrics_record["pretrain_known_target"] = pretrain_train_probe_metrics
+    if pretrain_row_random_metrics is not None:
+        pretrain_metrics_record["pretrain_row_random"] = pretrain_row_random_metrics
+    append_metrics_jsonl(output_dir, pretrain_metrics_record)
 
     for epoch in range(start_epoch, cfg.epochs):
         train_metrics = train_one_epoch(
@@ -2008,7 +2266,7 @@ def main() -> None:
 
         train_loss = train_metrics["loss"]
         val_loss = val_metrics["loss"]
-        if cfg.training_stage == "antigen_refine":
+        if is_antigen_stage(cfg.training_stage):
             aux_loss_name = "compatibility_loss"
             aux_acc_name = "compatibility_acc"
         else:
@@ -2022,6 +2280,18 @@ def main() -> None:
             summary_parts.append(format_metric_summary(row_random_metrics, cfg, "row_random_probe"))
         summary_parts.append(format_metric_summary(val_metrics, cfg, "val"))
         print(f"[epoch {epoch+1}/{cfg.epochs}] " + " ".join(summary_parts))
+        epoch_metrics_record: Dict[str, Any] = {
+            "epoch": epoch + 1,
+            "phase": "train_eval",
+            "training_stage": cfg.training_stage,
+            "train": train_metrics,
+            "val": val_metrics,
+        }
+        if train_known_target_metrics is not None:
+            epoch_metrics_record["known_target_probe"] = train_known_target_metrics
+        if row_random_metrics is not None:
+            epoch_metrics_record["row_random_probe"] = row_random_metrics
+        append_metrics_jsonl(output_dir, epoch_metrics_record)
 
         save_checkpoint(
             path=output_dir / "last.pt",

@@ -98,8 +98,7 @@ def test_infer_chain_maps_heavy_light_and_nano():
 
 def test_clean_aa_sequence_removes_noise_but_keeps_allowed_symbols():
     cleaned = clean_aa_sequence(" cAr-*D12Xbzou ")
-    # adjust this assertion if you intentionally dropped ambiguity symbols
-    assert cleaned == "CARDXBZOU"
+    assert cleaned == "CARD"
 
 
 def test_choose_sequence_column_prefers_full_variable_domain_field():

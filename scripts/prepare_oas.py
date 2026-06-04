@@ -188,7 +188,7 @@ def safe_int(value: object, default: Optional[int] = None) -> Optional[int]:
         return default
     
     
-def clean_aa_sequence(seq: str) -> str:
+def clean_aa_sequence(seq: object) -> str:
     """
     Normalize amino-acid strings:
     - uppercase
@@ -201,7 +201,9 @@ def clean_aa_sequence(seq: str) -> str:
     Returns:
         str: Cleaned sequence (as explained above)
     """
-    seq = str(seq or "").upper().replace(" ", "") # remove spaces, error-catching
+    if seq is None or pd.isna(seq):
+        return ""
+    seq = str(seq).upper().replace(" ", "") # remove spaces, error-catching
     seq = AA_ONLY.sub("", seq) # remove anything that is not an uppercase letter
     return "".join(ch for ch in seq if ch in VALID_AA) # list comprehension, joining to valid aa seq
 
@@ -1189,6 +1191,7 @@ def reservoir_sample_file(
     args,
     quotas_by_locus: Dict[str, int],
     seed: int,
+    stats: dict | None = None,
 ) -> list[dict]:
     """
     Uniformly sample valid records from one file with separate locus reservoirs.
@@ -1219,7 +1222,7 @@ def reservoir_sample_file(
     reservoirs: dict[str, list[dict]] = {locus: [] for locus in active_loci}
     seen_by_locus: Counter[str] = Counter()
 
-    for record in iter_kept_records_for_file(path, args):
+    for record in iter_kept_records_for_file(path, args, stats=stats):
         locus = str(record.get("locus", "OTHER"))
         quota = active_loci.get(locus, 0)
         if quota <= 0:
@@ -1331,6 +1334,7 @@ def sample_with_file_quotas(
             args=args,
             quotas_by_locus=quotas_by_locus,
             seed=file_seed,
+            stats=stats,
         )
         file_iter.set_postfix(file=path.name, quota=quota, sampled=len(sampled_records))
 
@@ -1459,6 +1463,9 @@ def main() -> None:
         "sequence_source_counts": dict(stats["sequence_source_counts"]),
         "redundancy_sum_by_locus": dict(stats["redundancy_sum_by_locus"]),
         "kept_by_source_file": dict(stats["kept_by_source_file"]),
+        "allocated_quota_per_file": stats.get("allocated_quota_per_file", {}),
+        "allocated_quota_per_file_locus": stats.get("allocated_quota_per_file_locus", {}),
+        "allocated_quota_by_locus": stats.get("allocated_quota_by_locus", {}),
         "outputs": {
             "all": str(args.output_dir / "oas_all.jsonl.gz"),
             "IGH": str(args.output_dir / "oas_igh.jsonl.gz"),

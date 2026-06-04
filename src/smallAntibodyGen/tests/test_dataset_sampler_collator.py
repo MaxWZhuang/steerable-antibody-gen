@@ -7,6 +7,7 @@ import torch
 
 from smallAntibodyGen.data.MLMCollator import (
     AntibodyAntigenCollator,
+    AntibodyAntigenRealLabelCollator,
     ChainLengthBucketBatchSampler,
     MLMCollator,
     OASSequenceDataset
@@ -553,12 +554,59 @@ def test_antibody_antigen_collator_returns_dual_stream_batch(tmp_path: Path, tok
         "is_shuffled_antigen",
         "record_ids",
         "target_keys",
+        "dataset_names",
+        "antibody_format_groups",
+        "antigen_length_buckets",
     }
     assert batch["antibody_input_ids"].shape == batch["antibody_attention_mask"].shape == batch["antibody_labels"].shape
     assert batch["antigen_input_ids"].shape == batch["antigen_attention_mask"].shape
     assert batch["compatibility_labels"].tolist() == [1, 1]
     assert batch["compatibility_mask"].tolist() == [True, True]
     assert batch["is_shuffled_antigen"].tolist() == [False, False]
+
+
+def test_antibody_antigen_real_label_collator_uses_binder_labels_without_shuffling(
+    tmp_path: Path,
+    tokenizer,
+    write_processed_jsonl_gz,
+):
+    records = [
+        make_processed_antibody_antigen_record(
+            heavy_sequence="EVQLVESGGGLVQPGGSLRLSCAASGFTFSSYAMSWVRQAPGKGLEWVS",
+            light_sequence=None,
+            antigen_sequence="MKTIIALSYIFCLVFADYKDDDDK",
+            target_key="uniprot:p11111",
+            record_id="antigen-1",
+            binder_label=1,
+            is_strong_binder=True,
+        ),
+        make_processed_antibody_antigen_record(
+            heavy_sequence="QVQLQESGGGLVQAGGSLRLSCAASGFTFSSYAMGWFRQAPGKEREFVA",
+            light_sequence=None,
+            antigen_sequence="ACDEFGHIKLMNPQRSTVWY",
+            target_key="uniprot:p22222",
+            record_id="antigen-2",
+            binder_label=0,
+            is_strong_binder=False,
+        ),
+    ]
+    data_path = write_processed_jsonl_gz(tmp_path / "antibody_antigen_real_labels.jsonl.gz", records)
+    ds = OASSequenceDataset(data_path, split="train")
+
+    collator = AntibodyAntigenRealLabelCollator(
+        tokenizer=tokenizer,
+        max_length=64,
+        mask_probability=0.15,
+        hcdr3_span_probability=0.0,
+        shuffle_antigen_probability=1.0,
+        rng_seed=42,
+    )
+    batch = collator([ds[0], ds[1]])
+
+    assert batch["compatibility_mask"].tolist() == [True, True]
+    assert batch["compatibility_labels"].tolist() == [1, 0]
+    assert batch["is_shuffled_antigen"].tolist() == [False, False]
+    assert batch["target_keys"] == ["uniprot:p11111", "uniprot:p22222"]
 
 
 def test_antibody_antigen_collator_uses_configurable_shuffle_fraction(tmp_path: Path, tokenizer, write_processed_jsonl_gz):
