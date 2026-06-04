@@ -55,11 +55,16 @@ except ImportError:  # pragma: no cover - exercised only when dependency is miss
     yaml = None
 
 
-ANTIGEN_STAGES = {"antigen_refine", "antigen_real_label_refine"}
+HCDR3_INFILL_STAGE = "antigen_hcdr3_infill_refine"
+ANTIGEN_STAGES = {"antigen_refine", "antigen_real_label_refine", HCDR3_INFILL_STAGE}
 
 
 def is_antigen_stage(training_stage: str) -> bool:
     return training_stage in ANTIGEN_STAGES
+
+
+def is_hcdr3_infill_stage(training_stage: str) -> bool:
+    return training_stage == HCDR3_INFILL_STAGE
 
 
 @dataclass
@@ -138,6 +143,8 @@ class TrainConfig:
     hcdr3_span_probability: float = 0.0
     hcdr3_span_min: int = 3
     hcdr3_span_max: int = 8
+    hcdr3_mask_mode: str = "sampled_span"
+    mask_replacement_strategy: str = "bert"
     shuffle_pair_probability: float = 0.5
     shuffle_antigen_probability: float = 0.5
 
@@ -194,6 +201,10 @@ class TrainConfig:
             raise ValueError("HCDR3 span lengths must be > 0")
         if self.hcdr3_span_min > self.hcdr3_span_max:
             raise ValueError("hcdr3_span_min must be <= hcdr3_span_max")
+        if self.hcdr3_mask_mode not in {"sampled_span", "full_span"}:
+            raise ValueError("hcdr3_mask_mode must be one of: sampled_span, full_span")
+        if self.mask_replacement_strategy not in {"bert", "always_mask"}:
+            raise ValueError("mask_replacement_strategy must be one of: bert, always_mask")
         if self.learning_rate <= 0:
             raise ValueError("learning_rate must be > 0")
         if self.weight_decay < 0:
@@ -211,7 +222,8 @@ class TrainConfig:
         if self.training_stage not in {"base", "paired_refine", *ANTIGEN_STAGES}:
             raise ValueError(
                 "training_stage must be one of: base, paired_refine, "
-                "antigen_refine, antigen_real_label_refine"
+                "antigen_refine, antigen_real_label_refine, "
+                "antigen_hcdr3_infill_refine"
             )
         if self.training_stage == "paired_refine" and not self.init_checkpoint:
             raise ValueError(
@@ -383,7 +395,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--training-stage",
         type=str,
-        choices=("base", "paired_refine", "antigen_refine", "antigen_real_label_refine"),
+        choices=("base", "paired_refine", "antigen_refine", "antigen_real_label_refine", HCDR3_INFILL_STAGE),
     )
     parser.add_argument("--init-checkpoint", type=str)
     parser.add_argument("--resume-from-last", action="store_true", default=argparse.SUPPRESS)
@@ -400,6 +412,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hcdr3-span-probability", type=float)
     parser.add_argument("--hcdr3-span-min", type=int)
     parser.add_argument("--hcdr3-span-max", type=int)
+    parser.add_argument("--hcdr3-mask-mode", type=str, choices=("sampled_span", "full_span"))
+    parser.add_argument("--mask-replacement-strategy", type=str, choices=("bert", "always_mask"))
     parser.add_argument("--shuffle-pair-probability", type=float)
     parser.add_argument("--shuffle-antigen-probability", type=float)
 
@@ -460,6 +474,16 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> TrainConfig:
     # CLI values always win over config-file values when both are provided.
     merged_config.update(args_dict)
 
+    if merged_config.get("training_stage") == HCDR3_INFILL_STAGE:
+        if "compatibility_loss_weight" not in file_config and "compatibility_loss_weight" not in args_dict:
+            merged_config["compatibility_loss_weight"] = 0.0
+        if "hcdr3_mask_mode" not in file_config and "hcdr3_mask_mode" not in args_dict:
+            merged_config["hcdr3_mask_mode"] = "full_span"
+        if "mask_replacement_strategy" not in file_config and "mask_replacement_strategy" not in args_dict:
+            merged_config["mask_replacement_strategy"] = "always_mask"
+        if "shuffle_antigen_probability" not in file_config and "shuffle_antigen_probability" not in args_dict:
+            merged_config["shuffle_antigen_probability"] = 0.0
+
     output_dir_provided = ("output_dir" in file_config) or ("output_dir" in args_dict)
     if not output_dir_provided:
         if merged_config.get("training_stage") == "paired_refine":
@@ -468,6 +492,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> TrainConfig:
             merged_config["output_dir"] = "checkpoints/mlm_antigen_refine"
         elif merged_config.get("training_stage") == "antigen_real_label_refine":
             merged_config["output_dir"] = "checkpoints/mlm_antigen_real_label_refine"
+        elif merged_config.get("training_stage") == HCDR3_INFILL_STAGE:
+            merged_config["output_dir"] = "checkpoints/mlm_antigen_hcdr3_infill_refine"
 
     if "data_path" not in merged_config or not merged_config["data_path"]:
         parser.error("--data-path is required unless provided via --config")
@@ -563,6 +589,51 @@ def build_tokenizer() -> AminoAcidTokenizer:
     return AminoAcidTokenizer()
 
 
+def has_valid_heavy_hcdr3_span(record: Any) -> bool:
+    """
+    Return True when a record has a complete heavy-chain HCDR3 span.
+
+    The HCDR3 infilling stage masks the entire known span, so it cannot use
+    rows where the CDR3 coordinates are missing, malformed, or empty. We prefer
+    heavy-specific span fields but accept the older generic fields as a
+    fallback for heavy-chain records that were prepared before the
+    antibody-antigen schema grew explicit ``*_heavy`` names.
+    """
+    start = getattr(record, "cdr3_start_aa_heavy", None)
+    end = getattr(record, "cdr3_end_aa_heavy", None)
+    cdr3 = getattr(record, "cdr3_aa_heavy", None)
+    if start is None or end is None:
+        start = getattr(record, "cdr3_start_aa", None)
+        end = getattr(record, "cdr3_end_aa", None)
+        cdr3 = getattr(record, "cdr3_aa", None)
+    return (
+        isinstance(start, int)
+        and isinstance(end, int)
+        and end > start
+        and isinstance(cdr3, str)
+        and len(cdr3) == (end - start)
+    )
+
+
+def is_hcdr3_infill_record(record: Any) -> bool:
+    """
+    Decide whether one antibody-antigen record can train HCDR3 infilling.
+
+    This stage is intentionally positive-only. It estimates a conditional
+    residue model for observed binders, not a binder-vs-non-binder
+    classifier. Compatibility scoring remains a separate ranking/filtering
+    step after candidate generation.
+    """
+    heavy_sequence = (getattr(record, "sequence_heavy", None) or getattr(record, "sequence", "") or "").strip()
+    antigen_sequence = (getattr(record, "sequence_antigen", None) or "").strip()
+    return (
+        getattr(record, "binder_label", None) == 1
+        and bool(heavy_sequence)
+        and bool(antigen_sequence)
+        and has_valid_heavy_hcdr3_span(record)
+    )
+
+
 def build_datasets(cfg: TrainConfig) -> Tuple[OASSequenceDataset, OASSequenceDataset]:
     """
     Build train and validation datasets from the processed OAS file.
@@ -582,6 +653,13 @@ def build_datasets(cfg: TrainConfig) -> Tuple[OASSequenceDataset, OASSequenceDat
         ]
         val_dataset.records = [
             record for record in val_dataset.records if record.binder_label in (0, 1)
+        ]
+    elif is_hcdr3_infill_stage(cfg.training_stage):
+        train_dataset.records = [
+            record for record in train_dataset.records if is_hcdr3_infill_record(record)
+        ]
+        val_dataset.records = [
+            record for record in val_dataset.records if is_hcdr3_infill_record(record)
         ]
     return train_dataset, val_dataset
 
@@ -717,6 +795,13 @@ def format_metric_summary(
             f" {prefix}_compat_mcc={metrics['compatibility_mcc']:.4f}"
             f" {prefix}_compat_auroc={metrics['compatibility_auroc']:.4f}"
             f" {prefix}_compat_auprc={metrics['compatibility_auprc']:.4f}"
+        )
+    if "hcdr3_token_acc" in metrics:
+        summary += (
+            f" {prefix}_hcdr3_tokens={int(metrics['hcdr3_target_tokens'])}"
+            f" {prefix}_hcdr3_spans={int(metrics['hcdr3_valid_spans'])}"
+            f" {prefix}_hcdr3_acc={metrics['hcdr3_token_acc']:.4f}"
+            f" {prefix}_hcdr3_exact={metrics['hcdr3_span_exact_match']:.4f}"
         )
     return summary
 
@@ -947,7 +1032,7 @@ def build_train_loader(
     if hasattr(sampler, "set_epoch"):
         sampler.set_epoch(epoch)
 
-    if cfg.training_stage == "antigen_real_label_refine":
+    if cfg.training_stage == "antigen_real_label_refine" or is_hcdr3_infill_stage(cfg.training_stage):
         collator = AntibodyAntigenRealLabelCollator(
             tokenizer=tokenizer,
             max_length=cfg.max_length,
@@ -955,6 +1040,8 @@ def build_train_loader(
             hcdr3_span_probability=cfg.hcdr3_span_probability,
             hcdr3_span_min=cfg.hcdr3_span_min,
             hcdr3_span_max=cfg.hcdr3_span_max,
+            hcdr3_mask_mode=cfg.hcdr3_mask_mode,
+            mask_replacement_strategy=cfg.mask_replacement_strategy,
             shuffle_antigen_probability=0.0,
             rng_seed=cfg.seed + epoch,
         )
@@ -966,6 +1053,8 @@ def build_train_loader(
             hcdr3_span_probability=cfg.hcdr3_span_probability,
             hcdr3_span_min=cfg.hcdr3_span_min,
             hcdr3_span_max=cfg.hcdr3_span_max,
+            hcdr3_mask_mode=cfg.hcdr3_mask_mode,
+            mask_replacement_strategy=cfg.mask_replacement_strategy,
             shuffle_antigen_probability=cfg.shuffle_antigen_probability,
             rng_seed=cfg.seed + epoch,
         )
@@ -977,6 +1066,8 @@ def build_train_loader(
             hcdr3_span_probability=cfg.hcdr3_span_probability,
             hcdr3_span_min=cfg.hcdr3_span_min,
             hcdr3_span_max=cfg.hcdr3_span_max,
+            hcdr3_mask_mode=cfg.hcdr3_mask_mode,
+            mask_replacement_strategy=cfg.mask_replacement_strategy,
             shuffle_pair_probability=cfg.shuffle_pair_probability,
             rng_seed=cfg.seed + epoch,
         )
@@ -1030,10 +1121,12 @@ def build_eval_loader(
             hcdr3_span_probability=cfg.hcdr3_span_probability,
             hcdr3_span_min=cfg.hcdr3_span_min,
             hcdr3_span_max=cfg.hcdr3_span_max,
+            hcdr3_mask_mode=cfg.hcdr3_mask_mode,
+            mask_replacement_strategy=cfg.mask_replacement_strategy,
             shuffle_antigen_probability=cfg.shuffle_antigen_probability,
             rng_seed=cfg.seed + 20_000,
         )
-    elif cfg.training_stage == "antigen_real_label_refine":
+    elif cfg.training_stage == "antigen_real_label_refine" or is_hcdr3_infill_stage(cfg.training_stage):
         collator = AntibodyAntigenRealLabelCollator(
             tokenizer=tokenizer,
             max_length=cfg.max_length,
@@ -1041,6 +1134,8 @@ def build_eval_loader(
             hcdr3_span_probability=cfg.hcdr3_span_probability,
             hcdr3_span_min=cfg.hcdr3_span_min,
             hcdr3_span_max=cfg.hcdr3_span_max,
+            hcdr3_mask_mode=cfg.hcdr3_mask_mode,
+            mask_replacement_strategy=cfg.mask_replacement_strategy,
             shuffle_antigen_probability=0.0,
             rng_seed=cfg.seed + 20_000,
         )
@@ -1052,6 +1147,8 @@ def build_eval_loader(
             hcdr3_span_probability=cfg.hcdr3_span_probability,
             hcdr3_span_min=cfg.hcdr3_span_min,
             hcdr3_span_max=cfg.hcdr3_span_max,
+            hcdr3_mask_mode=cfg.hcdr3_mask_mode,
+            mask_replacement_strategy=cfg.mask_replacement_strategy,
             shuffle_pair_probability=cfg.shuffle_pair_probability,
             rng_seed=cfg.seed + 20_000,
         )
@@ -1164,6 +1261,77 @@ def masked_accuracy(logits: torch.Tensor, labels: torch.Tensor) -> float:
     if mask.sum().item() == 0:
         return 0.0
     return (preds[mask] == labels[mask]).float().mean().item()
+
+
+def hcdr3_metric_counts(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    hcdr3_target_mask: torch.Tensor,
+    hcdr3_token_start: torch.Tensor,
+    hcdr3_token_end: torch.Tensor,
+    hcdr3_valid_mask: torch.Tensor,
+) -> dict[str, int]:
+    """
+    Count HCDR3-specific infilling successes for one batch.
+
+    ``hcdr3_target_mask`` marks the target residues inside the heavy-chain CDR3
+    interval. Token accuracy is computed over those target residues only.
+    Whole-span exact match is stricter: a row contributes to the denominator
+    only when the encoded HCDR3 span is valid and every token in the span was
+    targeted. This makes the metric meaningful for fixed-length full-span
+    infilling while avoiding a misleading exact-match score during ordinary
+    sampled-span MLM training.
+    """
+    preds = logits.argmax(dim=-1)
+    target_mask = hcdr3_target_mask.bool() & (labels != -100)
+    target_tokens = int(target_mask.sum().item())
+    correct_tokens = int((preds[target_mask] == labels[target_mask]).sum().item()) if target_tokens else 0
+
+    exact_matches = 0
+    valid_spans = 0
+    batch_size = labels.size(0)
+    for idx in range(batch_size):
+        if not bool(hcdr3_valid_mask[idx].item()):
+            continue
+        start = int(hcdr3_token_start[idx].item())
+        end = int(hcdr3_token_end[idx].item())
+        if start < 0 or end <= start or end > labels.size(1):
+            continue
+        span_target_mask = target_mask[idx, start:end]
+        if int(span_target_mask.sum().item()) != (end - start):
+            continue
+        valid_spans += 1
+        if torch.equal(preds[idx, start:end], labels[idx, start:end]):
+            exact_matches += 1
+
+    return {
+        "hcdr3_correct_tokens": correct_tokens,
+        "hcdr3_target_tokens": target_tokens,
+        "hcdr3_exact_matches": exact_matches,
+        "hcdr3_valid_spans": valid_spans,
+    }
+
+
+def finalize_hcdr3_metrics(counts: dict[str, int]) -> dict[str, float]:
+    """
+    Convert accumulated HCDR3 counts into stable scalar metrics.
+    """
+    target_tokens = counts.get("hcdr3_target_tokens", 0)
+    valid_spans = counts.get("hcdr3_valid_spans", 0)
+    return {
+        "hcdr3_token_acc": (
+            counts.get("hcdr3_correct_tokens", 0) / target_tokens
+            if target_tokens > 0
+            else float("nan")
+        ),
+        "hcdr3_span_exact_match": (
+            counts.get("hcdr3_exact_matches", 0) / valid_spans
+            if valid_spans > 0
+            else float("nan")
+        ),
+        "hcdr3_target_tokens": float(target_tokens),
+        "hcdr3_valid_spans": float(valid_spans),
+    }
 
 
 def pair_classification_accuracy(
@@ -1407,7 +1575,7 @@ def run_smoke_test(
                 compatibility_logits=compatibility_logits,
                 compatibility_labels=batch["compatibility_labels"],
                 compatibility_mask=batch["compatibility_mask"],
-                compatibility_loss_weight=1.0,
+                compatibility_loss_weight=0.0 if is_hcdr3_infill_stage(training_stage) else 1.0,
             )
             print("smoke_test/antibody_input_ids:", tuple(batch["antibody_input_ids"].shape))
             print("smoke_test/antigen_input_ids:", tuple(batch["antigen_input_ids"].shape))
@@ -1421,6 +1589,11 @@ def run_smoke_test(
                 "smoke_test/compatibility_batch:"
                 f" labeled={compatibility_mask_count}/{batch['compatibility_mask'].numel()}"
                 f" positives={compatibility_positive_count}"
+            )
+            print(
+                "smoke_test/hcdr3_batch:"
+                f" target_tokens={int(batch['hcdr3_target_mask'].sum().item())}"
+                f" full_target_spans={int(batch['hcdr3_valid_mask'].sum().item())}"
             )
         else:
             logits, pair_logits = model.forward_with_pairing(batch["input_ids"], batch["attention_mask"])
@@ -1488,6 +1661,12 @@ def evaluate(
     compatibility_labels_all: list[int] = []
     compatibility_scores_all: list[float] = []
     compatibility_preds_all: list[int] = []
+    hcdr3_counts = {
+        "hcdr3_correct_tokens": 0,
+        "hcdr3_target_tokens": 0,
+        "hcdr3_exact_matches": 0,
+        "hcdr3_valid_spans": 0,
+    }
 
     progress = _make_progress_bar(
         val_loader,
@@ -1526,6 +1705,14 @@ def evaluate(
                 batch["compatibility_labels"],
                 batch["compatibility_mask"],
             )
+            batch_hcdr3_counts = hcdr3_metric_counts(
+                logits,
+                batch["antibody_labels"],
+                batch["hcdr3_target_mask"],
+                batch["hcdr3_token_start"],
+                batch["hcdr3_token_end"],
+                batch["hcdr3_valid_mask"],
+            )
             mask = batch["compatibility_mask"].bool()
             if mask.sum().item() > 0:
                 compatibility_labels_all.extend(
@@ -1559,6 +1746,14 @@ def evaluate(
                 batch["pair_labels"],
                 batch["pair_mask"],
             )
+            batch_hcdr3_counts = hcdr3_metric_counts(
+                logits,
+                batch["labels"],
+                batch["hcdr3_target_mask"],
+                batch["hcdr3_token_start"],
+                batch["hcdr3_token_end"],
+                batch["hcdr3_valid_mask"],
+            )
             aux_loss_name = "pair_loss"
             aux_acc_name = "pair_acc"
 
@@ -1569,13 +1764,17 @@ def evaluate(
         total_aux_correct += aux_correct
         total_aux_labeled += aux_labeled
         total_batches += 1
+        for key, value in batch_hcdr3_counts.items():
+            hcdr3_counts[key] += value
         running_aux_acc = (total_aux_correct / total_aux_labeled) if total_aux_labeled > 0 else 0.0
+        running_hcdr3 = finalize_hcdr3_metrics(hcdr3_counts)
         progress.set_postfix(
             loss=f"{total_loss / total_batches:.4f}",
             mlm_loss=f"{total_mlm_loss / total_batches:.4f}",
             **{aux_loss_name: f"{total_aux_loss / total_batches:.4f}"},
             mlm_acc=f"{total_acc / total_batches:.4f}",
             **{aux_acc_name: f"{running_aux_acc:.4f}"},
+            hcdr3_acc=f"{running_hcdr3['hcdr3_token_acc']:.4f}",
         )
 
     progress.close()
@@ -1593,6 +1792,7 @@ def evaluate(
         else:
             metrics["pair_loss"] = float("nan")
             metrics["pair_acc"] = float("nan")
+        metrics.update(finalize_hcdr3_metrics(hcdr3_counts))
         return metrics
 
     metrics = {
@@ -1600,6 +1800,7 @@ def evaluate(
         "mlm_loss": total_mlm_loss / total_batches,
         "mlm_acc": total_acc / total_batches,
     }
+    metrics.update(finalize_hcdr3_metrics(hcdr3_counts))
     if is_antigen_stage(cfg.training_stage):
         metrics["compatibility_loss"] = total_aux_loss / total_batches
         metrics["compatibility_acc"] = (
@@ -1665,6 +1866,12 @@ def train_one_epoch(
     compatibility_labels_all: list[int] = []
     compatibility_scores_all: list[float] = []
     compatibility_preds_all: list[int] = []
+    hcdr3_counts = {
+        "hcdr3_correct_tokens": 0,
+        "hcdr3_target_tokens": 0,
+        "hcdr3_exact_matches": 0,
+        "hcdr3_valid_spans": 0,
+    }
 
     progress = _make_progress_bar(
         train_loader,
@@ -1727,6 +1934,14 @@ def train_one_epoch(
                 batch["compatibility_labels"],
                 batch["compatibility_mask"],
             )
+            batch_hcdr3_counts = hcdr3_metric_counts(
+                logits.detach(),
+                batch["antibody_labels"],
+                batch["hcdr3_target_mask"],
+                batch["hcdr3_token_start"],
+                batch["hcdr3_token_end"],
+                batch["hcdr3_valid_mask"],
+            )
             mask = batch["compatibility_mask"].bool()
             if mask.sum().item() > 0:
                 compatibility_labels_all.extend(
@@ -1752,6 +1967,14 @@ def train_one_epoch(
                 batch["pair_labels"],
                 batch["pair_mask"],
             )
+            batch_hcdr3_counts = hcdr3_metric_counts(
+                logits.detach(),
+                batch["labels"],
+                batch["hcdr3_target_mask"],
+                batch["hcdr3_token_start"],
+                batch["hcdr3_token_end"],
+                batch["hcdr3_valid_mask"],
+            )
             aux_loss_name = "pair_loss"
             aux_acc_name = "pair_acc"
 
@@ -1762,13 +1985,17 @@ def train_one_epoch(
         total_aux_correct += aux_correct
         total_aux_labeled += aux_labeled
         total_batches += 1
+        for key, value in batch_hcdr3_counts.items():
+            hcdr3_counts[key] += value
         running_aux_acc = (total_aux_correct / total_aux_labeled) if total_aux_labeled > 0 else 0.0
+        running_hcdr3 = finalize_hcdr3_metrics(hcdr3_counts)
         progress.set_postfix(
             loss=f"{total_loss / total_batches:.4f}",
             mlm_loss=f"{total_mlm_loss / total_batches:.4f}",
             **{aux_loss_name: f"{total_aux_loss / total_batches:.4f}"},
             mlm_acc=f"{total_acc / total_batches:.4f}",
             **{aux_acc_name: f"{running_aux_acc:.4f}"},
+            hcdr3_acc=f"{running_hcdr3['hcdr3_token_acc']:.4f}",
         )
 
     progress.close()
@@ -1786,6 +2013,7 @@ def train_one_epoch(
         else:
             metrics["pair_loss"] = float("nan")
             metrics["pair_acc"] = float("nan")
+        metrics.update(finalize_hcdr3_metrics(hcdr3_counts))
         return metrics
 
     metrics = {
@@ -1793,6 +2021,7 @@ def train_one_epoch(
         "mlm_loss": total_mlm_loss / total_batches,
         "mlm_acc": total_acc / total_batches,
     }
+    metrics.update(finalize_hcdr3_metrics(hcdr3_counts))
     if is_antigen_stage(cfg.training_stage):
         metrics["compatibility_loss"] = total_aux_loss / total_batches
         metrics["compatibility_acc"] = (

@@ -309,6 +309,8 @@ class MLMCollator:
         hcdr3_span_probability: float = 0.5, 
         hcdr3_span_min: int = 3, 
         hcdr3_span_max: int = 8, 
+        hcdr3_mask_mode: str = "sampled_span",
+        mask_replacement_strategy: str = "bert",
         shuffle_pair_probability: float = 0.5,
         rng_seed: int = 42
     ) -> None:
@@ -334,9 +336,33 @@ class MLMCollator:
                 
             hcdr3_span_min (int, optional): Minimum number of residues to mask when sampling an HCDR3 span. Defaults to 3.
             hcdr3_span_max (int, optional): Maximum number of residues to mask when sampling an HCDR3 span. Defaults to 8.
+            hcdr3_mask_mode:
+                Controls how HCDR3 coordinates influence MLM target selection.
+                ``"sampled_span"`` preserves the original training behavior:
+                with probability ``hcdr3_span_probability`` the collator selects
+                one short span inside HCDR3 and then tops up the ordinary MLM
+                target budget with random residue positions. ``"full_span"`` is
+                the fixed-length infilling mode: every residue in the known
+                heavy-chain CDR3 span becomes an MLM target and no non-HCDR3
+                positions are added. Full-span mode intentionally gives the
+                model the number of HCDR3 residues through the number of mask
+                tokens; unknown-length design is handled outside the collator by
+                proposing a length first and then reusing the same fixed-length
+                infiller.
+            mask_replacement_strategy:
+                Controls how selected target residues are corrupted. ``"bert"``
+                preserves the standard 80/10/10 BERT-style corruption. In
+                ``"always_mask"`` every selected target is replaced by
+                ``[MASK]``, matching fixed-length HCDR3 inference where the
+                model sees a contiguous block of mask tokens rather than a
+                mixture of masks, random residues, and visible true residues.
             rng_seed (int, optional): seed for the Python random number generator used by this collator Defaults to 42.
 
         """
+        if hcdr3_mask_mode not in {"sampled_span", "full_span"}:
+            raise ValueError("hcdr3_mask_mode must be one of: sampled_span, full_span")
+        if mask_replacement_strategy not in {"bert", "always_mask"}:
+            raise ValueError("mask_replacement_strategy must be one of: bert, always_mask")
         
         self.tokenizer = tokenizer
         self.max_length = max_length
@@ -344,6 +370,8 @@ class MLMCollator:
         self.hcdr3_span_probability = hcdr3_span_probability
         self.hcdr3_span_min = hcdr3_span_min
         self.hcdr3_span_max = hcdr3_span_max
+        self.hcdr3_mask_mode = hcdr3_mask_mode
+        self.mask_replacement_strategy = mask_replacement_strategy
         self.shuffle_pair_probability = shuffle_pair_probability
         self.rng = random.Random(rng_seed)
         
@@ -353,6 +381,86 @@ class MLMCollator:
             for tok, idx in self.tokenizer.token_to_id.items() 
             if len(tok) == 1 and tok.isalpha()
         ]
+
+    def _heavy_hcdr3_aa_span(self, record) -> tuple[int | None, int | None, str | None]:
+        """
+        Return the heavy-chain HCDR3 amino-acid span stored on one record.
+
+        Antibody-antigen records carry both generic CDR3 fields
+        (``cdr3_start_aa`` / ``cdr3_end_aa``) and heavy-chain-specific fields
+        (``cdr3_start_aa_heavy`` / ``cdr3_end_aa_heavy``). The heavy-specific
+        fields are preferred because the fixed-length infilling task is
+        explicitly about HCDR3. The generic fields are retained as a fallback so
+        classic heavy-chain OAS records keep working with the same collator.
+
+        Coordinates are zero-based and end-exclusive in amino-acid space. They
+        do not include tokenizer special tokens. A valid span is therefore
+        converted to token positions by adding an offset of two because both
+        ``encode_sequence`` and the heavy side of ``encode_paired_sequences``
+        begin with ``[CLS]`` followed by a chain token before the first heavy
+        residue.
+        """
+        start = getattr(record, "cdr3_start_aa_heavy", None)
+        end = getattr(record, "cdr3_end_aa_heavy", None)
+        cdr3 = getattr(record, "cdr3_aa_heavy", None)
+        if start is None or end is None:
+            start = getattr(record, "cdr3_start_aa", None)
+            end = getattr(record, "cdr3_end_aa", None)
+            cdr3 = getattr(record, "cdr3_aa", None)
+        if not isinstance(start, int) or not isinstance(end, int) or end <= start:
+            return None, None, cdr3
+        return start, end, cdr3
+
+    def _heavy_hcdr3_token_span(
+        self,
+        input_ids_row: torch.Tensor,
+        record,
+    ) -> tuple[int, int, bool]:
+        """
+        Convert one heavy-chain HCDR3 amino-acid span into token coordinates.
+
+        The returned token start/end are also zero-based and end-exclusive, but
+        now they index the already-padded token row. A span is considered valid
+        only when the entire HCDR3 is present inside the encoded row and every
+        position in that interval is a residue token rather than a tokenizer
+        special token. This strictness matters for fixed-length infilling:
+        masking a partial truncated HCDR3 would quietly train the model on a
+        different problem from the one the metadata claims.
+        """
+        start, end, _ = self._heavy_hcdr3_aa_span(record)
+        if start is None or end is None:
+            return -1, -1, False
+
+        token_start = 2 + start
+        token_end = 2 + end
+        if token_start < 0 or token_end > input_ids_row.size(0):
+            return token_start, token_end, False
+
+        span_token_ids = input_ids_row[token_start:token_end].tolist()
+        is_valid = bool(span_token_ids) and all(
+            int(token_id) not in self.tokenizer.special_ids
+            for token_id in span_token_ids
+        )
+        return token_start, token_end, is_valid
+
+    def _heavy_hcdr3_positions(
+        self,
+        input_ids_row: torch.Tensor,
+        record,
+    ) -> list[int]:
+        """
+        Return all token positions belonging to a valid heavy-chain HCDR3 span.
+
+        This helper is used by both full-span masking and metric metadata. It
+        intentionally returns an empty list when the span is missing or
+        truncated rather than falling back to random masking, because the HCDR3
+        infilling objective should be measured only on examples where the full
+        fixed-length target is actually available.
+        """
+        token_start, token_end, is_valid = self._heavy_hcdr3_token_span(input_ids_row, record)
+        if not is_valid:
+            return []
+        return list(range(token_start, token_end))
     
     def _select_target_positions(
         self, 
@@ -381,6 +489,8 @@ class MLMCollator:
             set[int]: Set of integer token positions that should become MLM targets. Positions are indices into "input_ids_row"
             
         """
+        if self.hcdr3_mask_mode == "full_span":
+            return set(self._heavy_hcdr3_positions(input_ids_row, record))
         
         selected: set[int] = set()
         
@@ -397,20 +507,10 @@ class MLMCollator:
         
         if (
             self.rng.random() < self.hcdr3_span_probability
-            and record.cdr3_start_aa is not None
-            and record.cdr3_end_aa is not None
-            and (record.chain_group == "heavy" or record.is_paired)
+            and (record.chain_group == "heavy" or record.is_paired or record.chain_group == "paired_antigen")
         ):
             # Offset by 2, encode_seq() auto-prepends # [CLS], [CHAIN_TOKEN]
-            cdr3_start_token = 2 + record.cdr3_start_aa
-            cdr3_end_token = 2 + record.cdr3_end_aa # end-exclusive
-            
-            # clip to the available tokenized row length (if sampling good, should be a non-issue)
-            cdr3_positions = [
-                j
-                for j in range(cdr3_start_token, min(cdr3_end_token, input_ids_row.size(0)))
-                if int(input_ids_row[j]) not in self.tokenizer.special_ids
-            ]
+            cdr3_positions = self._heavy_hcdr3_positions(input_ids_row, record)
             
             if cdr3_positions: 
                 span_max = min(self.hcdr3_span_max, len(cdr3_positions))
@@ -519,7 +619,7 @@ class MLMCollator:
     def _mask_tokens(self, 
                     input_ids: torch.Tensor, 
                     batch_records: Sequence
-    ) -> tuple[torch.tensor, torch.tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Build Masked Language Model corrupted input + sparse labels for one batch. 
         Given batch of token IDs and the correspodning dataset records, choose MLM target positions for each example, then apply standard
@@ -539,15 +639,20 @@ class MLMCollator:
 
         Returns:
         
-            tuple[torch.tensor, torch.tensor]: tuple (masked_input, labels) where: 
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor]: tuple
+            ``(masked_input, labels, target_mask)`` where:
                 - masked_input: A tensor of the same shape as "input_ids", containing corrupted version seen by the model
                 - labels: A tensor of the sme shape as "input_ids", containg the original token IDs only at selected MLM target positions
                     and -100 everywhere else. 
+                - target_mask: A boolean tensor with True at every selected MLM
+                    target. For full-span HCDR3 masking this is the same mask
+                    used by the HCDR3-specific metrics.
             
         """
         
         labels = torch.full_like(input_ids, fill_value = -100)
         masked_input = input_ids.clone()
+        target_mask = torch.zeros_like(input_ids, dtype=torch.bool)
         
         for i, record in enumerate(batch_records):
             selected_positions = self._select_target_positions(input_ids[i], record)
@@ -555,6 +660,11 @@ class MLMCollator:
                 raise RuntimeError("_select_target_positions() returned None; it must return a set of positions")
             for j in selected_positions:
                 labels[i, j] = input_ids[i, j]
+                target_mask[i, j] = True
+
+                if self.mask_replacement_strategy == "always_mask":
+                    masked_input[i, j] = self.tokenizer.mask_id
+                    continue
                 
                 dice = self.rng.random()
                 # standard BERT procedure, 
@@ -567,7 +677,48 @@ class MLMCollator:
                     masked_input[i, j] = self.rng.choice(self.residue_token_ids)
                 else: 
                     pass
-        return masked_input, labels
+        return masked_input, labels, target_mask
+
+    def _build_hcdr3_metadata(
+        self,
+        input_ids: torch.Tensor,
+        batch_records: Sequence,
+        target_mask: torch.Tensor,
+    ) -> dict[str, torch.Tensor | list[str | None]]:
+        """
+        Build per-example metadata for HCDR3 infilling metrics and generation.
+
+        ``hcdr3_token_start`` and ``hcdr3_token_end`` describe the true
+        heavy-chain CDR3 interval in token coordinates. ``hcdr3_valid_mask`` is
+        True only when that interval is fully present in the encoded antibody
+        row. ``hcdr3_target_mask`` is the selected target mask restricted to
+        that interval. In full-span fixed-length training this means every true
+        HCDR3 token is a target; in the default sampled-span MLM mode it marks
+        only the HCDR3 residues that happened to be selected for prediction.
+        """
+        token_starts: list[int] = []
+        token_ends: list[int] = []
+        valid_mask: list[bool] = []
+        cdr3_strings: list[str | None] = []
+        hcdr3_target_mask = torch.zeros_like(target_mask, dtype=torch.bool)
+
+        for i, record in enumerate(batch_records):
+            token_start, token_end, is_valid = self._heavy_hcdr3_token_span(input_ids[i], record)
+            _, _, cdr3 = self._heavy_hcdr3_aa_span(record)
+            token_starts.append(token_start)
+            token_ends.append(token_end)
+            valid_mask.append(is_valid)
+            cdr3_strings.append(cdr3)
+            if is_valid:
+                hcdr3_target_mask[i, token_start:token_end] = target_mask[i, token_start:token_end]
+
+        return {
+            "hcdr3_target_mask": hcdr3_target_mask,
+            "hcdr3_token_start": torch.tensor(token_starts, dtype=torch.long),
+            "hcdr3_token_end": torch.tensor(token_ends, dtype=torch.long),
+            "hcdr3_valid_mask": torch.tensor(valid_mask, dtype=torch.bool),
+            "hcdr3_original": cdr3_strings,
+        }
     
     def _encode_record(self, item: OASRecord) -> list[int]:
         """
@@ -645,7 +796,8 @@ class MLMCollator:
         input_ids = torch.tensor(padded, dtype = torch.long)
         attention_mask = torch.tensor(attention_masks, dtype = torch.long)
         
-        masked_input_ids, labels = self._mask_tokens(input_ids, effective_batch)
+        masked_input_ids, labels, target_mask = self._mask_tokens(input_ids, effective_batch)
+        hcdr3_metadata = self._build_hcdr3_metadata(input_ids, effective_batch, target_mask)
 
         affinity_strength_labels = []
         affinity_strength_mask = []
@@ -675,6 +827,7 @@ class MLMCollator:
             "affinity_strength_scores": torch.tensor(affinity_strength_scores, dtype=torch.float32),
             "affinity_strength_score_mask": torch.tensor(affinity_strength_score_mask, dtype=torch.bool),
             "affinity_family_ids": torch.tensor(affinity_family_ids, dtype=torch.long),
+            **hcdr3_metadata,
         }
 
 
@@ -696,6 +849,8 @@ class AntibodyAntigenCollator(MLMCollator):
         hcdr3_span_probability: float = 0.5,
         hcdr3_span_min: int = 3,
         hcdr3_span_max: int = 8,
+        hcdr3_mask_mode: str = "sampled_span",
+        mask_replacement_strategy: str = "bert",
         shuffle_antigen_probability: float = 0.5,
         antigen_length_bucket_width: int = 64,
         rng_seed: int = 42,
@@ -707,6 +862,8 @@ class AntibodyAntigenCollator(MLMCollator):
             hcdr3_span_probability=hcdr3_span_probability,
             hcdr3_span_min=hcdr3_span_min,
             hcdr3_span_max=hcdr3_span_max,
+            hcdr3_mask_mode=hcdr3_mask_mode,
+            mask_replacement_strategy=mask_replacement_strategy,
             shuffle_pair_probability=0.0,
             rng_seed=rng_seed,
         )
@@ -886,9 +1043,14 @@ class AntibodyAntigenCollator(MLMCollator):
 
         antibody_input_ids, antibody_attention_mask = self._pad_encoded(antibody_encoded)
         antigen_input_ids, antigen_attention_mask = self._pad_encoded(antigen_encoded)
-        antibody_masked_input_ids, antibody_labels = self._mask_tokens(
+        antibody_masked_input_ids, antibody_labels, antibody_target_mask = self._mask_tokens(
             antibody_input_ids,
             effective_batch,
+        )
+        hcdr3_metadata = self._build_hcdr3_metadata(
+            antibody_input_ids,
+            effective_batch,
+            antibody_target_mask,
         )
 
         return {
@@ -905,6 +1067,7 @@ class AntibodyAntigenCollator(MLMCollator):
             "dataset_names": [item.dataset_name for item in effective_batch],
             "antibody_format_groups": [self._antibody_format_group(item) for item in effective_batch],
             "antigen_length_buckets": [self._antigen_bucket(item) for item in effective_batch],
+            **hcdr3_metadata,
         }
 
 
