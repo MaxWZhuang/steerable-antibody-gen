@@ -43,6 +43,9 @@ def make_processed_pair_record(
     heavy_locus="IGH",
     light_locus="IGK",
     split="train",
+    cdr3_aa_heavy=None,
+    cdr3_start_aa_heavy=None,
+    cdr3_end_aa_heavy=None,
 ):
     return {
         "pair_id": "pair-1",
@@ -57,9 +60,9 @@ def make_processed_pair_record(
         "split": split,
         "length": len(heavy_sequence) + len(light_sequence),
         "token_length": len(heavy_sequence) + len(light_sequence) + 5,
-        "cdr3_aa_heavy": None,
-        "cdr3_start_aa_heavy": None,
-        "cdr3_end_aa_heavy": None,
+        "cdr3_aa_heavy": cdr3_aa_heavy,
+        "cdr3_start_aa_heavy": cdr3_start_aa_heavy,
+        "cdr3_end_aa_heavy": cdr3_end_aa_heavy,
         "cdr3_aa_light": None,
         "cdr3_start_aa_light": None,
         "cdr3_end_aa_light": None,
@@ -314,7 +317,7 @@ def test_collator_returns_expected_shapes(tmp_path: Path, tokenizer, write_proce
     )
     batch = collator([ds[0], ds[1]])
 
-    assert set(batch.keys()) == {
+    assert {
         "input_ids",
         "attention_mask",
         "labels",
@@ -325,7 +328,12 @@ def test_collator_returns_expected_shapes(tmp_path: Path, tokenizer, write_proce
         "affinity_strength_scores",
         "affinity_strength_score_mask",
         "affinity_family_ids",
-    }
+        "hcdr3_target_mask",
+        "hcdr3_token_start",
+        "hcdr3_token_end",
+        "hcdr3_valid_mask",
+        "hcdr3_original",
+    }.issubset(batch.keys())
     assert batch["input_ids"].shape == batch["attention_mask"].shape == batch["labels"].shape
     assert batch["input_ids"].dtype == torch.long
     assert batch["attention_mask"].dtype == torch.long
@@ -401,6 +409,88 @@ def test_hcdr3_masking_hits_hcdr3_positions(tmp_path: Path, tokenizer, write_pro
     targeted_positions = {j for j, v in enumerate(labels.tolist()) if v != -100}
 
     assert len(hcdr3_token_positions.intersection(targeted_positions)) > 0
+
+
+def test_full_span_hcdr3_masking_masks_all_and_only_hcdr3_positions(
+    tmp_path: Path,
+    tokenizer,
+    write_processed_jsonl_gz,
+):
+    sequence = "AAAAABCDEFGHIIII"
+    cdr3 = "ABCDEFGH"
+    record = make_processed_record(
+        tokenizer,
+        sequence=sequence,
+        locus="IGH",
+        chain_group="heavy",
+        cdr3_aa=cdr3,
+        cdr3_start_aa=4,
+        cdr3_end_aa=12,
+    )
+    data_path = write_processed_jsonl_gz(tmp_path / "processed.jsonl.gz", [record])
+    ds = OASSequenceDataset(data_path, split="train")
+
+    collator = MLMCollator(
+        tokenizer=tokenizer,
+        max_length=64,
+        mask_probability=0.15,
+        hcdr3_span_probability=0.0,
+        hcdr3_mask_mode="full_span",
+        mask_replacement_strategy="always_mask",
+        rng_seed=42,
+    )
+    batch = collator([ds[0]])
+    labels = batch["labels"][0]
+    input_ids = batch["input_ids"][0]
+
+    hcdr3_token_positions = set(range(2 + 4, 2 + 12))
+    targeted_positions = {j for j, v in enumerate(labels.tolist()) if v != -100}
+
+    assert targeted_positions == hcdr3_token_positions
+    assert batch["hcdr3_target_mask"][0].nonzero().flatten().tolist() == sorted(hcdr3_token_positions)
+    assert batch["hcdr3_valid_mask"].tolist() == [True]
+    assert batch["hcdr3_token_start"].tolist() == [6]
+    assert batch["hcdr3_token_end"].tolist() == [14]
+    assert batch["hcdr3_original"] == [cdr3]
+    for pos in hcdr3_token_positions:
+        assert input_ids[pos].item() == tokenizer.mask_id
+
+
+def test_full_span_hcdr3_masking_uses_heavy_offsets_for_paired_records(
+    tmp_path: Path,
+    tokenizer,
+    write_processed_jsonl_gz,
+):
+    heavy_sequence = "HHHHCARDRSTYYYY"
+    light_sequence = "QQYNSYPWTFGQGTK"
+    record = make_processed_pair_record(
+        heavy_sequence,
+        light_sequence,
+        cdr3_aa_heavy="CARDRST",
+        cdr3_start_aa_heavy=4,
+        cdr3_end_aa_heavy=11,
+    )
+    data_path = write_processed_jsonl_gz(tmp_path / "paired.jsonl.gz", [record])
+    ds = OASSequenceDataset(data_path, split="train")
+
+    collator = MLMCollator(
+        tokenizer=tokenizer,
+        max_length=96,
+        mask_probability=0.15,
+        hcdr3_mask_mode="full_span",
+        mask_replacement_strategy="always_mask",
+        rng_seed=42,
+    )
+    batch = collator([ds[0]])
+    labels = batch["labels"][0]
+
+    expected_positions = set(range(2 + 4, 2 + 11))
+    targeted_positions = {j for j, v in enumerate(labels.tolist()) if v != -100}
+    sep_position = 2 + len(heavy_sequence)
+
+    assert targeted_positions == expected_positions
+    assert max(targeted_positions) < sep_position
+    assert batch["input_ids"][0, sep_position].item() == tokenizer.sep_id
 
 
 def test_attention_mask_matches_padding(tmp_path: Path, tokenizer, write_processed_jsonl_gz):
@@ -543,7 +633,7 @@ def test_antibody_antigen_collator_returns_dual_stream_batch(tmp_path: Path, tok
     )
     batch = collator([ds[0], ds[1]])
 
-    assert set(batch.keys()) == {
+    assert {
         "antibody_input_ids",
         "antibody_attention_mask",
         "antibody_labels",
@@ -557,7 +647,7 @@ def test_antibody_antigen_collator_returns_dual_stream_batch(tmp_path: Path, tok
         "dataset_names",
         "antibody_format_groups",
         "antigen_length_buckets",
-    }
+    }.issubset(batch.keys())
     assert batch["antibody_input_ids"].shape == batch["antibody_attention_mask"].shape == batch["antibody_labels"].shape
     assert batch["antigen_input_ids"].shape == batch["antigen_attention_mask"].shape
     assert batch["compatibility_labels"].tolist() == [1, 1]

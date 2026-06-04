@@ -3,6 +3,7 @@ from __future__ import annotations
 import gzip
 import importlib.util
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -239,6 +240,54 @@ def test_parse_args_antigen_real_label_refine_requires_init_checkpoint(
         )
 
 
+def test_parse_args_antigen_hcdr3_infill_defaults_to_full_span_settings(
+    tmp_path: Path,
+    project_root: Path,
+):
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = tmp_path / "tiny_antigen.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+    init_ckpt = tmp_path / "best.pt"
+    init_ckpt.write_text("placeholder", encoding="utf-8")
+
+    cfg = mlm_train.parse_args(
+        [
+            "--data-path",
+            str(data_path),
+            "--training-stage",
+            "antigen_hcdr3_infill_refine",
+            "--init-checkpoint",
+            str(init_ckpt),
+        ]
+    )
+
+    assert cfg.training_stage == "antigen_hcdr3_infill_refine"
+    assert cfg.output_dir == "checkpoints/mlm_antigen_hcdr3_infill_refine"
+    assert cfg.hcdr3_mask_mode == "full_span"
+    assert cfg.mask_replacement_strategy == "always_mask"
+    assert cfg.compatibility_loss_weight == 0.0
+    assert cfg.shuffle_antigen_probability == 0.0
+
+
+def test_parse_args_antigen_hcdr3_infill_requires_init_checkpoint(
+    tmp_path: Path,
+    project_root: Path,
+):
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = tmp_path / "tiny_antigen.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="requires `init_checkpoint`"):
+        mlm_train.parse_args(
+            [
+                "--data-path",
+                str(data_path),
+                "--training-stage",
+                "antigen_hcdr3_infill_refine",
+            ]
+        )
+
+
 def test_antigen_refine_uses_dual_stream_collator_and_model(tmp_path: Path, project_root: Path):
     mlm_train = load_mlm_train_module(project_root)
     from smallAntibodyGen.models.mlm import AntibodyAntigenCrossAttention
@@ -392,6 +441,95 @@ def test_antigen_real_label_refine_filters_to_binary_labels_and_uses_dual_stream
     assert batch["is_shuffled_antigen"].tolist() == [False, False]
 
 
+def test_antigen_hcdr3_infill_filters_to_positive_valid_spans_and_full_masks(
+    tmp_path: Path,
+    project_root: Path,
+):
+    mlm_train = load_mlm_train_module(project_root)
+    from smallAntibodyGen.models.mlm import AntibodyAntigenCrossAttention
+
+    data_path = tmp_path / "tiny_hcdr3_infill.jsonl.gz"
+    heavy_sequence = "EVQLVESGGGCARDRSTWGQGTLV"
+    cdr3_start = heavy_sequence.index("CARDRST")
+    cdr3_end = cdr3_start + len("CARDRST")
+    base_record = {
+        "record_id": "antigen-1",
+        "sequence": heavy_sequence,
+        "sequence_heavy": heavy_sequence,
+        "sequence_antigen": "MKTIIALSYIFCLVFADYKDDDDK",
+        "locus": "PAIRED_ANTIGEN",
+        "chain_group": "paired_antigen",
+        "split": "train",
+        "length": len(heavy_sequence),
+        "target_key": "uniprot:p11111",
+        "target_name": "test_target",
+        "target_pdb": "1abc",
+        "target_uniprot": "P12345",
+        "dataset": "asd-test",
+        "confidence": "very_high",
+        "affinity_type": "bool",
+        "affinity_raw": "1.0",
+        "processed_measurement_raw": "1.0",
+        "processed_measurement_float": 1.0,
+        "binder_label": 1,
+        "is_strong_binder": True,
+        "is_nanobody": True,
+        "scfv": False,
+        "cdr3_aa": "CARDRST",
+        "cdr3_aa_heavy": "CARDRST",
+        "cdr3_start_aa": cdr3_start,
+        "cdr3_end_aa": cdr3_end,
+        "cdr3_start_aa_heavy": cdr3_start,
+        "cdr3_end_aa_heavy": cdr3_end,
+        "heavy_locus": "IGH",
+        "light_locus": None,
+        "is_paired": False,
+        "antigen_length": 24,
+        "metadata": {},
+        "source_file": "tiny_antigen.parquet",
+    }
+    with gzip.open(data_path, "wt", encoding="utf-8") as f:
+        f.write(json.dumps(base_record) + "\n")
+        f.write(json.dumps({**base_record, "record_id": "neg", "binder_label": 0}) + "\n")
+        f.write(json.dumps({**base_record, "record_id": "missing-antigen", "sequence_antigen": ""}) + "\n")
+        f.write(json.dumps({**base_record, "record_id": "bad-span", "cdr3_end_aa": None, "cdr3_end_aa_heavy": None}) + "\n")
+    init_ckpt = tmp_path / "best.pt"
+    init_ckpt.write_text("placeholder", encoding="utf-8")
+
+    cfg = mlm_train.parse_args(
+        [
+            "--data-path",
+            str(data_path),
+            "--training-stage",
+            "antigen_hcdr3_infill_refine",
+            "--init-checkpoint",
+            str(init_ckpt),
+            "--batch-size",
+            "1",
+            "--eval-batch-size",
+            "1",
+            "--max-length",
+            "64",
+        ]
+    )
+    tokenizer = mlm_train.build_tokenizer()
+    train_dataset, _ = mlm_train.build_datasets(cfg)
+    loader = mlm_train.build_train_loader(train_dataset, tokenizer, cfg, epoch=0)
+    batch = next(iter(loader))
+    model = mlm_train.build_model(tokenizer, cfg, device=mlm_train.torch.device("cpu"))
+
+    targeted_positions = {
+        idx for idx, value in enumerate(batch["antibody_labels"][0].tolist()) if value != -100
+    }
+    expected_positions = set(range(2 + cdr3_start, 2 + cdr3_end))
+
+    assert len(train_dataset.records) == 1
+    assert isinstance(model, AntibodyAntigenCrossAttention)
+    assert targeted_positions == expected_positions
+    assert batch["hcdr3_target_mask"][0].nonzero().flatten().tolist() == sorted(expected_positions)
+    assert all(batch["antibody_input_ids"][0, pos].item() == tokenizer.mask_id for pos in expected_positions)
+
+
 def test_compatibility_binary_metrics_are_deterministic(project_root: Path):
     mlm_train = load_mlm_train_module(project_root)
 
@@ -410,6 +548,45 @@ def test_compatibility_binary_metrics_are_deterministic(project_root: Path):
     assert metrics["compatibility_mcc"] == pytest.approx(0.0)
     assert metrics["compatibility_auroc"] == pytest.approx(0.75)
     assert metrics["compatibility_auprc"] == pytest.approx(5 / 6)
+
+
+def test_hcdr3_metric_counts_and_finalization(project_root: Path):
+    mlm_train = load_mlm_train_module(project_root)
+    logits = mlm_train.torch.zeros((1, 5, 4), dtype=mlm_train.torch.float32)
+    labels = mlm_train.torch.full((1, 5), -100, dtype=mlm_train.torch.long)
+    labels[0, 1] = 2
+    labels[0, 2] = 3
+    logits[0, 1, 2] = 5.0
+    logits[0, 2, 1] = 5.0
+    target_mask = mlm_train.torch.zeros((1, 5), dtype=mlm_train.torch.bool)
+    target_mask[0, 1:3] = True
+
+    counts = mlm_train.hcdr3_metric_counts(
+        logits,
+        labels,
+        target_mask,
+        mlm_train.torch.tensor([1]),
+        mlm_train.torch.tensor([3]),
+        mlm_train.torch.tensor([True]),
+    )
+    metrics = mlm_train.finalize_hcdr3_metrics(counts)
+
+    assert counts["hcdr3_target_tokens"] == 2
+    assert counts["hcdr3_correct_tokens"] == 1
+    assert counts["hcdr3_valid_spans"] == 1
+    assert counts["hcdr3_exact_matches"] == 0
+    assert metrics["hcdr3_token_acc"] == pytest.approx(0.5)
+    assert metrics["hcdr3_span_exact_match"] == pytest.approx(0.0)
+
+
+def test_hcdr3_metric_finalization_handles_empty_counts(project_root: Path):
+    mlm_train = load_mlm_train_module(project_root)
+    metrics = mlm_train.finalize_hcdr3_metrics({})
+
+    assert math.isnan(metrics["hcdr3_token_acc"])
+    assert math.isnan(metrics["hcdr3_span_exact_match"])
+    assert metrics["hcdr3_target_tokens"] == 0.0
+    assert metrics["hcdr3_valid_spans"] == 0.0
 
 
 def test_antigen_refine_baseline_diagnostics_return_expected_keys(tmp_path: Path, project_root: Path):
