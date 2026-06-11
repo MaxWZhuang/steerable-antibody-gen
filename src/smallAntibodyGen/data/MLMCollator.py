@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Dict, Iterator, List, Sequence
 
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, get_worker_info
 
 from smallAntibodyGen.tokenizer import AminoAcidTokenizer
 from smallAntibodyGen.data.MLMSampler import ChainLengthBucketBatchSampler
@@ -194,6 +194,13 @@ class OASSequenceDataset(Dataset[OASRecord]):
         if not math.isfinite(value):
             return False
         if affinity_type == "kd":
+            # Mirror infer_is_strong_binder in prepare_antibody_antigen.py: KD may
+            # be stored in molar (e.g. 1e-9) or already in nanomolar (e.g. 1.0);
+            # a strong binder is KD <= 1 nM. Disambiguate by magnitude.
+            if value <= 0:
+                return False
+            if value >= 1e-3:
+                return value <= 1.0
             return value <= cls.KD_STRONG_THRESHOLD_MOLAR
         if affinity_type == "-log kd":
             return value >= cls.NEG_LOG_KD_STRONG_THRESHOLD
@@ -373,6 +380,8 @@ class MLMCollator:
         self.hcdr3_mask_mode = hcdr3_mask_mode
         self.mask_replacement_strategy = mask_replacement_strategy
         self.shuffle_pair_probability = shuffle_pair_probability
+        self._base_rng_seed = rng_seed
+        self._worker_seeded_id: int | None = None
         self.rng = random.Random(rng_seed)
         
         # sampling replacement tokens from actual residue tokens, not special tokens
@@ -381,6 +390,24 @@ class MLMCollator:
             for tok, idx in self.tokenizer.token_to_id.items() 
             if len(tok) == 1 and tok.isalpha()
         ]
+
+    def _maybe_reseed_for_worker(self) -> None:
+        """
+        Give each DataLoader worker its own masking/shuffle RNG stream.
+
+        With ``num_workers > 0`` every worker process receives an identical copy
+        of this collator (same ``rng_seed``). Without reseeding, all workers
+        would make correlated masking and negative-sampling decisions. We mix the
+        worker id into the base seed once per worker so each stream is distinct
+        but still deterministic given ``(rng_seed, worker_id)``.
+        """
+        worker_info = get_worker_info()
+        if worker_info is None:
+            return
+        if self._worker_seeded_id == worker_info.id:
+            return
+        self.rng = random.Random(self._base_rng_seed + 1000 * (worker_info.id + 1))
+        self._worker_seeded_id = worker_info.id
 
     def _heavy_hcdr3_aa_span(self, record) -> tuple[int | None, int | None, str | None]:
         """
@@ -597,7 +624,20 @@ class MLMCollator:
             shuffled_indices = []
 
         for idx in shuffled_indices:
-            donor_candidates = [candidate for candidate in pairable_indices if candidate != idx]
+            receiver_light = (native_batch[idx].sequence_light or "").strip()
+            # Exclude donors that carry the receiver's own light chain (shared VL
+            # genes are common), so a "shuffled negative" is never accidentally a
+            # cognate-equivalent pair (same heavy + same light) mislabeled as 0.
+            donor_candidates = [
+                candidate
+                for candidate in pairable_indices
+                if candidate != idx
+                and (native_batch[candidate].sequence_light or "").strip() != receiver_light
+            ]
+            if not donor_candidates:
+                # No valid distinct-light donor; keep this example native rather
+                # than mislabeling an equivalent light chain as a negative.
+                continue
             donor_idx = self.rng.choice(donor_candidates)
             donor_record = native_batch[donor_idx]
 
@@ -772,12 +812,13 @@ class MLMCollator:
                 - "pair_mask": Tensor of shape [batch_size] marking records that participate in the auxiliary pair loss
                 - "affinity_strength_labels": Tensor of shape [batch_size] with conservative strong/weak labels
                 - "affinity_strength_mask": Tensor of shape [batch_size] marking rows with usable strong/weak labels
-                - "affinity_strength_scores": Tensor of shape [batch_size] with direction-corrected scores or percentile ranks
+                - "affinity_strength_scores": Tensor of shape [batch_size] with the raw per-record affinity_strength_score (None -> 0.0); the only direction correction is the upstream -log10 applied to kd-type records, while other values are passed through unchanged
                 - "affinity_strength_score_mask": Tensor of shape [batch_size] marking rows with usable scores
                 - "affinity_family_ids": Tensor of shape [batch_size] encoding broad affinity supervision families
         
         """
         
+        self._maybe_reseed_for_worker()
         effective_batch, pair_labels, pair_mask = self._build_pairing_batch(batch)
         encoded = [self._encode_record(item) for item in effective_batch]
         
@@ -977,13 +1018,21 @@ class AntibodyAntigenCollator(MLMCollator):
             if self.rng.random() < self.shuffle_antigen_probability
         ]
 
+        # For the lone-negative case we probe feasibility once and reuse that
+        # same donor below, rather than drawing a second (possibly different)
+        # donor and consuming an extra RNG draw.
+        precomputed_donor: int | None = None
         if len(shuffled_indices) == 1 and len(eligible_indices) > 1:
-            donor_idx = self._find_antigen_donor(shuffled_indices[0], native_batch, eligible_indices)
-            if donor_idx is None:
+            precomputed_donor = self._find_antigen_donor(shuffled_indices[0], native_batch, eligible_indices)
+            if precomputed_donor is None:
                 shuffled_indices = []
 
         for idx in shuffled_indices:
-            donor_idx = self._find_antigen_donor(idx, native_batch, eligible_indices)
+            if precomputed_donor is not None:
+                donor_idx = precomputed_donor
+                precomputed_donor = None
+            else:
+                donor_idx = self._find_antigen_donor(idx, native_batch, eligible_indices)
             if donor_idx is None:
                 continue
             donor = native_batch[donor_idx]
@@ -1034,6 +1083,7 @@ class AntibodyAntigenCollator(MLMCollator):
         Build a dual-stream antibody-antigen batch with antibody MLM labels and
         compatibility labels for native strong binders vs shuffled negatives.
         """
+        self._maybe_reseed_for_worker()
         effective_batch, compatibility_labels, compatibility_mask, is_shuffled_antigen = (
             self._build_antibody_antigen_batch(batch)
         )

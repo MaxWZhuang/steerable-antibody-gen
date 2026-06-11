@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import random
 import sys
@@ -157,6 +158,7 @@ class TrainConfig:
     learning_rate: float = 3e-4
     weight_decay: float = 1e-2
     grad_clip_norm: float = 1.0
+    warmup_steps: int = 0
     pair_loss_weight: float = 1.0
     compatibility_loss_weight: float = 1.0
     epochs: int = 5
@@ -211,6 +213,8 @@ class TrainConfig:
             raise ValueError("weight_decay must be >= 0")
         if self.grad_clip_norm <= 0:
             raise ValueError("grad_clip_norm must be > 0")
+        if self.warmup_steps < 0:
+            raise ValueError("warmup_steps must be >= 0")
         if self.pair_loss_weight < 0:
             raise ValueError("pair_loss_weight must be >= 0")
         if self.compatibility_loss_weight < 0:
@@ -367,9 +371,8 @@ def normalize_config_data(raw_config: Dict[str, Any]) -> Dict[str, Any]:
     if logging_config is not None and not isinstance(logging_config, dict):
         raise ValueError("The `logging` config section must be a mapping")
 
-    # These keys are intentionally accepted but ignored for now so saved configs
-    # from earlier experiments remain runnable instead of failing hard.
-    normalized.pop("warmup_steps", None)
+    # `warmup_steps` is a real TrainConfig field honored by build_lr_scheduler /
+    # train_one_epoch, so it is passed through unchanged rather than dropped.
 
     return normalized
 
@@ -1000,6 +1003,7 @@ def build_train_loader(
     tokenizer: AminoAcidTokenizer,
     cfg: TrainConfig,
     epoch: int = 0,
+    device: torch.device | None = None,
 ) -> DataLoader:
     """
     Build the training DataLoader.
@@ -1077,7 +1081,7 @@ def build_train_loader(
         batch_sampler=sampler,
         collate_fn=collator,
         num_workers=cfg.train_num_workers,
-        pin_memory=torch.cuda.is_available(),
+        pin_memory=((device.type == "cuda") if device is not None else torch.cuda.is_available()),
         worker_init_fn=seed_worker if cfg.train_num_workers > 0 else None,
     )
     return loader
@@ -1087,6 +1091,7 @@ def build_eval_loader(
     dataset: OASSequenceDataset,
     tokenizer: AminoAcidTokenizer,
     cfg: TrainConfig,
+    device: torch.device | None = None,
 ) -> DataLoader:
     """
     Build a deterministic-ish evaluation DataLoader.
@@ -1158,7 +1163,7 @@ def build_eval_loader(
         batch_sampler=sampler,
         collate_fn=collator,
         num_workers=cfg.eval_num_workers,
-        pin_memory=torch.cuda.is_available(),
+        pin_memory=((device.type == "cuda") if device is not None else torch.cuda.is_available()),
         worker_init_fn=seed_worker if cfg.eval_num_workers > 0 else None,
     )
     return loader
@@ -1213,11 +1218,40 @@ def build_optimizer(model: torch.nn.Module, cfg: TrainConfig) -> AdamW:
     Returns:
         An initialized AdamW optimizer.
     """
+    # Weight decay should not be applied to biases or LayerNorm gains/biases
+    # (1-D tensors); decaying them is a known training defect that pulls norm
+    # gains toward zero. Split parameters into a decay and a no-decay group.
+    decay_params = [p for p in model.parameters() if p.requires_grad and p.dim() >= 2]
+    no_decay_params = [p for p in model.parameters() if p.requires_grad and p.dim() < 2]
     return AdamW(
-        model.parameters(),
+        [
+            {"params": decay_params, "weight_decay": cfg.weight_decay},
+            {"params": no_decay_params, "weight_decay": 0.0},
+        ],
         lr=cfg.learning_rate,
-        weight_decay=cfg.weight_decay,
     )
+
+
+def build_lr_scheduler(
+    optimizer: AdamW, cfg: TrainConfig
+) -> torch.optim.lr_scheduler.LambdaLR | None:
+    """
+    Build a linear LR warmup scheduler, or None when warmup is disabled.
+
+    For optimizer step ``s`` (0-based), the LR multiplier is
+    ``min(1.0, (s + 1) / warmup_steps)``; after ``warmup_steps`` updates the LR
+    stays at ``cfg.learning_rate``. Returns ``None`` when ``warmup_steps == 0``
+    so the constant-LR path is unchanged.
+    """
+    if cfg.warmup_steps <= 0:
+        return None
+
+    warmup = cfg.warmup_steps
+
+    def lr_lambda(step: int) -> float:
+        return min(1.0, float(step + 1) / float(warmup))
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
 def move_batch_to_device(batch: Dict[str, Any], device: torch.device) -> Dict[str, Any]:
@@ -1261,6 +1295,24 @@ def masked_accuracy(logits: torch.Tensor, labels: torch.Tensor) -> float:
     if mask.sum().item() == 0:
         return 0.0
     return (preds[mask] == labels[mask]).float().mean().item()
+
+
+def masked_accuracy_counts(logits: torch.Tensor, labels: torch.Tensor) -> tuple[int, int]:
+    """
+    Return ``(correct, total)`` masked-token counts for token-level pooling.
+
+    Unlike ``masked_accuracy`` (a per-batch mean), this returns raw sufficient
+    statistics so accuracy can be pooled across batches of unequal masked-token
+    counts. ``total`` is the number of non-``-100`` label positions; ``correct``
+    is how many were predicted correctly. Returns ``(0, 0)`` for an empty batch.
+    """
+    preds = logits.argmax(dim=-1)
+    mask = labels != -100
+    total = int(mask.sum().item())
+    if total == 0:
+        return 0, 0
+    correct = int((preds[mask] == labels[mask]).sum().item())
+    return correct, total
 
 
 def hcdr3_metric_counts(
@@ -1527,6 +1579,7 @@ def run_smoke_test(
     device: torch.device,
     use_amp: bool,
     training_stage: str,
+    grad_clip_norm: float = 1.0,
 ) -> None:
     """
     Run a minimal forward/backward/step proof of implementation.
@@ -1614,7 +1667,7 @@ def run_smoke_test(
 
     scaler.scale(loss).backward()
     scaler.unscale_(optimizer)
-    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
     scaler.step(optimizer)
     scaler.update()
 
@@ -1649,15 +1702,20 @@ def evaluate(
         Dictionary containing averaged validation metrics.
     """
     model.eval()
-    val_loader = build_eval_loader(val_dataset, tokenizer, cfg)
+    val_loader = build_eval_loader(val_dataset, tokenizer, cfg, device=device)
 
-    total_loss = 0.0
-    total_mlm_loss = 0.0
-    total_aux_loss = 0.0
-    total_acc = 0.0
+    total_mlm_loss_weighted = 0.0
+    total_mlm_correct = 0
+    total_mlm_tokens = 0
+    total_aux_loss_weighted = 0.0
     total_aux_correct = 0
     total_aux_labeled = 0
     total_batches = 0
+    _aux_weight = (
+        cfg.compatibility_loss_weight
+        if is_antigen_stage(cfg.training_stage)
+        else cfg.pair_loss_weight
+    )
     compatibility_labels_all: list[int] = []
     compatibility_scores_all: list[float] = []
     compatibility_preds_all: list[int] = []
@@ -1694,7 +1752,7 @@ def evaluate(
             loss = losses["loss"]
             mlm_loss = losses["mlm_loss"]
             aux_loss = losses["compatibility_loss"]
-            acc = masked_accuracy(logits, batch["antibody_labels"])
+            mlm_correct, mlm_tokens = masked_accuracy_counts(logits, batch["antibody_labels"])
             aux_acc = compatibility_classification_accuracy(
                 compatibility_logits,
                 batch["compatibility_labels"],
@@ -1739,7 +1797,7 @@ def evaluate(
             loss = losses["loss"]
             mlm_loss = losses["mlm_loss"]
             aux_loss = losses["pair_loss"]
-            acc = masked_accuracy(logits, batch["labels"])
+            mlm_correct, mlm_tokens = masked_accuracy_counts(logits, batch["labels"])
             aux_acc = pair_classification_accuracy(pair_logits, batch["pair_labels"], batch["pair_mask"])
             aux_correct, aux_labeled = masked_classification_counts(
                 pair_logits,
@@ -1757,22 +1815,25 @@ def evaluate(
             aux_loss_name = "pair_loss"
             aux_acc_name = "pair_acc"
 
-        total_loss += float(loss.item())
-        total_mlm_loss += float(mlm_loss.item())
-        total_aux_loss += float(aux_loss.item())
-        total_acc += acc
+        total_mlm_loss_weighted += float(mlm_loss.item()) * mlm_tokens
+        total_mlm_correct += mlm_correct
+        total_mlm_tokens += mlm_tokens
+        total_aux_loss_weighted += float(aux_loss.item()) * aux_labeled
         total_aux_correct += aux_correct
         total_aux_labeled += aux_labeled
         total_batches += 1
         for key, value in batch_hcdr3_counts.items():
             hcdr3_counts[key] += value
         running_aux_acc = (total_aux_correct / total_aux_labeled) if total_aux_labeled > 0 else 0.0
+        running_mlm_loss = (total_mlm_loss_weighted / total_mlm_tokens) if total_mlm_tokens > 0 else float("nan")
+        running_mlm_acc = (total_mlm_correct / total_mlm_tokens) if total_mlm_tokens > 0 else float("nan")
+        running_aux_loss = (total_aux_loss_weighted / total_aux_labeled) if total_aux_labeled > 0 else 0.0
         running_hcdr3 = finalize_hcdr3_metrics(hcdr3_counts)
         progress.set_postfix(
-            loss=f"{total_loss / total_batches:.4f}",
-            mlm_loss=f"{total_mlm_loss / total_batches:.4f}",
-            **{aux_loss_name: f"{total_aux_loss / total_batches:.4f}"},
-            mlm_acc=f"{total_acc / total_batches:.4f}",
+            loss=f"{running_mlm_loss + _aux_weight * running_aux_loss:.4f}",
+            mlm_loss=f"{running_mlm_loss:.4f}",
+            **{aux_loss_name: f"{running_aux_loss:.4f}"},
+            mlm_acc=f"{running_mlm_acc:.4f}",
             **{aux_acc_name: f"{running_aux_acc:.4f}"},
             hcdr3_acc=f"{running_hcdr3['hcdr3_token_acc']:.4f}",
         )
@@ -1795,14 +1856,17 @@ def evaluate(
         metrics.update(finalize_hcdr3_metrics(hcdr3_counts))
         return metrics
 
+    mlm_loss = (total_mlm_loss_weighted / total_mlm_tokens) if total_mlm_tokens > 0 else float("nan")
+    mlm_acc = (total_mlm_correct / total_mlm_tokens) if total_mlm_tokens > 0 else float("nan")
+    aux_loss = (total_aux_loss_weighted / total_aux_labeled) if total_aux_labeled > 0 else 0.0
     metrics = {
-        "loss": total_loss / total_batches,
-        "mlm_loss": total_mlm_loss / total_batches,
-        "mlm_acc": total_acc / total_batches,
+        "loss": mlm_loss + _aux_weight * aux_loss,
+        "mlm_loss": mlm_loss,
+        "mlm_acc": mlm_acc,
     }
     metrics.update(finalize_hcdr3_metrics(hcdr3_counts))
     if is_antigen_stage(cfg.training_stage):
-        metrics["compatibility_loss"] = total_aux_loss / total_batches
+        metrics["compatibility_loss"] = aux_loss
         metrics["compatibility_acc"] = (
             total_aux_correct / total_aux_labeled if total_aux_labeled > 0 else float("nan")
         )
@@ -1814,7 +1878,7 @@ def evaluate(
             )
         )
     else:
-        metrics["pair_loss"] = total_aux_loss / total_batches
+        metrics["pair_loss"] = aux_loss
         metrics["pair_acc"] = (
             total_aux_correct / total_aux_labeled if total_aux_labeled > 0 else float("nan")
         )
@@ -1826,6 +1890,8 @@ def train_one_epoch(
     train_dataset: OASSequenceDataset,
     tokenizer: AminoAcidTokenizer,
     optimizer: AdamW,
+    scaler: torch.amp.GradScaler,
+    scheduler: torch.optim.lr_scheduler.LambdaLR | None,
     cfg: TrainConfig,
     device: torch.device,
     epoch: int,
@@ -1853,16 +1919,23 @@ def train_one_epoch(
         Dictionary containing averaged training metrics for the epoch.
     """
     model.train()
-    train_loader = build_train_loader(train_dataset, tokenizer, cfg, epoch=epoch)
-    scaler = torch.amp.GradScaler("cuda", enabled=(cfg.use_amp and device.type == "cuda"))
+    train_loader = build_train_loader(train_dataset, tokenizer, cfg, epoch=epoch, device=device)
+    # The GradScaler and warmup scheduler are created once in main() and reused
+    # across epochs so the adaptive loss scale and warmup step count are not
+    # reset at every epoch boundary (and survive --resume-from-last).
 
-    total_loss = 0.0
-    total_mlm_loss = 0.0
-    total_aux_loss = 0.0
-    total_acc = 0.0
+    total_mlm_loss_weighted = 0.0
+    total_mlm_correct = 0
+    total_mlm_tokens = 0
+    total_aux_loss_weighted = 0.0
     total_aux_correct = 0
     total_aux_labeled = 0
     total_batches = 0
+    _aux_weight = (
+        cfg.compatibility_loss_weight
+        if is_antigen_stage(cfg.training_stage)
+        else cfg.pair_loss_weight
+    )
     compatibility_labels_all: list[int] = []
     compatibility_scores_all: list[float] = []
     compatibility_preds_all: list[int] = []
@@ -1916,14 +1989,24 @@ def train_one_epoch(
                 mlm_loss = losses["mlm_loss"]
                 aux_loss = losses["pair_loss"]
 
+        if not torch.isfinite(loss):
+            raise FloatingPointError(
+                f"non-finite training loss ({float(loss)}) before backward at "
+                f"epoch {epoch + 1}; check for empty-target batches or divergence"
+            )
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip_norm)
+        scale_before = scaler.get_scale()
         scaler.step(optimizer)
         scaler.update()
+        # Advance the LR warmup only when AMP did not skip the optimizer step
+        # (it skips on inf/NaN grads), so warmup progress tracks real updates.
+        if scheduler is not None and scaler.get_scale() >= scale_before:
+            scheduler.step()
 
         if is_antigen_stage(cfg.training_stage):
-            acc = masked_accuracy(logits.detach(), batch["antibody_labels"])
+            mlm_correct, mlm_tokens = masked_accuracy_counts(logits.detach(), batch["antibody_labels"])
             aux_acc = compatibility_classification_accuracy(
                 compatibility_logits.detach(),
                 batch["compatibility_labels"],
@@ -1956,7 +2039,7 @@ def train_one_epoch(
             aux_loss_name = "compatibility_loss"
             aux_acc_name = "compatibility_acc"
         else:
-            acc = masked_accuracy(logits.detach(), batch["labels"])
+            mlm_correct, mlm_tokens = masked_accuracy_counts(logits.detach(), batch["labels"])
             aux_acc = pair_classification_accuracy(
                 pair_logits.detach(),
                 batch["pair_labels"],
@@ -1978,22 +2061,25 @@ def train_one_epoch(
             aux_loss_name = "pair_loss"
             aux_acc_name = "pair_acc"
 
-        total_loss += float(loss.item())
-        total_mlm_loss += float(mlm_loss.item())
-        total_aux_loss += float(aux_loss.item())
-        total_acc += acc
+        total_mlm_loss_weighted += float(mlm_loss.item()) * mlm_tokens
+        total_mlm_correct += mlm_correct
+        total_mlm_tokens += mlm_tokens
+        total_aux_loss_weighted += float(aux_loss.item()) * aux_labeled
         total_aux_correct += aux_correct
         total_aux_labeled += aux_labeled
         total_batches += 1
         for key, value in batch_hcdr3_counts.items():
             hcdr3_counts[key] += value
         running_aux_acc = (total_aux_correct / total_aux_labeled) if total_aux_labeled > 0 else 0.0
+        running_mlm_loss = (total_mlm_loss_weighted / total_mlm_tokens) if total_mlm_tokens > 0 else float("nan")
+        running_mlm_acc = (total_mlm_correct / total_mlm_tokens) if total_mlm_tokens > 0 else float("nan")
+        running_aux_loss = (total_aux_loss_weighted / total_aux_labeled) if total_aux_labeled > 0 else 0.0
         running_hcdr3 = finalize_hcdr3_metrics(hcdr3_counts)
         progress.set_postfix(
-            loss=f"{total_loss / total_batches:.4f}",
-            mlm_loss=f"{total_mlm_loss / total_batches:.4f}",
-            **{aux_loss_name: f"{total_aux_loss / total_batches:.4f}"},
-            mlm_acc=f"{total_acc / total_batches:.4f}",
+            loss=f"{running_mlm_loss + _aux_weight * running_aux_loss:.4f}",
+            mlm_loss=f"{running_mlm_loss:.4f}",
+            **{aux_loss_name: f"{running_aux_loss:.4f}"},
+            mlm_acc=f"{running_mlm_acc:.4f}",
             **{aux_acc_name: f"{running_aux_acc:.4f}"},
             hcdr3_acc=f"{running_hcdr3['hcdr3_token_acc']:.4f}",
         )
@@ -2016,14 +2102,17 @@ def train_one_epoch(
         metrics.update(finalize_hcdr3_metrics(hcdr3_counts))
         return metrics
 
+    mlm_loss = (total_mlm_loss_weighted / total_mlm_tokens) if total_mlm_tokens > 0 else float("nan")
+    mlm_acc = (total_mlm_correct / total_mlm_tokens) if total_mlm_tokens > 0 else float("nan")
+    aux_loss = (total_aux_loss_weighted / total_aux_labeled) if total_aux_labeled > 0 else 0.0
     metrics = {
-        "loss": total_loss / total_batches,
-        "mlm_loss": total_mlm_loss / total_batches,
-        "mlm_acc": total_acc / total_batches,
+        "loss": mlm_loss + _aux_weight * aux_loss,
+        "mlm_loss": mlm_loss,
+        "mlm_acc": mlm_acc,
     }
     metrics.update(finalize_hcdr3_metrics(hcdr3_counts))
     if is_antigen_stage(cfg.training_stage):
-        metrics["compatibility_loss"] = total_aux_loss / total_batches
+        metrics["compatibility_loss"] = aux_loss
         metrics["compatibility_acc"] = (
             total_aux_correct / total_aux_labeled if total_aux_labeled > 0 else float("nan")
         )
@@ -2035,7 +2124,7 @@ def train_one_epoch(
             )
         )
     else:
-        metrics["pair_loss"] = total_aux_loss / total_batches
+        metrics["pair_loss"] = aux_loss
         metrics["pair_acc"] = (
             total_aux_correct / total_aux_labeled if total_aux_labeled > 0 else float("nan")
         )
@@ -2049,6 +2138,8 @@ def save_checkpoint(
     cfg: TrainConfig,
     epoch: int,
     val_loss: float,
+    scaler: torch.amp.GradScaler | None = None,
+    scheduler: torch.optim.lr_scheduler.LambdaLR | None = None,
 ) -> None:
     """
     Save a training checkpoint to disk.
@@ -2071,11 +2162,30 @@ def save_checkpoint(
         None.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Serialize the numpy RNG state as plain primitives rather than the raw
+    # ndarray it returns, so the checkpoint loads under torch.load's default
+    # weights_only=True (PyTorch >= 2.6) instead of failing to unpickle.
+    np_state = np.random.get_state()
+    rng_state = {
+        "python": random.getstate(),
+        "numpy": {
+            "name": np_state[0],
+            "keys": [int(k) for k in np_state[1]],
+            "pos": int(np_state[2]),
+            "has_gauss": int(np_state[3]),
+            "cached_gaussian": float(np_state[4]),
+        },
+        "torch": torch.get_rng_state(),
+        "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+    }
     torch.save(
         {
             "epoch": epoch,
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
+            "scaler_state_dict": scaler.state_dict() if scaler is not None else None,
+            "scheduler_state_dict": scheduler.state_dict() if scheduler is not None else None,
+            "rng_state": rng_state,
             "val_loss": val_loss,
             "train_config": asdict(cfg),
         },
@@ -2086,6 +2196,8 @@ def load_checkpoint(
     path: Path,
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer | None = None,
+    scaler: torch.amp.GradScaler | None = None,
+    scheduler: torch.optim.lr_scheduler.LambdaLR | None = None,
     map_location: str | torch.device = "cpu",
     strict: bool = True,
 ) -> dict:
@@ -2107,6 +2219,10 @@ def load_checkpoint(
 
     if optimizer is not None and "optimizer_state_dict" in checkpoint:
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    if scaler is not None and checkpoint.get("scaler_state_dict") is not None:
+        scaler.load_state_dict(checkpoint["scaler_state_dict"])
+    if scheduler is not None and checkpoint.get("scheduler_state_dict") is not None:
+        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
 
     print(f"[checkpoint] loaded <- {path}")
     if not strict:
@@ -2117,6 +2233,45 @@ def load_checkpoint(
         if unexpected:
             print(f"[checkpoint] ignored unexpected keys from checkpoint: {unexpected}")
     return checkpoint
+
+
+def restore_rng_state(rng_state: dict | None) -> None:
+    """
+    Restore Python/NumPy/Torch (CPU+CUDA) RNG state captured by save_checkpoint.
+
+    Restoring (rather than re-seeding from cfg.seed) is what makes a resumed run
+    reproduce the dropout/sampling stream of an uninterrupted run. It is called
+    only on --resume-from-last, after set_seed(cfg.seed), so it overrides the
+    fresh seed with the interrupted run's exact RNG position.
+    """
+    if not rng_state:
+        return
+    python_state = rng_state["python"]
+    # random.getstate() round-trips through torch.save as nested lists; rebuild
+    # the (version, tuple-of-ints, gauss) shape setstate requires.
+    if isinstance(python_state, list):
+        python_state = (python_state[0], tuple(python_state[1]), python_state[2])
+    random.setstate(python_state)
+    np_blob = rng_state["numpy"]
+    np.random.set_state(
+        (
+            np_blob["name"],
+            np.array(np_blob["keys"], dtype=np.uint32),
+            np_blob["pos"],
+            np_blob["has_gauss"],
+            np_blob["cached_gaussian"],
+        )
+    )
+    torch_state = rng_state["torch"]
+    if not isinstance(torch_state, torch.Tensor):
+        torch_state = torch.as_tensor(torch_state, dtype=torch.uint8)
+    torch.set_rng_state(torch_state.to("cpu", torch.uint8))
+    cuda_state = rng_state.get("cuda")
+    if cuda_state is not None and torch.cuda.is_available():
+        try:
+            torch.cuda.set_rng_state_all([s.to("cpu", torch.uint8) for s in cuda_state])
+        except Exception as exc:  # device-count mismatch, etc.
+            print(f"[checkpoint] could not restore CUDA RNG state: {exc}")
 
 
 def build_antigen_refine_init_state_dict(
@@ -2288,6 +2443,11 @@ def main() -> None:
 
     device = choose_device(cfg.device)
     configure_cpu_runtime(device)
+    if cfg.use_amp and device.type != "cuda":
+        print(
+            f"[warn] use_amp/mixed_precision is set but device is {device.type!r}; "
+            "AMP autocast and GradScaler only activate on CUDA, so this run is full precision."
+        )
 
     output_dir = Path(cfg.output_dir)
     init_ckpt_path = validate_checkpoint_plan(cfg, output_dir)
@@ -2366,6 +2526,10 @@ def main() -> None:
 
     model = build_model(tokenizer, cfg, device)
     optimizer = build_optimizer(model, cfg)
+    # The GradScaler and warmup scheduler are owned by main() and reused across
+    # epochs (and persisted/restored) so their adaptive state is not reset.
+    scaler = torch.amp.GradScaler("cuda", enabled=(cfg.use_amp and device.type == "cuda"))
+    scheduler = build_lr_scheduler(optimizer, cfg)
 
     best_val_loss = float("inf")
     start_epoch = 0
@@ -2379,10 +2543,15 @@ def main() -> None:
             path=last_ckpt_path,
             model=model,
             optimizer=optimizer,
+            scaler=scaler,
+            scheduler=scheduler,
             map_location=device,
         )
         start_epoch = checkpoint["epoch"]
         best_val_loss = checkpoint.get("val_loss", float("inf"))
+        # Restore RNG last so the resumed run reproduces the interrupted run's
+        # dropout/sampling stream instead of the fresh set_seed(cfg.seed) stream.
+        restore_rng_state(checkpoint.get("rng_state"))
         print(f"Resuming from epoch {start_epoch}")
     elif init_ckpt_path is not None:
         if is_antigen_stage(cfg.training_stage):
@@ -2406,8 +2575,10 @@ def main() -> None:
             print("[checkpoint] ignored existing last.pt because resume_from_last=False")
 
     if cfg.smoke_test_only:
-        smoke_loader = build_train_loader(train_dataset, tokenizer, cfg, epoch=0)
-        run_smoke_test(model, smoke_loader, optimizer, device, cfg.use_amp, cfg.training_stage)
+        smoke_loader = build_train_loader(train_dataset, tokenizer, cfg, epoch=0, device=device)
+        run_smoke_test(
+            model, smoke_loader, optimizer, device, cfg.use_amp, cfg.training_stage, cfg.grad_clip_norm
+        )
         return
 
     pretrain_train_probe_metrics = None
@@ -2461,6 +2632,8 @@ def main() -> None:
             train_dataset=train_dataset,
             tokenizer=tokenizer,
             optimizer=optimizer,
+            scaler=scaler,
+            scheduler=scheduler,
             cfg=cfg,
             device=device,
             epoch=epoch,
@@ -2529,9 +2702,13 @@ def main() -> None:
             cfg=cfg,
             epoch=epoch + 1,
             val_loss=val_loss,
+            scaler=scaler,
+            scheduler=scheduler,
         )
 
-        if val_loss < best_val_loss:
+        # Guard against NaN/Inf: `NaN < best` is always False, so a non-finite
+        # val_loss would silently neither win nor warn. Skip and report instead.
+        if math.isfinite(val_loss) and val_loss < best_val_loss:
             best_val_loss = val_loss
             save_checkpoint(
                 path=output_dir / "best.pt",
@@ -2540,7 +2717,11 @@ def main() -> None:
                 cfg=cfg,
                 epoch=epoch + 1,
                 val_loss=val_loss,
+                scaler=scaler,
+                scheduler=scheduler,
             )
+        elif not math.isfinite(val_loss):
+            print(f"[warn] val_loss is non-finite ({val_loss}); best.pt not updated this epoch")
 
 
 if __name__ == "__main__":

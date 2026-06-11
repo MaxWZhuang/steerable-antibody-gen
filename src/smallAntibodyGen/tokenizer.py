@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List
 
@@ -101,7 +102,14 @@ class AminoAcidTokenizer:
         tokens.extend([aa if aa in self.token_to_id else self.unk_token for aa in sequence])
         tokens.append(self.eos_token)
 
-        if max_length is not None:
+        if max_length is not None and len(tokens) > max_length:
+            dropped = len(tokens) - max_length
+            warnings.warn(
+                f"Tokenized sequence truncated by {dropped} token(s) to fit "
+                f"max_length={max_length}; trailing residues (and any light chain "
+                "past the cut) are dropped and the final token is forced to [EOS].",
+                stacklevel=2,
+            )
             tokens = tokens[:max_length]
             if tokens[-1] != self.eos_token:
                 tokens[-1] = self.eos_token
@@ -132,7 +140,14 @@ class AminoAcidTokenizer:
         tokens.extend([aa if aa in self.token_to_id else self.unk_token for aa in light_sequence])
         tokens.append(self.eos_token)
 
-        if max_length is not None:
+        if max_length is not None and len(tokens) > max_length:
+            dropped = len(tokens) - max_length
+            warnings.warn(
+                f"Tokenized sequence truncated by {dropped} token(s) to fit "
+                f"max_length={max_length}; trailing residues (and any light chain "
+                "past the cut) are dropped and the final token is forced to [EOS].",
+                stacklevel=2,
+            )
             tokens = tokens[:max_length]
             if tokens[-1] != self.eos_token:
                 tokens[-1] = self.eos_token
