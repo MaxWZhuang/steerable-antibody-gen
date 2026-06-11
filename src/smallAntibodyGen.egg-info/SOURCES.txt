@@ -11,10 +11,14 @@ src/smallAntibodyGen/data/MLMCollator.py
 src/smallAntibodyGen/data/MLMSampler.py
 src/smallAntibodyGen/data/__init__.py
 src/smallAntibodyGen/data/oas.py
+src/smallAntibodyGen/infill/__init__.py
+src/smallAntibodyGen/infill/hcdr3.py
 src/smallAntibodyGen/models/mlm.py
 src/smallAntibodyGen/tests/conftest.py
 src/smallAntibodyGen/tests/test_dataset_sampler_collator.py
+src/smallAntibodyGen/tests/test_hcdr3_infill.py
 src/smallAntibodyGen/tests/test_mlm_model.py
 src/smallAntibodyGen/tests/test_mlm_train_config.py
 src/smallAntibodyGen/tests/test_oas_reader.py
+src/smallAntibodyGen/tests/test_prepare_antibody_antigen_cli.py
 src/smallAntibodyGen/tests/test_prepare_oas_cli.py
