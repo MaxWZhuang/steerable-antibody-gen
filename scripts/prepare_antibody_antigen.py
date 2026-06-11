@@ -368,7 +368,7 @@ def infer_is_strong_binder(
     Current policy:
     - explicit boolean binder rows with positive labels
     - fuzzy assay rows labeled "h"
-    - kd rows with processed measurement <= 1e-9
+    - kd rows with Kd <= 1 nM (molar values <= 1e-9, or nanomolar values <= 1.0)
     - -log KD rows with processed measurement >= 9
     """
     normalized_type = clean_text(affinity_type).lower()
@@ -381,6 +381,14 @@ def infer_is_strong_binder(
     if measurement is None:
         return False
     if normalized_type == "kd":
+        # Kd may be stored in molar (e.g. 1e-9) or already in nanomolar
+        # (e.g. 1.0). A strong binder is Kd <= 1 nM. Disambiguate by magnitude:
+        # a real antibody Kd in molar is always well below 1 mM, so any value
+        # >= 1e-3 must already be expressed in nanomolar.
+        if measurement <= 0:
+            return False
+        if measurement >= 1e-3:
+            return measurement <= 1.0
         return measurement <= 1e-9
     if normalized_type == "-log kd":
         return measurement >= 9.0
