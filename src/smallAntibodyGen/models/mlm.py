@@ -414,7 +414,14 @@ class AntibodyMLM(nn.Module):
             raise ValueError("labels must have shape [batch_size, seq_len]")
         if logits.shape[:2] != labels.shape:
             raise ValueError("logits and labels must agree on [batch_size, seq_len]")
-        
+
+        # When a batch has no supervised tokens (every label == ignore_index),
+        # F.cross_entropy(reduction="mean") computes 0/0 = NaN, which poisons
+        # every weight through backward(). Return a differentiable zero instead,
+        # mirroring the zero-target guard in compute_pair_loss.
+        if (labels != ignore_index).sum() == 0:
+            return logits.sum() * 0.0
+
         loss = F.cross_entropy(
             logits.reshape(-1, logits.size(-1)),
             labels.reshape(-1),
@@ -653,6 +660,10 @@ class AntibodyAntigenCrossAttention(nn.Module):
             raise ValueError("labels must have shape [batch_size, seq_len]")
         if logits.shape[:2] != labels.shape:
             raise ValueError("logits and labels must agree on [batch_size, seq_len]")
+
+        # Guard the all-ignored batch (0/0 = NaN); see AntibodyMLM.compute_loss.
+        if (labels != ignore_index).sum() == 0:
+            return logits.sum() * 0.0
 
         return F.cross_entropy(
             logits.reshape(-1, logits.size(-1)),

@@ -64,6 +64,7 @@ def test_parse_args_accepts_saved_yaml_config(tmp_path: Path, project_root: Path
     assert cfg.max_length == 128
     assert cfg.use_amp is True
     assert cfg.epochs == 3
+    assert cfg.warmup_steps == 500  # honored as a real field, not silently dropped
     assert cfg.d_model == 192
     assert cfg.n_heads == 6
     assert cfg.n_layers == 4

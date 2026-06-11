@@ -72,15 +72,19 @@ class HCDR3InfillCandidate:
     ``generated_hcdr3`` is only the proposed CDR3 loop. ``heavy_sequence`` is
     the full heavy-chain variable sequence after replacing the original HCDR3
     with that proposal. ``log_probability`` is the sum of per-position log
-    probabilities assigned by the MLM at the sampled mask positions, so it is
-    useful for ranking candidates from the same context but should not be
-    interpreted as a calibrated biological binding score. ``compatibility_score``
-    is optional and comes from a separate antibody-antigen compatibility model.
+    probabilities assigned by the MLM (under its true, unfiltered, temperature-1
+    distribution) at the sampled mask positions. Because that sum grows with
+    length, it must not be compared across candidates of different lengths;
+    ``mean_log_probability`` is the per-position mean and is the length-comparable
+    ranking score. Neither should be read as a calibrated binding score.
+    ``compatibility_score`` is optional and comes from a separate
+    antibody-antigen compatibility model.
     """
 
     generated_hcdr3: str
     heavy_sequence: str
     log_probability: float
+    mean_log_probability: float
     length: int
     compatibility_score: float | None = None
 
@@ -296,24 +300,30 @@ class FixedLengthHCDR3Infiller:
         """
         Sample one canonical amino-acid token from MLM logits.
 
-        Returns the sampled token ID and its log probability under the filtered
-        distribution used for sampling.
+        Returns the sampled token ID and its log probability under the model's
+        true, unfiltered, temperature-1 distribution over canonical residues —
+        not the temperature/top_k-shaped distribution used to draw the sample —
+        so candidate scores stay comparable across sampling settings.
         """
         if temperature <= 0:
             raise ValueError("temperature must be > 0")
-        candidate_logits = logits[self.canonical_token_ids] / temperature
-        if top_k is not None and top_k > 0 and top_k < candidate_logits.numel():
-            top_values, top_indices = torch.topk(candidate_logits, k=top_k)
+        if top_k is not None and top_k < 0:
+            raise ValueError("top_k must be >= 0 (0 disables top-k filtering)")
+        canonical_logits = logits[self.canonical_token_ids]
+        # Reported log-prob from the true distribution (unfiltered, temperature 1);
+        # the shaped distribution below is used only to draw the sample.
+        true_log_probs = torch.log_softmax(canonical_logits, dim=-1)
+        scaled_logits = canonical_logits / temperature
+        if top_k is not None and 0 < top_k < scaled_logits.numel():
+            top_values, top_indices = torch.topk(scaled_logits, k=top_k)
             probs = torch.softmax(top_values, dim=-1)
-            sampled_rank = torch.multinomial(probs, num_samples=1).item()
-            token_id = self.canonical_token_ids[int(top_indices[sampled_rank].item())]
-            log_prob = float(torch.log(probs[sampled_rank]).item())
-            return token_id, log_prob
-
-        probs = torch.softmax(candidate_logits, dim=-1)
-        sampled_idx = torch.multinomial(probs, num_samples=1).item()
-        token_id = self.canonical_token_ids[sampled_idx]
-        log_prob = float(torch.log(probs[sampled_idx]).item())
+            sampled_rank = int(torch.multinomial(probs, num_samples=1).item())
+            canonical_idx = int(top_indices[sampled_rank].item())
+        else:
+            probs = torch.softmax(scaled_logits, dim=-1)
+            canonical_idx = int(torch.multinomial(probs, num_samples=1).item())
+        token_id = self.canonical_token_ids[canonical_idx]
+        log_prob = float(true_log_probs[canonical_idx].item())
         return token_id, log_prob
 
     @torch.no_grad()
@@ -387,12 +397,14 @@ class FixedLengthHCDR3Infiller:
 
             generated_hcdr3 = "".join(self.tokenizer.id_to_token[token_id] for token_id in sampled_token_ids)
             heavy_sequence = prefix + generated_hcdr3 + suffix
+            mean_log_probability = log_probability / proposed_length if proposed_length > 0 else 0.0
             compatibility_score = scorer.score(record, heavy_sequence=heavy_sequence) if scorer is not None else None
             candidates.append(
                 HCDR3InfillCandidate(
                     generated_hcdr3=generated_hcdr3,
                     heavy_sequence=heavy_sequence,
                     log_probability=log_probability,
+                    mean_log_probability=mean_log_probability,
                     length=proposed_length,
                     compatibility_score=compatibility_score,
                 )

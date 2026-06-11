@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import re
+import statistics
 import sys
 from collections import Counter
 from pathlib import Path
@@ -222,6 +223,26 @@ def normalize_target_name(text: str) -> str:
     return text.strip("_")
 
 
+def canonicalize_accession(value: object) -> str:
+    """
+    Canonicalize a UniProt/PDB accession for leakage-aware grouping.
+
+    A leakage-aware split must group all rows of one biological target, but raw
+    accessions from heterogeneous sources carry character-level noise that
+    splits the same target across train/val. This lowercases, trims, drops any
+    chain/assembly suffix introduced by a separator (``6XYZ_A`` / ``6xyz.A`` ->
+    ``6xyz``), and drops a trailing UniProt isoform/version suffix (``P12345-2``
+    -> ``p12345``). UniProt and PDB accessions contain no internal ``_``/``.``,
+    so this is safe for both.
+    """
+    text = clean_text(value).lower().strip()
+    if not text:
+        return ""
+    text = re.split(r"[\s_.]", text, maxsplit=1)[0]
+    text = re.sub(r"-\d+$", "", text)
+    return text
+
+
 def extract_target_fields(metadata: Dict[str, object]) -> Dict[str, str]:
     """
     Pull out the most important target identity fields from nested metadata.
@@ -266,10 +287,12 @@ def build_target_key(metadata: Dict[str, object], antigen_sequence: str) -> str:
         Stable target-group key.
     """
     fields = extract_target_fields(metadata)
-    if fields["target_uniprot"]:
-        return f"uniprot:{fields['target_uniprot'].lower()}"
-    if fields["target_pdb"]:
-        return f"pdb:{fields['target_pdb'].lower()}"
+    uniprot = canonicalize_accession(fields["target_uniprot"])
+    if uniprot:
+        return f"uniprot:{uniprot}"
+    pdb = canonicalize_accession(fields["target_pdb"])
+    if pdb:
+        return f"pdb:{pdb}"
     normalized_name = normalize_target_name(fields["target_name"])
     if normalized_name:
         return f"name:{normalized_name}"
@@ -314,7 +337,21 @@ def build_chain_features(
     cdr1_aa = clean_aa_sequence(numbering.get("cdr1_aa"))
     cdr2_aa = clean_aa_sequence(numbering.get("cdr2_aa"))
     cdr3_aa = clean_aa_sequence(numbering.get("cdr3_aa"))
-    cdr3_start_aa, cdr3_end_aa = locate_cdr3_span(model_sequence, cdr3_aa)
+    # Compute the HCDR3 span only against the variable-domain alignment so the
+    # coordinate origin is consistent across rows. When no alignment is present
+    # the raw sequence is still kept as the model sequence, but we emit no span
+    # rather than full-chain-relative coordinates we can't trust downstream.
+    if aligned_sequence:
+        cdr3_start_aa, cdr3_end_aa = locate_cdr3_span(aligned_sequence, cdr3_aa)
+    else:
+        cdr3_start_aa, cdr3_end_aa = None, None
+    if cdr3_start_aa is not None:
+        # Invariant: a stored span must slice the stored sequence back to the
+        # annotated CDR3. Guaranteed here (alignment == model_sequence), so this
+        # is a regression guard against future changes to span sourcing.
+        assert model_sequence[cdr3_start_aa:cdr3_end_aa] == cdr3_aa, (
+            "CDR3 span does not index the model sequence (coordinate-origin mismatch)"
+        )
 
     return {
         f"{chain_name}_sequence_raw": raw_sequence,
@@ -375,7 +412,11 @@ def infer_is_strong_binder(
     if normalized_type == "bool":
         return parse_binder_label(affinity_type, processed_measurement) == 1
     if normalized_type == "fuzzy":
-        raw_value = clean_text(processed_measurement or affinity_raw).lower()
+        # Prefer processed_measurement when present (including a literal 0/0.0),
+        # falling back to affinity_raw only when it is genuinely missing. Using
+        # `or` here would treat a numeric 0.0 as absent and substitute affinity_raw.
+        pm = clean_text(processed_measurement)
+        raw_value = (pm or clean_text(affinity_raw)).lower()
         return raw_value == "h"
     measurement = safe_float(processed_measurement)
     if measurement is None:
@@ -593,7 +634,7 @@ def iter_parquet_files(input_path: Path) -> Iterator[Path]:
 def write_record(
     record: Dict[str, object],
     writer: JsonlGzWriter,
-    seen: set[Tuple[str, str, str]],
+    seen: Dict[Tuple[str, str, str], Tuple[object, bool]],
     stats: dict,
 ) -> bool:
     """
@@ -608,7 +649,9 @@ def write_record(
         writer:
             Gzip JSONL writer.
         seen:
-            Global dedupe set.
+            Global dedupe map from the modeling triple to the kept row's
+            ``(binder_label, is_strong_binder)`` labels, used to detect
+            duplicates whose labels disagree.
         stats:
             Mutable stats dictionary.
 
@@ -620,12 +663,25 @@ def write_record(
         str(record.get("sequence_light") or ""),
         str(record.get("sequence_antigen") or ""),
     )
+    record_labels = (record.get("binder_label"), bool(record.get("is_strong_binder")))
     if dedupe_key in seen:
         stats["duplicates_dropped"] += 1
+        # Surface (don't silently drop) duplicates whose labels disagree. The
+        # first-read row was already written, so we report the conflict instead
+        # of letting parquet read order silently decide the label.
+        if seen[dedupe_key] != record_labels:
+            stats["label_conflicts"] += 1
+            print(
+                "[warn] duplicate sequence triple with conflicting labels: "
+                f"kept={seen[dedupe_key]} dropped={record_labels} "
+                f"record_id={record.get('record_id')}"
+            )
         return False
 
-    seen.add(dedupe_key)
+    seen[dedupe_key] = record_labels
     writer.write(record)
+    if record.get("cdr3_aa_heavy") and record.get("cdr3_start_aa_heavy") is None:
+        stats["cdr3_span_unresolved"] += 1
 
     stats["records_kept"] += 1
     stats["kept_by_split"][record["split"]] += 1
@@ -648,6 +704,12 @@ def write_record(
         stats["binder_negative_records"] += 1
     if record.get("processed_measurement_float") is not None:
         stats["numeric_processed_measurement_rows"] += 1
+    if str(record.get("affinity_type") or "").strip().lower() == "kd":
+        kd_value = record.get("processed_measurement_float")
+        if kd_value is not None:
+            stats["kd_values_by_dataset"].setdefault(str(record["dataset"]), []).append(kd_value)
+            if record.get("is_strong_binder"):
+                stats["kd_strong_by_dataset"][str(record["dataset"])] += 1
     return True
 
 
@@ -718,7 +780,7 @@ def main() -> None:
         raise FileNotFoundError(f"No parquet files found under: {args.input}")
 
     writer = JsonlGzWriter(args.output)
-    seen: set[Tuple[str, str, str]] = set()
+    seen: Dict[Tuple[str, str, str], Tuple[object, bool]] = {}
     stats = {
         "files_seen": 0,
         "rows_seen": 0,
@@ -731,6 +793,11 @@ def main() -> None:
         "binder_positive_records": 0,
         "binder_negative_records": 0,
         "numeric_processed_measurement_rows": 0,
+        "cdr3_span_unresolved": 0,
+        "label_conflicts": 0,
+        "file_errors": 0,
+        "kd_values_by_dataset": {},
+        "kd_strong_by_dataset": Counter(),
         "drop_reasons": Counter(),
         "kept_by_split": Counter(),
         "kept_by_dataset": Counter(),
@@ -743,26 +810,33 @@ def main() -> None:
         progress = tqdm(parquet_files, desc="parquet_shards")
         for parquet_path in progress:
             stats["files_seen"] += 1
-            df = pd.read_parquet(parquet_path)
+            try:
+                df = pd.read_parquet(parquet_path)
 
-            for row_idx, row in df.iterrows():
-                stats["rows_seen"] += 1
-                record, reason = build_processed_record(
-                    row=row.to_dict(),
-                    shard_name=parquet_path.name,
-                    row_idx=int(row_idx),
-                    args=args,
-                )
-                if record is None:
-                    stats["drop_reasons"][reason] += 1
-                    continue
+                for row_idx, row in df.iterrows():
+                    stats["rows_seen"] += 1
+                    record, reason = build_processed_record(
+                        row=row.to_dict(),
+                        shard_name=parquet_path.name,
+                        row_idx=int(row_idx),
+                        args=args,
+                    )
+                    if record is None:
+                        stats["drop_reasons"][reason] += 1
+                        continue
 
-                write_record(record, writer, seen, stats)
+                    write_record(record, writer, seen, stats)
 
-                if args.max_records is not None and stats["records_kept"] >= args.max_records:
-                    if hasattr(progress, "close"):
-                        progress.close()
-                    raise StopIteration
+                    if args.max_records is not None and stats["records_kept"] >= args.max_records:
+                        if hasattr(progress, "close"):
+                            progress.close()
+                        raise StopIteration
+            except StopIteration:
+                raise
+            except Exception as exc:  # one unreadable/corrupt shard must not abort the run
+                stats["file_errors"] += 1
+                print(f"[warn] skipping unreadable shard {parquet_path.name}: {exc}")
+                continue
     except StopIteration:
         pass
     finally:
@@ -782,9 +856,30 @@ def main() -> None:
     print(f"binder_positive:     {stats['binder_positive_records']}")
     print(f"binder_negative:     {stats['binder_negative_records']}")
     print(f"numeric_measurement_rows: {stats['numeric_processed_measurement_rows']}")
+    print(f"cdr3_span_unresolved: {stats['cdr3_span_unresolved']}")
+    print(f"label_conflicts:     {stats['label_conflicts']}")
+    print(f"file_errors:         {stats['file_errors']}")
     print(f"kept_by_split:       {dict(stats['kept_by_split'])}")
     print(f"kept_by_confidence:  {dict(stats['kept_by_confidence'])}")
     print(f"kept_by_affinity_type: {dict(stats['kept_by_affinity_type'])}")
+    print("kd_unit_sanity (raw processed_measurement, per dataset):")
+    for dataset, values in sorted(stats["kd_values_by_dataset"].items()):
+        med = statistics.median(values)
+        strong = stats["kd_strong_by_dataset"][dataset]
+        unit_guess = "molar?" if med < 1e-6 else "nanomolar?"
+        print(
+            f"  {dataset}: n={len(values)} median={med:.3g} "
+            f"min={min(values):.3g} max={max(values):.3g} strong={strong} [looks {unit_guess}]"
+        )
+        # A median KD above ~1e-3 cannot be in molar; if such a dataset still
+        # flags zero strong binders, the molar <=1e-9 threshold is mislabeling it.
+        if med > 1e-3 and strong == 0 and len(values) > 50:
+            msg = (f"dataset {dataset!r}: median KD {med:.3g} looks nanomolar but "
+                f"0 strong binders flagged — molar <=1e-9 threshold likely wrong.")
+            if getattr(args, "strict_units", False):
+                raise ValueError(f"[kd-units] {msg}")
+            print(f"  WARNING: {msg}")
+
     print("top_datasets:")
     for key, value in stats["kept_by_dataset"].most_common(10):
         print(f"  {key}: {value}")

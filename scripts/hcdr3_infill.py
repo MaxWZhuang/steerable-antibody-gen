@@ -5,6 +5,7 @@ import argparse
 import json
 import random
 import sys
+from dataclasses import fields
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -22,7 +23,7 @@ from smallAntibodyGen.infill.hcdr3 import (
     FixedLengthHCDR3Infiller,
     HCDR3Span,
 )
-
+from smallAntibodyGen.models.mlm import AntibodyAntigenCrossAttention
 from mlm_train import TrainConfig, _train_config_defaults, build_model, build_tokenizer, choose_device
 
 
@@ -71,7 +72,11 @@ def config_from_checkpoint(checkpoint: dict[str, Any], *, data_path: str, device
     merged = _train_config_defaults()
     saved = checkpoint.get("train_config")
     if isinstance(saved, dict):
-        merged.update(saved)
+        # Only overlay keys that are still TrainConfig fields, so a checkpoint
+        # saved under an older/newer schema (a renamed or removed field) cannot
+        # crash reconstruction with an unexpected keyword argument.
+        valid_fields = {f.name for f in fields(TrainConfig)}
+        merged.update({k: v for k, v in saved.items() if k in valid_fields})
     merged["data_path"] = data_path
     if device is not None:
         merged["device"] = device
@@ -98,7 +103,14 @@ def load_dual_stream_model(
     cfg = config_from_checkpoint(checkpoint, data_path=data_path, device=str(device))
     tokenizer = build_tokenizer()
     model = build_model(tokenizer, cfg, device)
-    model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+    if not isinstance(model, AntibodyAntigenCrossAttention):
+        raise ValueError(
+            f"checkpoint {checkpoint_path} reconstructs training_stage = {cfg.training_stage!r},\n which builds {type(model).__name__};\n HCDR3" 
+            f"infilling needs a dual-stream AntibodyAntigenCrossAttention checkpoint. "
+        )
+    # strict=True so a renamed/resized/mismatched checkpoint fails loudly instead
+    # of silently leaving submodules at random init and generating garbage.
+    model.load_state_dict(checkpoint["model_state_dict"], strict=True)
     model.eval()
     return model, cfg
 
@@ -149,6 +161,7 @@ def candidate_to_json(
         "generated_hcdr3": candidate.generated_hcdr3,
         "generated_heavy_sequence": candidate.heavy_sequence,
         "log_probability": candidate.log_probability,
+        "mean_log_probability": candidate.mean_log_probability,
         "compatibility_score": candidate.compatibility_score,
     }
 
@@ -183,6 +196,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error("--num-samples must be > 0")
     if args.temperature <= 0:
         parser.error("--temperature must be > 0")
+    if args.top_k is not None and args.top_k < 0:
+        parser.error("--top-k must be >= 0 (0 or omitted disables top-k filtering)")
 
     random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -201,14 +216,20 @@ def main(argv: Sequence[str] | None = None) -> None:
     scorer = None
     score_checkpoint_arg = args.score_checkpoint
     score_checkpoint = Path(score_checkpoint_arg) if score_checkpoint_arg else DEFAULT_SCORE_CHECKPOINT
-    if not args.no_score and score_checkpoint.exists():
-        score_model, score_cfg = load_dual_stream_model(score_checkpoint, data_path=args.data_path, device=device)
-        scorer = AntigenCompatibilityScorer(
-            score_model,
-            tokenizer,
-            max_length=score_cfg.max_length,
-            device=device,
-        )
+    if not args.no_score:
+        # An explicitly-provided --score-checkpoint that is missing is a user
+        # error: fail loudly rather than silently emitting null scores. Only the
+        # implicit DEFAULT_SCORE_CHECKPOINT is allowed to be absent (skip scoring).
+        if score_checkpoint_arg is not None and not score_checkpoint.exists():
+            parser.error(f"--score-checkpoint path does not exist: {score_checkpoint}")
+        if score_checkpoint.exists():
+            score_model, score_cfg = load_dual_stream_model(score_checkpoint, data_path=args.data_path, device=device)
+            scorer = AntigenCompatibilityScorer(
+                score_model,
+                tokenizer,
+                max_length=score_cfg.max_length,
+                device=device,
+            )
 
     target_dataset = OASSequenceDataset(args.data_path, split=args.split)
     target_records = select_records(target_dataset, record_id=args.record_id, num_records=args.num_records)
@@ -228,14 +249,20 @@ def main(argv: Sequence[str] | None = None) -> None:
             lengths = length_prior.propose_lengths(record, num_lengths=args.num_samples, rng=rng)
 
         for proposed_length in lengths:
-            candidates = infiller.infill(
-                record,
-                length=proposed_length,
-                num_samples=1,
-                temperature=args.temperature,
-                top_k=args.top_k,
-                scorer=scorer,
-            )
+            try:
+                candidates = infiller.infill(
+                    record,
+                    length=proposed_length,
+                    num_samples=1,
+                    temperature=args.temperature,
+                    top_k=args.top_k,
+                    scorer=scorer,
+                )
+            except ValueError as exc:
+                # e.g. a proposed length that overflows max_length; skip this
+                # length rather than aborting the whole generation run.
+                print(f"[warn] skipping length {proposed_length} for {record.record_id}: {exc}")
+                continue
             for candidate in candidates:
                 rows.append(
                     candidate_to_json(

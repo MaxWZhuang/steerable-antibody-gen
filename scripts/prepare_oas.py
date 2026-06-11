@@ -529,11 +529,11 @@ def build_paired_chain_record(
         "junction_aa": clean_aa_sequence(row.get(f"junction_aa_{suffix}")),
         "junction_length": safe_int(row.get(f"junction_length_{suffix}")),
         "junction_aa_length": safe_int(row.get(f"junction_aa_length_{suffix}")),
-        "v_identity": row.get(f"v_identity_{suffix}"),
-        "d_identity": row.get(f"d_identity_{suffix}"),
-        "j_identity": row.get(f"j_identity_{suffix}"),
-        "anarci_numbering": row.get(f"ANARCI_numbering_{suffix}"),
-        "anarci_status": row.get(f"ANARCI_status_{suffix}"),
+        "v_identity": None if pd.isna(row.get(f"v_identity_{suffix}")) else row.get(f"v_identity_{suffix}"),
+        "d_identity": None if pd.isna(row.get(f"d_identity_{suffix}")) else row.get(f"d_identity_{suffix}"),
+        "j_identity": None if pd.isna(row.get(f"j_identity_{suffix}")) else row.get(f"j_identity_{suffix}"),
+        "anarci_numbering": None if pd.isna(row.get(f"ANARCI_numbering_{suffix}")) else row.get(f"ANARCI_numbering_{suffix}"),
+        "anarci_status": None if pd.isna(row.get(f"ANARCI_status_{suffix}")) else row.get(f"ANARCI_status_{suffix}"),
     }, "kept"
 
 
@@ -820,7 +820,14 @@ def iter_kept_records_for_file(
 
     Those remain the responsibility of the outer loop.
     """
-    metadata, df = read_oas_table(path)
+    try:
+        metadata, df = read_oas_table(path)
+    except Exception as exc:  # one corrupt/unreadable file must not abort the run
+        if stats is not None:
+            stats["files_seen"] += 1
+            stats["file_errors"] = stats.get("file_errors", 0) + 1
+        print(f"[warn] skipping unreadable OAS file {path.name}: {exc}")
+        return
     if is_paired_oas_table(metadata, df):
         yield from iter_kept_paired_records_for_file(path, args, stats=stats)
         return
@@ -1378,6 +1385,8 @@ def main() -> None:
 
     if args.chain_balance_alpha < 0:
         raise ValueError("--chain-balance-alpha must be >= 0")
+    if not (0 <= args.val_percent <= 100):
+        raise ValueError("--val-percent must be in [0, 100]")
 
     input_files = sorted(
         [p for p in args.input_dir.rglob("*") if p.is_file() and p.suffix in {".gz", ".csv"}]
@@ -1405,6 +1414,7 @@ def main() -> None:
         "records_seen": 0,
         "records_kept": 0,
         "duplicates_dropped": 0,
+        "file_errors": 0,
         "drop_reasons": Counter(),
         "kept_by_locus": Counter(),
         "kept_by_split": Counter(),
@@ -1457,6 +1467,7 @@ def main() -> None:
         "records_seen": stats["records_seen"],
         "records_kept": stats["records_kept"],
         "duplicates_dropped": stats["duplicates_dropped"],
+        "file_errors": stats.get("file_errors", 0),
         "drop_reasons": dict(stats["drop_reasons"]),
         "kept_by_locus": dict(stats["kept_by_locus"]),
         "kept_by_split": dict(stats["kept_by_split"]),
