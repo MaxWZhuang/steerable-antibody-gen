@@ -5,9 +5,19 @@ __pycache__/
 .env
 
 # Claude Code (local-only, not shared)
+.claude/
 CLAUDE.md
-CLAUDE.local.md
-.claude/settings.local.json
+
+# Local-only docs
+docs/
+
+# Logs and scratch/temp artifacts
+*.log
+logs/
+.tmp_*
+.tmp_rr_*.json
+*.tmp
+*.tmp.json
 
 # Jupyter
 .ipynb_checkpoints/
