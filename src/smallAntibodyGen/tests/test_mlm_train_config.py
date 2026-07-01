@@ -491,7 +491,10 @@ def test_antigen_hcdr3_infill_filters_to_positive_valid_spans_and_full_masks(
     }
     with gzip.open(data_path, "wt", encoding="utf-8") as f:
         f.write(json.dumps(base_record) + "\n")
-        f.write(json.dumps({**base_record, "record_id": "neg", "binder_label": 0}) + "\n")
+        # Non-strong binder: excluded by the is_strong_binder infill gate. (Must
+        # override the inherited is_strong_binder=True from base_record, else it
+        # would be a contradictory non-binder still flagged as a strong binder.)
+        f.write(json.dumps({**base_record, "record_id": "neg", "binder_label": 0, "is_strong_binder": False}) + "\n")
         f.write(json.dumps({**base_record, "record_id": "missing-antigen", "sequence_antigen": ""}) + "\n")
         f.write(json.dumps({**base_record, "record_id": "bad-span", "cdr3_end_aa": None, "cdr3_end_aa_heavy": None}) + "\n")
     init_ckpt = tmp_path / "best.pt"

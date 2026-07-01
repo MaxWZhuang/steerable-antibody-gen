@@ -429,6 +429,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--learning-rate", type=float)
     parser.add_argument("--weight-decay", type=float)
     parser.add_argument("--grad-clip-norm", type=float)
+    parser.add_argument("--warmup-steps", type=int)
     parser.add_argument("--pair-loss-weight", type=float)
     parser.add_argument("--compatibility-loss-weight", type=float)
     parser.add_argument("--epochs", type=int)
@@ -626,11 +627,19 @@ def is_hcdr3_infill_record(record: Any) -> bool:
     residue model for observed binders, not a binder-vs-non-binder
     classifier. Compatibility scoring remains a separate ranking/filtering
     step after candidate generation.
+
+    Positives are gated on ``is_strong_binder`` rather than ``binder_label == 1``
+    so the stage uses the full observed-binder population -- explicit boolean
+    positives plus the KD / -log KD / fuzzy strong binders that ``binder_label``
+    (set only for ``affinity_type == "bool"`` rows) never covers. Restricting to
+    ``binder_label == 1`` would silently drop the large majority of strong
+    binders. ``EmpiricalHCDR3LengthPrior.fit`` is gated on the same flag so the
+    length prior describes exactly the population the infiller trains on.
     """
     heavy_sequence = (getattr(record, "sequence_heavy", None) or getattr(record, "sequence", "") or "").strip()
     antigen_sequence = (getattr(record, "sequence_antigen", None) or "").strip()
     return (
-        getattr(record, "binder_label", None) == 1
+        bool(getattr(record, "is_strong_binder", False))
         and bool(heavy_sequence)
         and bool(antigen_sequence)
         and has_valid_heavy_hcdr3_span(record)
