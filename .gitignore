@@ -4,6 +4,11 @@ __pycache__/
 .venv/
 .env
 
+# Claude Code (local-only, not shared)
+CLAUDE.md
+CLAUDE.local.md
+.claude/settings.local.json
+
 # Jupyter
 .ipynb_checkpoints/
 

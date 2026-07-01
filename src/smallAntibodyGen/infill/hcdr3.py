@@ -118,9 +118,10 @@ class EmpiricalHCDR3LengthPrior(LengthProposalStrategy):
 
     This is deliberately simple and transparent. It does not claim that length
     is antigen-specific; it gives the variable-length infrastructure a usable
-    baseline while preserving the fixed-length residue infiller. Records with
-    ``binder_label != 1`` are ignored by default so the prior describes the
-    same positive-binder population used for HCDR3 infill fine-tuning.
+    baseline while preserving the fixed-length residue infiller. Non-strong
+    binders are ignored by default so the prior describes the same
+    ``is_strong_binder`` population that ``is_hcdr3_infill_record`` selects for
+    HCDR3 infill fine-tuning.
     """
 
     def __init__(self, length_counts: Counter[int]) -> None:
@@ -147,8 +148,12 @@ class EmpiricalHCDR3LengthPrior(LengthProposalStrategy):
                 In-memory dataset records. Each record should expose HCDR3 span
                 fields compatible with ``HCDR3Span.from_record``.
             positive_only:
-                When True, only rows with ``binder_label == 1`` contribute to
-                the histogram.
+                When True, only rows with ``is_strong_binder`` contribute to
+                the histogram. This matches the HCDR3 infill training gate in
+                ``is_hcdr3_infill_record`` so proposed lengths come from the
+                same observed-binder population the infiller learned, rather
+                than only the ``affinity_type == "bool"`` subset that carries a
+                ``binder_label``.
 
         Returns:
             An empirical length prior that can be passed to the generation CLI
@@ -156,7 +161,7 @@ class EmpiricalHCDR3LengthPrior(LengthProposalStrategy):
         """
         counts: Counter[int] = Counter()
         for record in records:
-            if positive_only and getattr(record, "binder_label", None) != 1:
+            if positive_only and not getattr(record, "is_strong_binder", False):
                 continue
             try:
                 span = HCDR3Span.from_record(record)
@@ -290,6 +295,51 @@ class FixedLengthHCDR3Infiller:
         attention_mask = torch.ones_like(input_ids, dtype=torch.long, device=self.device)
         return input_ids, attention_mask
 
+    def _draw_canonical_index(
+        self,
+        sampling_logits: torch.Tensor,
+        *,
+        temperature: float,
+        top_k: int | None,
+    ) -> int:
+        """
+        Draw one canonical-residue index from already-canonical logits.
+
+        This is the shared sampling-shaping step used by both plain
+        (``_sample_token_id``) and guided (``guided_infill``) decoding. It owns
+        only the temperature/top-k transformation and the multinomial draw; it
+        does not know whether the logits are the model's raw MLM logits or the
+        guidance-reweighted logits. Keeping it separate means guidance and the
+        baseline share one, identically-behaving sampler.
+
+        Args:
+            sampling_logits:
+                1-D tensor of logits over the canonical residues, in
+                ``self.canonical_token_ids`` order. These are the logits that
+                *shape the draw*; callers report log-probabilities from the
+                unshaped, temperature-1 distribution separately.
+            temperature:
+                Softmax temperature (> 0). Higher is more uniform.
+            top_k:
+                Optional top-k filter over canonical residues. ``None`` or ``0``
+                disables filtering; must be ``>= 0``.
+
+        Returns:
+            The index (into the canonical order) of the sampled residue.
+        """
+        if temperature <= 0:
+            raise ValueError("temperature must be > 0")
+        if top_k is not None and top_k < 0:
+            raise ValueError("top_k must be >= 0 (0 disables top-k filtering)")
+        scaled_logits = sampling_logits / temperature
+        if top_k is not None and 0 < top_k < scaled_logits.numel():
+            top_values, top_indices = torch.topk(scaled_logits, k=top_k)
+            probs = torch.softmax(top_values, dim=-1)
+            sampled_rank = int(torch.multinomial(probs, num_samples=1).item())
+            return int(top_indices[sampled_rank].item())
+        probs = torch.softmax(scaled_logits, dim=-1)
+        return int(torch.multinomial(probs, num_samples=1).item())
+
     def _sample_token_id(
         self,
         logits: torch.Tensor,
@@ -298,33 +348,191 @@ class FixedLengthHCDR3Infiller:
         top_k: int | None,
     ) -> tuple[int, float]:
         """
-        Sample one canonical amino-acid token from MLM logits.
+        Sample one canonical amino-acid token from full-vocabulary MLM logits.
 
         Returns the sampled token ID and its log probability under the model's
         true, unfiltered, temperature-1 distribution over canonical residues —
         not the temperature/top_k-shaped distribution used to draw the sample —
-        so candidate scores stay comparable across sampling settings.
+        so candidate scores stay comparable across sampling settings. This is
+        the unguided path used by ``infill``; the shaping/draw is delegated to
+        ``_draw_canonical_index``.
         """
-        if temperature <= 0:
-            raise ValueError("temperature must be > 0")
-        if top_k is not None and top_k < 0:
-            raise ValueError("top_k must be >= 0 (0 disables top-k filtering)")
         canonical_logits = logits[self.canonical_token_ids]
         # Reported log-prob from the true distribution (unfiltered, temperature 1);
-        # the shaped distribution below is used only to draw the sample.
+        # the shaped distribution inside _draw_canonical_index is used only to
+        # draw the sample.
         true_log_probs = torch.log_softmax(canonical_logits, dim=-1)
-        scaled_logits = canonical_logits / temperature
-        if top_k is not None and 0 < top_k < scaled_logits.numel():
-            top_values, top_indices = torch.topk(scaled_logits, k=top_k)
-            probs = torch.softmax(top_values, dim=-1)
-            sampled_rank = int(torch.multinomial(probs, num_samples=1).item())
-            canonical_idx = int(top_indices[sampled_rank].item())
-        else:
-            probs = torch.softmax(scaled_logits, dim=-1)
-            canonical_idx = int(torch.multinomial(probs, num_samples=1).item())
+        canonical_idx = self._draw_canonical_index(
+            canonical_logits, temperature=temperature, top_k=top_k
+        )
         token_id = self.canonical_token_ids[canonical_idx]
         log_prob = float(true_log_probs[canonical_idx].item())
         return token_id, log_prob
+
+    @torch.no_grad()
+    def _binder_logprobs_by_candidate(
+        self,
+        antibody_input_ids: torch.Tensor,
+        antibody_attention_mask: torch.Tensor,
+        antigen_input_ids: torch.Tensor,
+        antigen_attention_mask: torch.Tensor,
+        position: int,
+        *,
+        guidance_target: int = 1,
+    ) -> torch.Tensor:
+        """
+        Binder log-probability for each canonical residue placed at one position.
+
+        This is the exact-enumeration workhorse behind guidance. It tentatively
+        substitutes every canonical amino acid at ``position`` in the current
+        working antibody stream, scores all ~20 resulting sequences against the
+        antigen in a **single batched forward pass**, and returns the
+        compatibility head's log-probability of class ``guidance_target`` for
+        each. Enumeration (rather than a gradient approximation) is affordable
+        because the amino-acid vocabulary is tiny; batching keeps it to one
+        forward instead of ~20 sequential calls.
+
+        Args:
+            antibody_input_ids:
+                ``[1, seq_len]`` antibody stream in its current working state.
+            antibody_attention_mask:
+                ``[1, seq_len]`` antibody attention mask.
+            antigen_input_ids:
+                ``[1, antigen_len]`` antigen stream (broadcast across candidates).
+            antigen_attention_mask:
+                ``[1, antigen_len]`` antigen attention mask.
+            position:
+                Token index at which to enumerate candidate residues.
+            guidance_target:
+                Compatibility-head class index whose log-probability is returned.
+
+        Returns:
+            1-D tensor of length ``len(self.canonical_token_ids)`` giving
+            ``log p(y = guidance_target | x[position := a])`` for each canonical
+            residue ``a``, in ``self.canonical_token_ids`` order.
+        """
+        num_canonical = len(self.canonical_token_ids)
+        canonical_id_tensor = torch.tensor(
+            self.canonical_token_ids, dtype=torch.long, device=self.device
+        )
+        candidate_input_ids = antibody_input_ids.repeat(num_canonical, 1)
+        candidate_input_ids[:, position] = canonical_id_tensor
+        _, compatibility_logits = self.model(
+            antibody_input_ids=candidate_input_ids,
+            antibody_attention_mask=antibody_attention_mask.repeat(num_canonical, 1),
+            antigen_input_ids=antigen_input_ids.repeat(num_canonical, 1),
+            antigen_attention_mask=antigen_attention_mask.repeat(num_canonical, 1),
+        )
+        return torch.log_softmax(compatibility_logits, dim=-1)[:, guidance_target]
+
+    @torch.no_grad()
+    def _guided_position_scores(
+        self,
+        antibody_input_ids: torch.Tensor,
+        antibody_attention_mask: torch.Tensor,
+        antigen_input_ids: torch.Tensor,
+        antigen_attention_mask: torch.Tensor,
+        position: int,
+        *,
+        guidance_strength: float,
+        guidance_target: int = 1,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Compute guided per-residue scores for one masked position.
+
+        This is the order-independent core of ProteinGuide-style guided
+        infilling. It answers a single, schedule-agnostic question: given the
+        current partially-filled antibody/antigen state and one masked token
+        ``position``, how should the model's own residue distribution at that
+        position be reweighted so that residues which raise the antigen-binder
+        probability become more likely? The caller (the unmasking loop in
+        ``guided_infill``) owns the decision of *which* state and position to
+        pass; this method owns only the reweighting math for that one position.
+
+        The reweighting follows classifier guidance applied at the level of the
+        MLM's categorical distribution over canonical amino acids. For each
+        canonical residue ``a`` at ``position``::
+
+            guided_logit[a] = log p_MLM(a | x)
+                              + guidance_strength * log p(y = target | x[pos := a])
+
+        where ``p_MLM(. | x)`` is the model's masked-token marginal at
+        ``position`` (with ``position`` still masked) and ``p(y | x[pos := a])``
+        is the compatibility head's probability for class ``guidance_target``
+        after tentatively placing residue ``a``. The per-candidate binder term
+        is evaluated by **exact enumeration** over the ~20 canonical residues in
+        a single batched forward pass, which is tractable here precisely because
+        the amino-acid vocabulary is tiny (unlike large-vocabulary language
+        models, where a gradient approximation would be needed).
+
+        Args:
+            antibody_input_ids:
+                ``[1, seq_len]`` antibody token stream in its current working
+                state. ``position`` must currently hold ``[MASK]``; other HCDR3
+                positions may be masked or already filled depending on the
+                schedule.
+            antibody_attention_mask:
+                ``[1, seq_len]`` attention mask for the antibody stream.
+            antigen_input_ids:
+                ``[1, antigen_len]`` antigen token stream (constant across the
+                whole generation).
+            antigen_attention_mask:
+                ``[1, antigen_len]`` attention mask for the antigen stream.
+            position:
+                Token index into the antibody stream to score.
+            guidance_strength:
+                The guidance factor ``gamma``. ``0.0`` disables guidance and the
+                classifier is not consulted at all (the returned guided logits
+                equal the unguided marginal). Larger positive values steer more
+                strongly toward ``guidance_target``.
+            guidance_target:
+                Compatibility-head class index to steer toward (``1`` = the
+                binder / compatible class).
+
+        Returns:
+            A ``(guided_logits, unguided_logprobs)`` pair of 1-D tensors, each
+            indexed in the same order as ``self.canonical_token_ids``:
+
+            - ``guided_logits``: the reweighted base logits to be
+              temperature-scaled and sampled by the caller. At
+              ``guidance_strength == 0`` these equal ``unguided_logprobs``.
+            - ``unguided_logprobs``: the model's true, unfiltered, temperature-1
+              log-probabilities over canonical residues. These are what the
+              caller accumulates for candidate ``log_probability`` reporting, so
+              guidance changes *sampling* without corrupting the reported
+              likelihood (mirroring the reporting convention in
+              ``_sample_token_id``).
+        """
+        # Step 1: the model's own residue marginal at `position`, taken from the
+        # current working state (with `position` still masked). This is the base
+        # distribution guidance reweights, and the value reported for likelihood.
+        mlm_logits, _ = self.model(
+            antibody_input_ids=antibody_input_ids,
+            antibody_attention_mask=antibody_attention_mask,
+            antigen_input_ids=antigen_input_ids,
+            antigen_attention_mask=antigen_attention_mask,
+        )
+        canonical_logits = mlm_logits[0, position][self.canonical_token_ids]
+        unguided_logprobs = torch.log_softmax(canonical_logits, dim=-1)
+
+        # Step 2: when guidance is off, skip the enumeration forward entirely so
+        # the classifier has provably zero effect and the call stays cheap.
+        if guidance_strength == 0.0:
+            return unguided_logprobs.clone(), unguided_logprobs
+
+        # Step 3: exact enumeration of the binder term over the ~20 canonical
+        # residues (batched into one forward), then combine. The helper returns
+        # values in `self.canonical_token_ids` order, matching `unguided_logprobs`.
+        binder_logprobs = self._binder_logprobs_by_candidate(
+            antibody_input_ids,
+            antibody_attention_mask,
+            antigen_input_ids,
+            antigen_attention_mask,
+            position,
+            guidance_target=guidance_target,
+        )
+        guided_logits = unguided_logprobs + guidance_strength * binder_logprobs
+        return guided_logits, unguided_logprobs
 
     @torch.no_grad()
     def infill(
@@ -368,27 +576,35 @@ class FixedLengthHCDR3Infiller:
         antigen_input_ids, antigen_attention_mask = self._encode_antigen(record)
         self.model.eval()
 
+        # The masked antibody input is fully determined by the record, span, and
+        # proposed length, so it is identical across samples. Build it and run the
+        # MLM forward once, then draw `num_samples` independent residue sets from
+        # the shared per-position logits. Dropout is off under eval(), so the
+        # single forward consumes no RNG: the draws match the previous
+        # per-sample-forward behavior while doing one transformer pass instead of
+        # `num_samples` of them.
+        antibody_input_ids, antibody_attention_mask, mask_positions, prefix, suffix = (
+            self._encode_antibody_with_masked_hcdr3(
+                record,
+                span,
+                proposed_length=proposed_length,
+            )
+        )
+        mlm_logits, _ = self.model(
+            antibody_input_ids=antibody_input_ids,
+            antibody_attention_mask=antibody_attention_mask,
+            antigen_input_ids=antigen_input_ids,
+            antigen_attention_mask=antigen_attention_mask,
+        )
+        position_logits = [mlm_logits[0, pos, :] for pos in mask_positions]
+
         candidates: list[HCDR3InfillCandidate] = []
         for _ in range(num_samples):
-            antibody_input_ids, antibody_attention_mask, mask_positions, prefix, suffix = (
-                self._encode_antibody_with_masked_hcdr3(
-                    record,
-                    span,
-                    proposed_length=proposed_length,
-                )
-            )
-            mlm_logits, _ = self.model(
-                antibody_input_ids=antibody_input_ids,
-                antibody_attention_mask=antibody_attention_mask,
-                antigen_input_ids=antigen_input_ids,
-                antigen_attention_mask=antigen_attention_mask,
-            )
-
             sampled_token_ids: list[int] = []
             log_probability = 0.0
-            for pos in mask_positions:
+            for logits in position_logits:
                 token_id, log_prob = self._sample_token_id(
-                    mlm_logits[0, pos, :],
+                    logits,
                     temperature=temperature,
                     top_k=top_k,
                 )
@@ -399,6 +615,233 @@ class FixedLengthHCDR3Infiller:
             heavy_sequence = prefix + generated_hcdr3 + suffix
             mean_log_probability = log_probability / proposed_length if proposed_length > 0 else 0.0
             compatibility_score = scorer.score(record, heavy_sequence=heavy_sequence) if scorer is not None else None
+            candidates.append(
+                HCDR3InfillCandidate(
+                    generated_hcdr3=generated_hcdr3,
+                    heavy_sequence=heavy_sequence,
+                    log_probability=log_probability,
+                    mean_log_probability=mean_log_probability,
+                    length=proposed_length,
+                    compatibility_score=compatibility_score,
+                )
+            )
+        return candidates
+
+    def _select_next_position(
+        self,
+        mlm_logits: torch.Tensor,
+        remaining_positions: list[int],
+        *,
+        order: str,
+        rng: random.Random,
+    ) -> int:
+        """
+        Choose the next masked position to fill under the given schedule.
+
+        The unmasking *order* matters for iterative masked decoding: it sets the
+        integration path and therefore how errors accumulate. This method owns
+        that choice so ``guided_infill`` stays readable, and so new schedules can
+        be added in one place.
+
+        Args:
+            mlm_logits:
+                ``[1, seq_len, vocab_size]`` logits from a forward pass on the
+                current working state. Only consulted by ``"confidence"``.
+            remaining_positions:
+                Still-masked token indices, in ascending (N->C) order.
+            order:
+                Unmasking schedule:
+
+                - ``"confidence"`` (easy-first): fill the position whose residue
+                  marginal has the lowest entropy (the model is most certain
+                  about) first. MaskGIT-style default; generally strongest for
+                  masked/diffusion decoding.
+                - ``"random"``: fill remaining positions in a random order drawn
+                  from ``rng``; mirrors the model's random-span MLM training.
+                - ``"left_to_right"``: fill N->C terminus in sequence order.
+            rng:
+                Random source used only by ``order == "random"``.
+
+        Returns:
+            The chosen token index (an element of ``remaining_positions``).
+        """
+        if order == "left_to_right":
+            return remaining_positions[0]
+        if order == "random":
+            return remaining_positions[rng.randrange(len(remaining_positions))]
+        if order == "confidence":
+            marginals = torch.stack(
+                [mlm_logits[0, pos][self.canonical_token_ids] for pos in remaining_positions]
+            )
+            logprobs = torch.log_softmax(marginals, dim=-1)
+            entropy = -(logprobs.exp() * logprobs).sum(dim=-1)
+            return remaining_positions[int(torch.argmin(entropy).item())]
+        raise ValueError(
+            f"unknown order {order!r}; expected 'confidence', 'random', or 'left_to_right'"
+        )
+
+    @torch.no_grad()
+    def guided_infill(
+        self,
+        record: Any,
+        *,
+        length: int | None = None,
+        num_samples: int = 1,
+        temperature: float = 1.0,
+        top_k: int | None = None,
+        guidance_strength: float = 0.0,
+        guidance_target: int = 1,
+        order: str = "confidence",
+        scorer: "AntigenCompatibilityScorer | None" = None,
+        rng: random.Random | None = None,
+    ) -> list[HCDR3InfillCandidate]:
+        """
+        Generate HCDR3 candidates with ProteinGuide-style binder guidance.
+
+        This is the guided counterpart to ``infill``. Where ``infill`` runs one
+        forward pass and samples every masked position independently from its
+        marginal, ``guided_infill`` unmasks **iteratively, one position per
+        step**, so each residue is drawn conditioned on the residues already
+        placed, and (when ``guidance_strength > 0``) reweighted toward antigen
+        binding. The three pieces fit together as:
+
+        1. ``_select_next_position`` picks which masked position to fill next
+           under ``order`` (default easy-first / lowest-entropy).
+        2. ``_guided_position_scores`` / ``_binder_logprobs_by_candidate``
+           produce the guided distribution for that position by exact
+           enumeration over the canonical residues.
+        3. ``_draw_canonical_index`` performs the temperature/top-k draw — the
+           same shaping used by the unguided sampler.
+
+        The method is intentionally additive: ``infill`` and its tests are
+        untouched, and ``guidance_strength == 0`` gives plain iterative MLM
+        decoding (the compatibility head is never consulted).
+
+        Args:
+            record:
+                Dataset record with heavy sequence, antigen sequence, and known
+                HCDR3 coordinates (see ``HCDR3Span.from_record``).
+            length:
+                Number of HCDR3 residues to generate. Defaults to the record's
+                known span length (fixed-length infilling). Unknown-length
+                design proposes a length first (see ``LengthProposalStrategy``),
+                then calls this per proposed length.
+            num_samples:
+                Number of independent candidates to generate. Unlike ``infill``,
+                each sample runs its own unmasking loop (the chains diverge as
+                residues are committed), so cost scales with ``num_samples``.
+            temperature:
+                Softmax temperature for the per-position residue draw.
+            top_k:
+                Optional top-k filter over canonical residues at each step.
+            guidance_strength:
+                The guidance factor ``gamma``. ``0.0`` disables guidance;
+                larger positive values steer more strongly toward
+                ``guidance_target``. See ``_guided_position_scores`` for the
+                exact reweighting.
+            guidance_target:
+                Compatibility-head class index to steer toward (``1`` = binder).
+            order:
+                Unmasking schedule: ``"confidence"`` (default), ``"random"``, or
+                ``"left_to_right"``. See ``_select_next_position``.
+            scorer:
+                Optional compatibility scorer used to attach a final binder
+                probability to each candidate (scored on the completed sequence,
+                exactly as in ``infill``).
+            rng:
+                Random source for ``order == "random"``. A fresh
+                ``random.Random()`` is created when omitted. Residue sampling
+                itself uses the global torch RNG (seed with
+                ``torch.manual_seed``), matching ``infill``.
+
+        Returns:
+            List of generated candidates. ``log_probability`` /
+            ``mean_log_probability`` are reported from the model's *unguided*
+            marginals so they remain comparable to ``infill`` output and across
+            lengths; guidance changes which residues are drawn, not how their
+            likelihood is scored.
+        """
+        if num_samples <= 0:
+            return []
+        if order not in ("confidence", "random", "left_to_right"):
+            raise ValueError(
+                f"unknown order {order!r}; expected 'confidence', 'random', or 'left_to_right'"
+            )
+        if rng is None:
+            rng = random.Random()
+
+        span = HCDR3Span.from_record(record)
+        proposed_length = span.length if length is None else int(length)
+        antigen_input_ids, antigen_attention_mask = self._encode_antigen(record)
+        base_input_ids, antibody_attention_mask, mask_positions, prefix, suffix = (
+            self._encode_antibody_with_masked_hcdr3(
+                record,
+                span,
+                proposed_length=proposed_length,
+            )
+        )
+        self.model.eval()
+
+        candidates: list[HCDR3InfillCandidate] = []
+        for _ in range(num_samples):
+            # Each candidate starts from the same fully-masked HCDR3 and fills it
+            # in independently; committed residues change later positions' context.
+            working_input_ids = base_input_ids.clone()
+            remaining_positions = list(mask_positions)
+            filled: dict[int, int] = {}
+            log_probability = 0.0
+
+            while remaining_positions:
+                # Fresh forward on the current partial state: gives the ordering
+                # signal and the chosen position's unguided marginal.
+                mlm_logits, _ = self.model(
+                    antibody_input_ids=working_input_ids,
+                    antibody_attention_mask=antibody_attention_mask,
+                    antigen_input_ids=antigen_input_ids,
+                    antigen_attention_mask=antigen_attention_mask,
+                )
+                position = self._select_next_position(
+                    mlm_logits, remaining_positions, order=order, rng=rng
+                )
+                canonical_logits = mlm_logits[0, position][self.canonical_token_ids]
+                unguided_logprobs = torch.log_softmax(canonical_logits, dim=-1)
+
+                if guidance_strength == 0.0:
+                    guided_logits = unguided_logprobs
+                else:
+                    binder_logprobs = self._binder_logprobs_by_candidate(
+                        working_input_ids,
+                        antibody_attention_mask,
+                        antigen_input_ids,
+                        antigen_attention_mask,
+                        position,
+                        guidance_target=guidance_target,
+                    )
+                    guided_logits = unguided_logprobs + guidance_strength * binder_logprobs
+
+                canonical_idx = self._draw_canonical_index(
+                    guided_logits, temperature=temperature, top_k=top_k
+                )
+                token_id = self.canonical_token_ids[canonical_idx]
+                working_input_ids[0, position] = token_id
+                filled[position] = token_id
+                # Accumulate the UNGUIDED marginal log-prob for the chosen
+                # residue so reported scores are not inflated by guidance.
+                log_probability += float(unguided_logprobs[canonical_idx].item())
+                remaining_positions.remove(position)
+
+            generated_hcdr3 = "".join(
+                self.tokenizer.id_to_token[filled[pos]] for pos in mask_positions
+            )
+            heavy_sequence = prefix + generated_hcdr3 + suffix
+            mean_log_probability = (
+                log_probability / proposed_length if proposed_length > 0 else 0.0
+            )
+            compatibility_score = (
+                scorer.score(record, heavy_sequence=heavy_sequence)
+                if scorer is not None
+                else None
+            )
             candidates.append(
                 HCDR3InfillCandidate(
                     generated_hcdr3=generated_hcdr3,

@@ -40,6 +40,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     HCDR3 length. ``--length-mode empirical`` samples lengths from positive
     binder HCDR3 lengths in the training split and then asks the same fixed-
     length infiller to generate residues for each proposed length.
+
+    ``--guidance-strength`` opts into ProteinGuide-style antigen-binder
+    guidance. When it is ``0`` (default) the CLI uses the original single-pass
+    ``infill`` sampler and output is unchanged. When it is ``> 0`` the CLI
+    switches to the iterative ``guided_infill`` sampler, which steers each
+    residue toward the binder class using the *generation model's own*
+    compatibility head. This is distinct from ``--score-checkpoint``, which only
+    attaches a post-hoc compatibility score for reporting and never influences
+    sampling.
     """
     parser = argparse.ArgumentParser(description="Generate antigen-conditioned HCDR3 infill candidates.")
     parser.add_argument("--checkpoint", required=True, type=str)
@@ -52,6 +61,27 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--top-k", type=int, default=None)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--length-mode", choices=("fixed", "empirical"), default="fixed")
+    # ProteinGuide-style guidance (opt-in; 0.0 keeps the original infill path).
+    parser.add_argument(
+        "--guidance-strength",
+        type=float,
+        default=0.0,
+        help="Binder-guidance factor gamma. 0 disables guidance (uses single-pass infill); "
+        ">0 enables iterative guided_infill steering toward the binder class.",
+    )
+    parser.add_argument(
+        "--guidance-order",
+        choices=("confidence", "random", "left_to_right"),
+        default="confidence",
+        help="Unmasking order for guided decoding (only used when --guidance-strength > 0).",
+    )
+    parser.add_argument(
+        "--guidance-target",
+        type=int,
+        default=1,
+        choices=(0, 1),
+        help="Compatibility-head class index to steer toward (1 = binder).",
+    )
     parser.add_argument("--score-checkpoint", type=str, default=None)
     parser.add_argument("--no-score", action="store_true")
     parser.add_argument("--output-path", type=str, default=None)
@@ -145,9 +175,16 @@ def candidate_to_json(
     true_span: HCDR3Span,
     length_mode: str,
     candidate: Any,
+    guidance_strength: float = 0.0,
+    guidance_order: str | None = None,
 ) -> dict[str, Any]:
     """
     Convert one generated candidate into a JSON-serializable output row.
+
+    ``guidance_strength`` / ``guidance_order`` are recorded for provenance so a
+    downstream consumer can tell guided candidates from unguided ones and knows
+    which schedule produced them. ``guidance_order`` is reported only when
+    guidance was actually active (``guidance_strength > 0``).
     """
     return {
         "record_id": record.record_id,
@@ -163,6 +200,8 @@ def candidate_to_json(
         "log_probability": candidate.log_probability,
         "mean_log_probability": candidate.mean_log_probability,
         "compatibility_score": candidate.compatibility_score,
+        "guidance_strength": guidance_strength,
+        "guidance_order": guidance_order if guidance_strength > 0 else None,
     }
 
 
@@ -198,6 +237,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error("--temperature must be > 0")
     if args.top_k is not None and args.top_k < 0:
         parser.error("--top-k must be >= 0 (0 or omitted disables top-k filtering)")
+    if args.guidance_strength < 0:
+        parser.error("--guidance-strength must be >= 0 (0 disables guidance)")
 
     random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -250,14 +291,31 @@ def main(argv: Sequence[str] | None = None) -> None:
 
         for proposed_length in lengths:
             try:
-                candidates = infiller.infill(
-                    record,
-                    length=proposed_length,
-                    num_samples=1,
-                    temperature=args.temperature,
-                    top_k=args.top_k,
-                    scorer=scorer,
-                )
+                if args.guidance_strength > 0:
+                    # Opt-in guided path: iterative, binder-steered decoding using
+                    # the generation model's own compatibility head.
+                    candidates = infiller.guided_infill(
+                        record,
+                        length=proposed_length,
+                        num_samples=1,
+                        temperature=args.temperature,
+                        top_k=args.top_k,
+                        guidance_strength=args.guidance_strength,
+                        guidance_target=args.guidance_target,
+                        order=args.guidance_order,
+                        scorer=scorer,
+                        rng=rng,
+                    )
+                else:
+                    # Default path: unchanged single-pass independent sampling.
+                    candidates = infiller.infill(
+                        record,
+                        length=proposed_length,
+                        num_samples=1,
+                        temperature=args.temperature,
+                        top_k=args.top_k,
+                        scorer=scorer,
+                    )
             except ValueError as exc:
                 # e.g. a proposed length that overflows max_length; skip this
                 # length rather than aborting the whole generation run.
@@ -270,6 +328,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                         true_span=true_span,
                         length_mode=args.length_mode,
                         candidate=candidate,
+                        guidance_strength=args.guidance_strength,
+                        guidance_order=args.guidance_order,
                     )
                 )
 

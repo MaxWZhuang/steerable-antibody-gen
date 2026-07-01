@@ -781,9 +781,16 @@ class MLMCollator:
                 light_locus=item.light_locus or "IGK",
                 max_length=self.max_length,
             )
+        # Prefer the heavy-specific locus so heavy-only antibody-antigen records
+        # (e.g. nanobodies) encode with their real chain token. Their generic
+        # `locus` is "PAIRED_ANTIGEN", which would otherwise tokenize to
+        # [OTHER_CHAIN] here while the infiller/scorer encode the same record as
+        # [IGH] (heavy_locus or locus or "IGH") -- a train/inference chain-token
+        # mismatch on the first non-CLS position. Plain OAS records leave
+        # heavy_locus unset and so still fall back to their real `locus`.
         return self.tokenizer.encode_sequence(
             item.sequence,
-            locus=item.locus,
+            locus=item.heavy_locus or item.locus,
             max_length=self.max_length,
         )
 
