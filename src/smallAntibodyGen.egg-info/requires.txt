@@ -7,3 +7,7 @@ tqdm>=4.66
 
 [dev]
 pytest>=8.0
+
+[esm]
+transformers>=4.40
+peft>=0.11

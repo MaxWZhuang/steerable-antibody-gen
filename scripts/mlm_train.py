@@ -155,6 +155,17 @@ class TrainConfig:
     d_ff: int = 1024
     dropout: float = 0.1
 
+    # Antigen-stream encoder selection (Direction 1: hybrid PLM antigen encoder).
+    # Defaults reproduce the original from-scratch dual-stream model, so setting
+    # none of these keys leaves every existing stage byte-for-byte unchanged.
+    antigen_encoder_type: str = "scratch"
+    esm_model_name: str = "facebook/esm2_t6_8M_UR50D"
+    antigen_max_length: int = 512
+    antigen_encoder_finetune: str = "frozen"
+    lora_r: int = 8
+    lora_alpha: int = 16
+    lora_dropout: float = 0.05
+
     learning_rate: float = 3e-4
     weight_decay: float = 1e-2
     grad_clip_norm: float = 1.0
@@ -238,6 +249,24 @@ class TrainConfig:
             raise ValueError(
                 f"{self.training_stage} training requires `init_checkpoint` so the "
                 "dual-stream model starts from a paired-refine checkpoint."
+            )
+        if self.antigen_encoder_type not in {"scratch", "esm"}:
+            raise ValueError("antigen_encoder_type must be one of: scratch, esm")
+        if self.antigen_encoder_finetune not in {"frozen", "lora"}:
+            raise ValueError("antigen_encoder_finetune must be one of: frozen, lora")
+        if not (0 < self.antigen_max_length <= 1024):
+            raise ValueError("antigen_max_length must be in (0, 1024]")
+        if self.lora_r <= 0:
+            raise ValueError("lora_r must be > 0")
+        if self.lora_alpha <= 0:
+            raise ValueError("lora_alpha must be > 0")
+        if not (0.0 <= self.lora_dropout < 1.0):
+            raise ValueError("lora_dropout must be in [0, 1)")
+        if self.antigen_encoder_type == "esm" and not is_antigen_stage(self.training_stage):
+            raise ValueError(
+                "antigen_encoder_type='esm' only applies to antigen stages "
+                "(antigen_refine, antigen_real_label_refine, antigen_hcdr3_infill_refine); "
+                f"got training_stage='{self.training_stage}'"
             )
 
 
@@ -355,6 +384,26 @@ def normalize_config_data(raw_config: Dict[str, Any]) -> Dict[str, Any]:
             if key in model_config:
                 normalized.setdefault(key, model_config[key])
 
+    antigen_encoder_config = normalized.pop("antigen_encoder", None)
+    if antigen_encoder_config is not None:
+        if not isinstance(antigen_encoder_config, dict):
+            raise ValueError("The `antigen_encoder` config section must be a mapping")
+        # Friendlier nested keys map onto the flat TrainConfig fields. `type` and
+        # `finetune` are shortened in the section because the `antigen_encoder:`
+        # prefix already scopes them.
+        antigen_key_map = {
+            "type": "antigen_encoder_type",
+            "esm_model_name": "esm_model_name",
+            "antigen_max_length": "antigen_max_length",
+            "finetune": "antigen_encoder_finetune",
+            "lora_r": "lora_r",
+            "lora_alpha": "lora_alpha",
+            "lora_dropout": "lora_dropout",
+        }
+        for section_key, flat_key in antigen_key_map.items():
+            if section_key in antigen_encoder_config:
+                normalized.setdefault(flat_key, antigen_encoder_config[section_key])
+
     optimizer_config = normalized.pop("optimizer", None)
     if optimizer_config is not None:
         if not isinstance(optimizer_config, dict):
@@ -425,6 +474,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--n-layers", type=int)
     parser.add_argument("--d-ff", type=int)
     parser.add_argument("--dropout", type=float)
+
+    parser.add_argument("--antigen-encoder-type", type=str, choices=("scratch", "esm"))
+    parser.add_argument("--esm-model-name", type=str)
+    parser.add_argument("--antigen-max-length", type=int)
+    parser.add_argument("--antigen-encoder-finetune", type=str, choices=("frozen", "lora"))
+    parser.add_argument("--lora-r", type=int)
+    parser.add_argument("--lora-alpha", type=int)
+    parser.add_argument("--lora-dropout", type=float)
 
     parser.add_argument("--learning-rate", type=float)
     parser.add_argument("--weight-decay", type=float)
@@ -1056,6 +1113,9 @@ def build_train_loader(
             hcdr3_mask_mode=cfg.hcdr3_mask_mode,
             mask_replacement_strategy=cfg.mask_replacement_strategy,
             shuffle_antigen_probability=0.0,
+            antigen_encoder_type=cfg.antigen_encoder_type,
+            esm_model_name=cfg.esm_model_name,
+            antigen_max_length=cfg.antigen_max_length,
             rng_seed=cfg.seed + epoch,
         )
     elif cfg.training_stage == "antigen_refine":
@@ -1069,6 +1129,9 @@ def build_train_loader(
             hcdr3_mask_mode=cfg.hcdr3_mask_mode,
             mask_replacement_strategy=cfg.mask_replacement_strategy,
             shuffle_antigen_probability=cfg.shuffle_antigen_probability,
+            antigen_encoder_type=cfg.antigen_encoder_type,
+            esm_model_name=cfg.esm_model_name,
+            antigen_max_length=cfg.antigen_max_length,
             rng_seed=cfg.seed + epoch,
         )
     else:
@@ -1138,6 +1201,9 @@ def build_eval_loader(
             hcdr3_mask_mode=cfg.hcdr3_mask_mode,
             mask_replacement_strategy=cfg.mask_replacement_strategy,
             shuffle_antigen_probability=cfg.shuffle_antigen_probability,
+            antigen_encoder_type=cfg.antigen_encoder_type,
+            esm_model_name=cfg.esm_model_name,
+            antigen_max_length=cfg.antigen_max_length,
             rng_seed=cfg.seed + 20_000,
         )
     elif cfg.training_stage == "antigen_real_label_refine" or is_hcdr3_infill_stage(cfg.training_stage):
@@ -1151,6 +1217,9 @@ def build_eval_loader(
             hcdr3_mask_mode=cfg.hcdr3_mask_mode,
             mask_replacement_strategy=cfg.mask_replacement_strategy,
             shuffle_antigen_probability=0.0,
+            antigen_encoder_type=cfg.antigen_encoder_type,
+            esm_model_name=cfg.esm_model_name,
+            antigen_max_length=cfg.antigen_max_length,
             rng_seed=cfg.seed + 20_000,
         )
     else:
@@ -1206,6 +1275,15 @@ def build_model(
         n_layers=cfg.n_layers,
         d_ff=cfg.d_ff,
         dropout=cfg.dropout,
+        # Carried onto the model config so the antigen stream can branch on the
+        # encoder choice in Stage A. Defaults ("scratch") keep today's model.
+        antigen_encoder_type=cfg.antigen_encoder_type,
+        esm_model_name=cfg.esm_model_name,
+        antigen_max_length=cfg.antigen_max_length,
+        antigen_encoder_finetune=cfg.antigen_encoder_finetune,
+        lora_r=cfg.lora_r,
+        lora_alpha=cfg.lora_alpha,
+        lora_dropout=cfg.lora_dropout,
     )
     if is_antigen_stage(cfg.training_stage):
         model = AntibodyAntigenCrossAttention(model_cfg).to(device)
@@ -2332,16 +2410,43 @@ def initialize_antigen_refine_from_checkpoint(
     """
     checkpoint = torch.load(path, map_location=map_location)
     checkpoint_state_dict = checkpoint["model_state_dict"]
+
+    # When the antigen stream is an ESM encoder, the checkpoint's scratch
+    # `antigen_encoder.*` weights are meaningless for it. Drop them so the ESM
+    # backbone keeps its pretrained weights (and the projection its fresh init)
+    # while the antibody encoder, cross-attention fusion, and heads are still
+    # warm-started from the checkpoint.
+    antigen_is_esm = (
+        getattr(getattr(model, "config", None), "antigen_encoder_type", "scratch") == "esm"
+    )
+
+    def _drop_scratch_antigen(state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        if not antigen_is_esm:
+            return state
+        return {k: v for k, v in state.items() if not k.startswith("antigen_encoder.")}
+
     has_dual_stream_weights = any(
         key.startswith("antibody_encoder.") for key in checkpoint_state_dict
     )
     if has_dual_stream_weights:
-        incompatible = model.load_state_dict(checkpoint_state_dict, strict=False)
-        reused_message = "dual-stream checkpoint weights"
+        incompatible = model.load_state_dict(
+            _drop_scratch_antigen(checkpoint_state_dict), strict=False
+        )
+        reused_message = (
+            "antibody_encoder.* + fusion/heads (ESM antigen kept at pretrained init)"
+            if antigen_is_esm
+            else "dual-stream checkpoint weights"
+        )
     else:
         translated_state_dict = build_antigen_refine_init_state_dict(checkpoint_state_dict)
-        incompatible = model.load_state_dict(translated_state_dict, strict=False)
-        reused_message = "antibody_encoder.*, antigen_encoder.*, lm_head.*"
+        incompatible = model.load_state_dict(
+            _drop_scratch_antigen(translated_state_dict), strict=False
+        )
+        reused_message = (
+            "antibody_encoder.*, lm_head.* (ESM antigen kept at pretrained init)"
+            if antigen_is_esm
+            else "antibody_encoder.*, antigen_encoder.*, lm_head.*"
+        )
 
     print(f"[checkpoint] antigen_refine init <- {path}")
     print(f"[checkpoint] antigen_refine reused components: {reused_message}")
