@@ -33,10 +33,34 @@ class MLMConfig:
         activation (str):
             Nonlinearity used in transformer feed-forward layers. 
             Options are "relu", Rectified Linear Unit, or "gelu", Gaussian Error Linear Unit
-        tie_weights (bool): 
+        tie_weights (bool):
             Whether to tie the output project weights to the input token embeddings
+        antigen_encoder_type (str):
+            Which encoder backs the antigen stream of the dual-stream model.
+            ``"scratch"`` (default) keeps the original in-repo
+            ``TransformerSequenceEncoder``. ``"esm"`` selects a pretrained
+            protein-language-model encoder (Direction 1: hybrid antigen encoder).
+            Only consulted by ``AntibodyAntigenCrossAttention``; the antibody-only
+            ``AntibodyMLM`` ignores it.
+        esm_model_name (str):
+            HuggingFace model id for the ESM backbone used when
+            ``antigen_encoder_type == "esm"`` (default ESM-2 8M).
+        antigen_max_length (int):
+            Maximum antigen token length for the ESM antigen stream. Independent
+            of ``max_length`` (which bounds the antibody stream) because the two
+            encoders are separate and only interact through cross-attention.
+        antigen_encoder_finetune (str):
+            How the ESM antigen encoder is trained: ``"frozen"`` (features only,
+            projection/cross-attention/heads trainable) or ``"lora"`` (LoRA
+            adapters on the ESM backbone). Ignored for the scratch encoder.
+        lora_r (int):
+            LoRA rank used when ``antigen_encoder_finetune == "lora"``.
+        lora_alpha (int):
+            LoRA scaling factor used when ``antigen_encoder_finetune == "lora"``.
+        lora_dropout (float):
+            LoRA dropout used when ``antigen_encoder_finetune == "lora"``.
     """
-    
+
     vocab_size: int
     pad_token_id: int
     max_length: int
@@ -47,7 +71,18 @@ class MLMConfig:
     dropout: float = 0.1
     activation: str = "gelu"
     tie_weights: bool = True
-    
+
+    # Antigen-stream encoder selection (Direction 1: hybrid PLM antigen encoder).
+    # Defaults preserve the original from-scratch dual-stream behavior, so these
+    # fields are inert until AntibodyAntigenCrossAttention branches on them.
+    antigen_encoder_type: str = "scratch"
+    esm_model_name: str = "facebook/esm2_t6_8M_UR50D"
+    antigen_max_length: int = 512
+    antigen_encoder_finetune: str = "frozen"
+    lora_r: int = 8
+    lora_alpha: int = 16
+    lora_dropout: float = 0.05
+
     def validate(self) -> None:
         """
         Validate that the configuration is internally consistent.
@@ -74,7 +109,19 @@ class MLMConfig:
             raise ValueError("pad_token_id must be a valid token ID")
         if self.activation not in {"relu", "gelu"}:
             raise ValueError("activation must be either 'relu' (ReLU/Rectified Linear Unit) or 'gelu' (GELU/Gaussian Error Linear Unit)")
-    
+        if self.antigen_encoder_type not in {"scratch", "esm"}:
+            raise ValueError("antigen_encoder_type must be either 'scratch' or 'esm'")
+        if self.antigen_encoder_finetune not in {"frozen", "lora"}:
+            raise ValueError("antigen_encoder_finetune must be either 'frozen' or 'lora'")
+        if not (0 < self.antigen_max_length <= 1024):
+            raise ValueError("antigen_max_length must be in (0, 1024]")
+        if self.lora_r <= 0:
+            raise ValueError("lora_r must be > 0")
+        if self.lora_alpha <= 0:
+            raise ValueError("lora_alpha must be > 0")
+        if not (0.0 <= self.lora_dropout < 1.0):
+            raise ValueError("lora_dropout must be in [0, 1)")
+
 class LearnedPositionalEmbedding(nn.Module):
     """
     Learned positional embedding layer.
@@ -538,7 +585,16 @@ class AntibodyAntigenCrossAttention(nn.Module):
         self.config = config
 
         self.antibody_encoder = TransformerSequenceEncoder(config)
-        self.antigen_encoder = TransformerSequenceEncoder(config)
+        # Direction 1: the antigen stream is either the original from-scratch encoder
+        # or a pretrained ESM-2 encoder. Both honor the same
+        # (hidden[B, L, d_model], mask) contract, so nothing downstream changes. The
+        # ESM import is lazy so the scratch path never requires the 'esm' extra.
+        if config.antigen_encoder_type == "esm":
+            from smallAntibodyGen.models.esm_antigen_encoder import ESMAntigenEncoder
+
+            self.antigen_encoder = ESMAntigenEncoder(config)
+        else:
+            self.antigen_encoder = TransformerSequenceEncoder(config)
 
         self.antibody_to_antigen = nn.MultiheadAttention(
             embed_dim=config.d_model,

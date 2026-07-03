@@ -19,6 +19,13 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+# Direction 1 (hybrid PLM antigen encoder). Only needed when
+# antigen_encoder_type="esm"; imported lazily so the base install and the
+# from-scratch stages never require these.
+esm = [
+    "transformers>=4.40",
+    "peft>=0.11",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

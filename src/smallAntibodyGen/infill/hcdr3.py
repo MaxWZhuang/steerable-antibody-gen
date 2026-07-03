@@ -9,6 +9,7 @@ from typing import Any, Sequence
 import torch
 
 from smallAntibodyGen.tokenizer import AminoAcidTokenizer
+from smallAntibodyGen.antigen_tokenization import build_antigen_tokenizer
 
 
 CANONICAL_AA = "ACDEFGHIKLMNPQRSTVWY"
@@ -209,6 +210,9 @@ class FixedLengthHCDR3Infiller:
         *,
         max_length: int,
         device: torch.device | str = "cpu",
+        antigen_encoder_type: str = "scratch",
+        esm_model_name: str = "facebook/esm2_t6_8M_UR50D",
+        antigen_max_length: int | None = None,
     ) -> None:
         self.model = model
         self.tokenizer = tokenizer
@@ -219,6 +223,17 @@ class FixedLengthHCDR3Infiller:
             for aa in CANONICAL_AA
             if aa in self.tokenizer.token_to_id
         ]
+        # Antigen tokenization must match training exactly (see antigen_tokenization).
+        self.antigen_tokenizer = build_antigen_tokenizer(
+            antigen_encoder_type=antigen_encoder_type,
+            tokenizer=tokenizer,
+            esm_model_name=esm_model_name,
+        )
+        self._antigen_encode_max_length = (
+            max_length
+            if antigen_encoder_type == "scratch"
+            else (antigen_max_length if antigen_max_length is not None else max_length)
+        )
 
     def _residue_ids(self, sequence: str) -> list[int]:
         """Encode residues without adding special tokens."""
@@ -290,7 +305,7 @@ class FixedLengthHCDR3Infiller:
         antigen_sequence = (getattr(record, "sequence_antigen", None) or "").strip()
         if not antigen_sequence:
             raise ValueError("record has no antigen sequence")
-        ids = self.tokenizer.encode_sequence(antigen_sequence, locus=None, max_length=self.max_length)
+        ids = self.antigen_tokenizer.encode(antigen_sequence, self._antigen_encode_max_length)
         input_ids = torch.tensor([ids], dtype=torch.long, device=self.device)
         attention_mask = torch.ones_like(input_ids, dtype=torch.long, device=self.device)
         return input_ids, attention_mask
@@ -874,11 +889,25 @@ class AntigenCompatibilityScorer:
         *,
         max_length: int,
         device: torch.device | str = "cpu",
+        antigen_encoder_type: str = "scratch",
+        esm_model_name: str = "facebook/esm2_t6_8M_UR50D",
+        antigen_max_length: int | None = None,
     ) -> None:
         self.model = model
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.device = torch.device(device)
+        # Antigen tokenization must match training exactly (see antigen_tokenization).
+        self.antigen_tokenizer = build_antigen_tokenizer(
+            antigen_encoder_type=antigen_encoder_type,
+            tokenizer=tokenizer,
+            esm_model_name=esm_model_name,
+        )
+        self._antigen_encode_max_length = (
+            max_length
+            if antigen_encoder_type == "scratch"
+            else (antigen_max_length if antigen_max_length is not None else max_length)
+        )
 
     def _encode_antibody(self, record: Any, heavy_sequence: str) -> tuple[torch.Tensor, torch.Tensor]:
         """Encode a generated heavy sequence plus the record's light chain."""
@@ -906,7 +935,7 @@ class AntigenCompatibilityScorer:
         antigen_sequence = (getattr(record, "sequence_antigen", None) or "").strip()
         if not antigen_sequence:
             raise ValueError("record has no antigen sequence")
-        ids = self.tokenizer.encode_sequence(antigen_sequence, locus=None, max_length=self.max_length)
+        ids = self.antigen_tokenizer.encode(antigen_sequence, self._antigen_encode_max_length)
         input_ids = torch.tensor([ids], dtype=torch.long, device=self.device)
         attention_mask = torch.ones_like(input_ids, dtype=torch.long, device=self.device)
         return input_ids, attention_mask

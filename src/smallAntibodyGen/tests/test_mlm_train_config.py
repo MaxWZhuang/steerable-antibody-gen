@@ -756,6 +756,154 @@ def test_build_antigen_refine_init_state_dict_accepts_bare_encoder_keys(project_
     )
 
 
+def test_parse_args_antigen_encoder_defaults_to_scratch(tmp_path: Path, project_root: Path):
+    """Stage 0 must be inert: a plain run keeps the original scratch antigen stream."""
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = tmp_path / "tiny.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+
+    cfg = mlm_train.parse_args(["--data-path", str(data_path)])
+
+    assert cfg.antigen_encoder_type == "scratch"
+    assert cfg.esm_model_name == "facebook/esm2_t6_8M_UR50D"
+    assert cfg.antigen_max_length == 512
+    assert cfg.antigen_encoder_finetune == "frozen"
+    assert cfg.lora_r == 8
+    assert cfg.lora_alpha == 16
+    assert cfg.lora_dropout == 0.05
+
+
+def test_parse_args_accepts_antigen_encoder_section(tmp_path: Path, project_root: Path):
+    mlm_train = load_mlm_train_module(project_root)
+    if mlm_train.yaml is None:
+        pytest.skip("PyYAML not installed in test environment")
+    data_path = tmp_path / "tiny_antigen.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+    init_ckpt = tmp_path / "best.pt"
+    init_ckpt.write_text("placeholder", encoding="utf-8")
+
+    config_path = tmp_path / "train.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                f"data_path: {data_path}",
+                "training_stage: antigen_real_label_refine",
+                f"init_checkpoint: {init_ckpt}",
+                "antigen_encoder:",
+                "  type: esm",
+                "  esm_model_name: facebook/esm2_t12_35M_UR50D",
+                "  antigen_max_length: 256",
+                "  finetune: lora",
+                "  lora_r: 16",
+                "  lora_alpha: 32",
+                "  lora_dropout: 0.1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    cfg = mlm_train.parse_args(["--config", str(config_path)])
+
+    assert cfg.antigen_encoder_type == "esm"
+    assert cfg.esm_model_name == "facebook/esm2_t12_35M_UR50D"
+    assert cfg.antigen_max_length == 256
+    assert cfg.antigen_encoder_finetune == "lora"
+    assert cfg.lora_r == 16
+    assert cfg.lora_alpha == 32
+    assert cfg.lora_dropout == 0.1
+
+
+def test_parse_args_cli_overrides_antigen_encoder_section(tmp_path: Path, project_root: Path):
+    mlm_train = load_mlm_train_module(project_root)
+    if mlm_train.yaml is None:
+        pytest.skip("PyYAML not installed in test environment")
+    data_path = tmp_path / "tiny_antigen.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+    init_ckpt = tmp_path / "best.pt"
+    init_ckpt.write_text("placeholder", encoding="utf-8")
+
+    config_path = tmp_path / "train.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                f"data_path: {data_path}",
+                "training_stage: antigen_real_label_refine",
+                f"init_checkpoint: {init_ckpt}",
+                "antigen_encoder:",
+                "  type: esm",
+                "  antigen_max_length: 256",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    cfg = mlm_train.parse_args(
+        ["--config", str(config_path), "--antigen-max-length", "384"]
+    )
+
+    assert cfg.antigen_encoder_type == "esm"
+    assert cfg.antigen_max_length == 384  # CLI wins over the config section
+
+
+def test_parse_args_rejects_esm_on_non_antigen_stage(tmp_path: Path, project_root: Path):
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = tmp_path / "tiny.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="only applies to antigen stages"):
+        mlm_train.parse_args(
+            ["--data-path", str(data_path), "--antigen-encoder-type", "esm"]
+        )
+
+
+def test_parse_args_rejects_out_of_range_antigen_max_length(tmp_path: Path, project_root: Path):
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = tmp_path / "tiny.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="antigen_max_length must be in"):
+        mlm_train.parse_args(
+            ["--data-path", str(data_path), "--antigen-max-length", "4096"]
+        )
+
+
+def test_build_model_scratch_carries_antigen_encoder_config(tmp_path: Path, project_root: Path):
+    """Passthrough check: build_model wires the new fields onto MLMConfig without
+    changing which model class is built (Stage 0 = no behavior change)."""
+    mlm_train = load_mlm_train_module(project_root)
+    from smallAntibodyGen.models.mlm import AntibodyMLM
+
+    data_path = tmp_path / "tiny.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+
+    cfg = mlm_train.parse_args(
+        ["--data-path", str(data_path), "--antigen-max-length", "256"]
+    )
+    tokenizer = mlm_train.build_tokenizer()
+    model = mlm_train.build_model(tokenizer, cfg, device=mlm_train.torch.device("cpu"))
+
+    assert isinstance(model, AntibodyMLM)  # scratch/base path unchanged
+    assert model.config.antigen_encoder_type == "scratch"
+    assert model.config.antigen_max_length == 256  # field carried through
+
+
+def test_mlmconfig_rejects_bad_antigen_encoder_fields(project_root: Path):
+    from smallAntibodyGen.models.mlm import MLMConfig
+
+    base = dict(vocab_size=32, pad_token_id=0, max_length=16)
+
+    with pytest.raises(ValueError, match="antigen_encoder_type"):
+        MLMConfig(**base, antigen_encoder_type="bogus").validate()
+    with pytest.raises(ValueError, match="antigen_encoder_finetune"):
+        MLMConfig(**base, antigen_encoder_finetune="bogus").validate()
+    with pytest.raises(ValueError, match="antigen_max_length"):
+        MLMConfig(**base, antigen_max_length=0).validate()
+    with pytest.raises(ValueError, match="lora_dropout"):
+        MLMConfig(**base, lora_dropout=1.5).validate()
+    # A valid ESM-typed config validates cleanly.
+    MLMConfig(**base, antigen_encoder_type="esm", antigen_encoder_finetune="lora").validate()
+
+
 def test_initialize_antigen_refine_from_checkpoint_loads_both_encoders_and_lm_head(
     tmp_path: Path,
     project_root: Path,
@@ -824,4 +972,143 @@ def test_initialize_antigen_refine_from_checkpoint_loads_both_encoders_and_lm_he
     assert mlm_train.torch.allclose(
         target_model.lm_head.weight,
         source_model.lm_head.weight,
+    )
+
+
+def test_esm_antigen_hcdr3_infill_train_step_end_to_end(tmp_path: Path, project_root: Path):
+    """Smoke test the full ESM antigen path: collator emits ESM antigen ids, the ESM
+    dual-stream model consumes them, and one backward step reaches the projection while
+    leaving the frozen ESM backbone without gradients."""
+    pytest.importorskip("transformers", reason="optional 'esm' extra not installed")
+    mlm_train = load_mlm_train_module(project_root)
+    torch = mlm_train.torch
+
+    data_path = tmp_path / "tiny_esm_infill.jsonl.gz"
+    heavy_sequence = "EVQLVESGGGCARDRSTWGQGTLV"
+    cdr3_start = heavy_sequence.index("CARDRST")
+    cdr3_end = cdr3_start + len("CARDRST")
+    record = {
+        "record_id": "esm-1",
+        "sequence": heavy_sequence,
+        "sequence_heavy": heavy_sequence,
+        "sequence_antigen": "MKTIIALSYIFCLVFADYKDDDDK",
+        "locus": "PAIRED_ANTIGEN",
+        "chain_group": "paired_antigen",
+        "split": "train",
+        "length": len(heavy_sequence),
+        "target_key": "uniprot:p11111",
+        "dataset": "asd-test",
+        "affinity_type": "bool",
+        "processed_measurement_float": 1.0,
+        "binder_label": 1,
+        "is_strong_binder": True,
+        "is_nanobody": True,
+        "cdr3_aa": "CARDRST",
+        "cdr3_aa_heavy": "CARDRST",
+        "cdr3_start_aa": cdr3_start,
+        "cdr3_end_aa": cdr3_end,
+        "cdr3_start_aa_heavy": cdr3_start,
+        "cdr3_end_aa_heavy": cdr3_end,
+        "heavy_locus": "IGH",
+        "antigen_length": 24,
+    }
+    with gzip.open(data_path, "wt", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+        f.write(json.dumps({**record, "record_id": "esm-2", "target_key": "uniprot:p22222"}) + "\n")
+    init_ckpt = tmp_path / "best.pt"
+    init_ckpt.write_text("placeholder", encoding="utf-8")
+
+    try:
+        cfg = mlm_train.parse_args(
+            [
+                "--data-path", str(data_path),
+                "--training-stage", "antigen_hcdr3_infill_refine",
+                "--init-checkpoint", str(init_ckpt),
+                "--antigen-encoder-type", "esm",
+                "--antigen-max-length", "32",
+                "--max-length", "64",
+                "--batch-size", "2",
+                "--eval-batch-size", "2",
+                "--d-model", "32",
+                "--n-heads", "4",
+                "--n-layers", "1",
+                "--d-ff", "64",
+                "--device", "cpu",
+            ]
+        )
+        tokenizer = mlm_train.build_tokenizer()
+        train_dataset, _ = mlm_train.build_datasets(cfg)
+        loader = mlm_train.build_train_loader(train_dataset, tokenizer, cfg, epoch=0)
+        model = mlm_train.build_model(tokenizer, cfg, device=torch.device("cpu"))
+    except OSError:
+        pytest.skip("ESM weights unavailable (offline)")
+
+    batch = next(iter(loader))
+    mlm_logits, compatibility_logits = model(
+        antibody_input_ids=batch["antibody_input_ids"],
+        antibody_attention_mask=batch["antibody_attention_mask"],
+        antigen_input_ids=batch["antigen_input_ids"],
+        antigen_attention_mask=batch["antigen_attention_mask"],
+    )
+    loss = model.compute_mlm_loss(mlm_logits, batch["antibody_labels"])
+    loss.backward()
+
+    from smallAntibodyGen.models.esm_antigen_encoder import ESMAntigenEncoder
+
+    assert isinstance(model.antigen_encoder, ESMAntigenEncoder)
+    assert torch.isfinite(loss)
+    # Antigen tokens are ESM ids (vocab ~33), distinct from the AA tokenizer stream.
+    assert int(batch["antigen_input_ids"].max()) < 33
+    # The frozen ESM backbone gets no gradient; the projection does.
+    assert model.antigen_encoder.projection.weight.grad is not None
+    assert all(p.grad is None for p in model.antigen_encoder.esm.parameters())
+
+
+def test_warm_start_into_esm_model_keeps_backbone_and_loads_antibody(tmp_path: Path, project_root: Path):
+    """A scratch dual-stream checkpoint must warm-start the antibody encoder of an ESM
+    model while leaving the ESM backbone at its pretrained weights (its scratch
+    antigen_encoder.* keys are dropped, not force-loaded)."""
+    pytest.importorskip("transformers", reason="optional 'esm' extra not installed")
+    mlm_train = load_mlm_train_module(project_root)
+    torch = mlm_train.torch
+    from smallAntibodyGen.models.mlm import AntibodyAntigenCrossAttention, MLMConfig
+
+    common = dict(
+        vocab_size=mlm_train.build_tokenizer().vocab_size,
+        pad_token_id=mlm_train.build_tokenizer().pad_id,
+        max_length=32,
+        d_model=32,
+        n_heads=4,
+        n_layers=1,
+        d_ff=64,
+        dropout=0.0,
+    )
+    scratch_model = AntibodyAntigenCrossAttention(MLMConfig(**common))
+    for _, p in scratch_model.named_parameters():
+        if p.requires_grad:
+            p.data.fill_(0.3)
+    ckpt_path = tmp_path / "scratch_dual.pt"
+    torch.save({"model_state_dict": scratch_model.state_dict()}, ckpt_path)
+
+    try:
+        esm_model = AntibodyAntigenCrossAttention(
+            MLMConfig(**common, antigen_encoder_type="esm", antigen_max_length=16)
+        )
+    except OSError:
+        pytest.skip("ESM weights unavailable (offline)")
+
+    esm_before = esm_model.antigen_encoder.esm.embeddings.word_embeddings.weight.detach().clone()
+
+    mlm_train.initialize_antigen_refine_from_checkpoint(
+        path=ckpt_path, model=esm_model, map_location="cpu"
+    )
+
+    # Antibody encoder warm-started from the checkpoint...
+    assert torch.allclose(
+        esm_model.antibody_encoder.token_embedding.weight,
+        scratch_model.antibody_encoder.token_embedding.weight,
+    )
+    # ...while the ESM backbone is untouched (kept at pretrained init).
+    assert torch.allclose(
+        esm_model.antigen_encoder.esm.embeddings.word_embeddings.weight, esm_before
     )

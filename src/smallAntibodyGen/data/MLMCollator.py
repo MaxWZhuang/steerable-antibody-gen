@@ -13,6 +13,7 @@ import torch
 from torch.utils.data import Dataset, get_worker_info
 
 from smallAntibodyGen.tokenizer import AminoAcidTokenizer
+from smallAntibodyGen.antigen_tokenization import build_antigen_tokenizer
 from smallAntibodyGen.data.MLMSampler import ChainLengthBucketBatchSampler
 
 @dataclass
@@ -901,6 +902,9 @@ class AntibodyAntigenCollator(MLMCollator):
         mask_replacement_strategy: str = "bert",
         shuffle_antigen_probability: float = 0.5,
         antigen_length_bucket_width: int = 64,
+        antigen_encoder_type: str = "scratch",
+        esm_model_name: str = "facebook/esm2_t6_8M_UR50D",
+        antigen_max_length: int | None = None,
         rng_seed: int = 42,
     ) -> None:
         super().__init__(
@@ -917,6 +921,23 @@ class AntibodyAntigenCollator(MLMCollator):
         )
         self.shuffle_antigen_probability = shuffle_antigen_probability
         self.antigen_length_bucket_width = antigen_length_bucket_width
+
+        # Antigen stream tokenization (Direction 1). The scratch adapter reproduces
+        # the previous inline encode exactly, so the from-scratch model is
+        # unaffected. The ESM path uses its own tokenizer + antigen_max_length; the
+        # scratch path keeps using the shared max_length so its behavior is byte-
+        # identical to before this indirection.
+        self.antigen_encoder_type = antigen_encoder_type
+        self.antigen_tokenizer = build_antigen_tokenizer(
+            antigen_encoder_type=antigen_encoder_type,
+            tokenizer=tokenizer,
+            esm_model_name=esm_model_name,
+        )
+        self._antigen_encode_max_length = (
+            max_length
+            if antigen_encoder_type == "scratch"
+            else (antigen_max_length if antigen_max_length is not None else max_length)
+        )
 
     def _is_antibody_antigen_eligible(self, item: OASRecord) -> bool:
         """
@@ -1060,25 +1081,40 @@ class AntibodyAntigenCollator(MLMCollator):
     def _encode_antigen(self, item: OASRecord) -> list[int]:
         """
         Encode the antigen stream as its own token sequence.
+
+        Tokenization is delegated to the antigen adapter so training, generation,
+        and scoring share one definition. For the scratch encoder this is identical
+        to the previous ``tokenizer.encode_sequence(..., locus=None)`` call.
         """
-        return self.tokenizer.encode_sequence(
+        return self.antigen_tokenizer.encode(
             item.sequence_antigen or "",
-            locus=None,
-            max_length=self.max_length,
+            self._antigen_encode_max_length,
         )
 
-    def _pad_encoded(self, encoded: Sequence[list[int]]) -> tuple[torch.Tensor, torch.Tensor]:
+    def _pad_encoded(
+        self,
+        encoded: Sequence[list[int]],
+        *,
+        pad_id: int | None = None,
+        max_length: int | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Pad one tokenized stream and return tensors plus its attention mask.
+
+        ``pad_id`` / ``max_length`` default to the antibody tokenizer's pad id and
+        the shared ``max_length``; the antigen stream passes its own values so the
+        ESM antigen stream can use the ESM pad id and antigen_max_length.
         """
+        effective_pad_id = self.tokenizer.pad_id if pad_id is None else pad_id
+        effective_cap = self.max_length if max_length is None else max_length
         seq_lengths = [len(ids) for ids in encoded]
-        max_len = min(max(seq_lengths), self.max_length)
+        max_len = min(max(seq_lengths), effective_cap)
         padded = []
         attention_masks = []
         for ids in encoded:
             ids = ids[:max_len]
             pad_len = max_len - len(ids)
-            padded.append(ids + [self.tokenizer.pad_id] * pad_len)
+            padded.append(ids + [effective_pad_id] * pad_len)
             attention_masks.append([1] * len(ids) + [0] * pad_len)
         return (
             torch.tensor(padded, dtype=torch.long),
@@ -1099,7 +1135,11 @@ class AntibodyAntigenCollator(MLMCollator):
         antigen_encoded = [self._encode_antigen(item) for item in effective_batch]
 
         antibody_input_ids, antibody_attention_mask = self._pad_encoded(antibody_encoded)
-        antigen_input_ids, antigen_attention_mask = self._pad_encoded(antigen_encoded)
+        antigen_input_ids, antigen_attention_mask = self._pad_encoded(
+            antigen_encoded,
+            pad_id=self.antigen_tokenizer.pad_id,
+            max_length=self._antigen_encode_max_length,
+        )
         antibody_masked_input_ids, antibody_labels, antibody_target_mask = self._mask_tokens(
             antibody_input_ids,
             effective_batch,

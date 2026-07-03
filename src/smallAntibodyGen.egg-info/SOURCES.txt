@@ -1,6 +1,7 @@
 README.md
 pyproject.toml
 src/smallAntibodyGen/__init__.py
+src/smallAntibodyGen/antigen_tokenization.py
 src/smallAntibodyGen/tokenizer.py
 src/smallAntibodyGen.egg-info/PKG-INFO
 src/smallAntibodyGen.egg-info/SOURCES.txt
@@ -13,9 +14,13 @@ src/smallAntibodyGen/data/__init__.py
 src/smallAntibodyGen/data/oas.py
 src/smallAntibodyGen/infill/__init__.py
 src/smallAntibodyGen/infill/hcdr3.py
+src/smallAntibodyGen/models/esm_antigen_encoder.py
 src/smallAntibodyGen/models/mlm.py
 src/smallAntibodyGen/tests/conftest.py
+src/smallAntibodyGen/tests/test_antigen_tokenization.py
+src/smallAntibodyGen/tests/test_bugfix_regressions.py
 src/smallAntibodyGen/tests/test_dataset_sampler_collator.py
+src/smallAntibodyGen/tests/test_esm_antigen_encoder.py
 src/smallAntibodyGen/tests/test_hcdr3_infill.py
 src/smallAntibodyGen/tests/test_mlm_model.py
 src/smallAntibodyGen/tests/test_mlm_train_config.py

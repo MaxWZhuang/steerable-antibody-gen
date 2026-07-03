@@ -219,6 +219,27 @@ lengths first, then run the same fixed-length infiller for each proposed length.
 python scripts/mlm_train.py --config configs/refine_antigen_hcdr3_infill.yaml
 ```
 
+### Antigen encoder: from-scratch or pretrained ESM-2 (hybrid)
+
+The antigen stream can be encoded two ways, selected by `antigen_encoder_type`:
+
+- `scratch` (default) — the in-repo from-scratch transformer. No extra dependencies.
+- `esm` — a pretrained ESM-2 encoder projected to the model width (Direction 1: hybrid
+  antigen encoder). Requires the optional `esm` extra and swaps the antigen stream only;
+  the antibody stream, cross-attention fusion, and heads are unchanged.
+
+```bash
+pip install -e ".[esm]"    # transformers + peft; ESM-2 8M weights download on first use
+python scripts/mlm_train.py --config configs/refine_antigen_hcdr3_infill_esm.yaml
+```
+
+The ESM config warm-starts the antibody encoder + fusion + heads from the real-label
+checkpoint and keeps the ESM backbone at its pretrained weights (`finetune: frozen` trains
+only the projection/fusion/heads; `finetune: lora` adds LoRA adapters on the ESM backbone).
+Compare its HCDR3 metrics and compatibility AUROC against the scratch baseline
+(`refine_antigen_hcdr3_infill.yaml`) on the same split before committing to it. See
+`docs/antigen-encoder-hybrid-implementation.md` for the full rollout and rationale.
+
 ### Generating candidates
 
 Fixed-length (uses each target record's known HCDR3 length):
