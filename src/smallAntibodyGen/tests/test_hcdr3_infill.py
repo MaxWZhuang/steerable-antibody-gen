@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import importlib.util
 import random
+import sys
+from pathlib import Path
 
 import torch
 
@@ -423,3 +426,105 @@ def test_guided_infill_supports_all_orders_and_rejects_unknown(tokenizer):
         pass
     else:  # pragma: no cover - explicit failure path
         raise AssertionError("guided_infill must reject an unknown order")
+
+
+# ---------------------------------------------------------------------------
+# Regression: the generation/scoring CLI must propagate the checkpoint's antigen
+# encoder settings into the infiller and scorer. Dropping them made an ESM-trained
+# checkpoint tokenize the antigen with the scratch tokenizer and feed scratch ids
+# into an ESM encoder (a silent train/inference mismatch). These tests pin the
+# wiring without needing ESM weights or a real checkpoint by stubbing the
+# constructors and capturing the kwargs they receive.
+# ---------------------------------------------------------------------------
+
+
+def _load_hcdr3_infill_module():
+    scripts_dir = Path(__file__).resolve().parents[3] / "scripts"
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+    script_path = scripts_dir / "hcdr3_infill.py"
+    spec = importlib.util.spec_from_file_location("hcdr3_infill", script_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _esm_cfg(module):
+    return module.TrainConfig(
+        data_path="unused.jsonl.gz",
+        training_stage="antigen_hcdr3_infill_refine",
+        init_checkpoint="ckpt.pt",
+        max_length=192,
+        antigen_encoder_type="esm",
+        esm_model_name="facebook/esm2_t6_8M_UR50D",
+        antigen_max_length=333,
+    )
+
+
+def test_build_infiller_threads_antigen_encoder_config(tokenizer, monkeypatch):
+    module = _load_hcdr3_infill_module()
+    captured: dict = {}
+
+    class _StubInfiller:
+        def __init__(self, model, tok, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(module, "FixedLengthHCDR3Infiller", _StubInfiller)
+    module.build_infiller(object(), tokenizer, _esm_cfg(module), "cpu")
+
+    assert captured["antigen_encoder_type"] == "esm"
+    assert captured["esm_model_name"] == "facebook/esm2_t6_8M_UR50D"
+    assert captured["antigen_max_length"] == 333
+    assert captured["max_length"] == 192
+
+
+def test_build_compatibility_scorer_threads_antigen_encoder_config(tokenizer, monkeypatch):
+    module = _load_hcdr3_infill_module()
+    captured: dict = {}
+
+    class _StubScorer:
+        def __init__(self, model, tok, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(module, "AntigenCompatibilityScorer", _StubScorer)
+    module.build_compatibility_scorer(object(), tokenizer, _esm_cfg(module), "cpu")
+
+    assert captured["antigen_encoder_type"] == "esm"
+    assert captured["esm_model_name"] == "facebook/esm2_t6_8M_UR50D"
+    assert captured["antigen_max_length"] == 333
+    assert captured["max_length"] == 192
+
+
+def test_build_infiller_scratch_default_uses_scratch_tokenizer(tokenizer):
+    # The scratch path must stay byte-identical: a real infiller built from a
+    # scratch config encodes the antigen with the repo tokenizer at max_length.
+    module = _load_hcdr3_infill_module()
+    cfg = module.TrainConfig(
+        data_path="unused.jsonl.gz",
+        training_stage="antigen_real_label_refine",
+        init_checkpoint="ckpt.pt",
+        max_length=192,
+    )
+    infiller = module.build_infiller(object(), tokenizer, cfg, "cpu")
+    assert infiller._antigen_encode_max_length == 192
+    # Scratch antigen encoding is defined to equal encode_sequence(locus=None).
+    antigen = "MKTIIALSYIFCLVFA"
+    assert infiller.antigen_tokenizer.encode(antigen, 192) == tokenizer.encode_sequence(
+        antigen, locus=None, max_length=192
+    )
+
+
+def test_generation_run_with_no_candidates_fails_loudly():
+    # Regression: a run that skips every proposed length (e.g. every record is
+    # missing its antigen sequence, or the wrong data file was passed) must not
+    # write an empty JSONL and exit 0 — that silent no-op looks like success.
+    module = _load_hcdr3_infill_module()
+    import pytest as _pytest
+
+    with _pytest.raises(SystemExit):
+        module.assert_generated_any([], skipped_count=8)
+
+    # A run that produced at least one candidate is fine (no raise).
+    module.assert_generated_any([{"record_id": "r"}], skipped_count=3)

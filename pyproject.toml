@@ -26,6 +26,11 @@ esm = [
     "transformers>=4.40",
     "peft>=0.11",
 ]
+# Optional TensorBoard scalar logging (enabled per-run with `tensorboard: true`).
+# Imported lazily so the base install and non-logging runs never require it.
+tb = [
+    "tensorboard>=2.14",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

@@ -518,26 +518,89 @@ class FixedLengthHCDR3Infiller:
               likelihood (mirroring the reporting convention in
               ``_sample_token_id``).
         """
-        # Step 1: the model's own residue marginal at `position`, taken from the
-        # current working state (with `position` still masked). This is the base
-        # distribution guidance reweights, and the value reported for likelihood.
+        # Run the model on the current working state (with `position` still
+        # masked) to get its residue marginal, then defer the reweighting math to
+        # the shared combination helper. `guided_infill` calls that same helper
+        # with the forward it already runs for position selection, so the guided
+        # scoring in this tested primitive and in the production loop can never
+        # drift apart.
         mlm_logits, _ = self.model(
             antibody_input_ids=antibody_input_ids,
             antibody_attention_mask=antibody_attention_mask,
             antigen_input_ids=antigen_input_ids,
             antigen_attention_mask=antigen_attention_mask,
         )
+        return self._guided_scores_from_logits(
+            mlm_logits,
+            antibody_input_ids,
+            antibody_attention_mask,
+            antigen_input_ids,
+            antigen_attention_mask,
+            position,
+            guidance_strength=guidance_strength,
+            guidance_target=guidance_target,
+        )
+
+    @torch.no_grad()
+    def _guided_scores_from_logits(
+        self,
+        mlm_logits: torch.Tensor,
+        antibody_input_ids: torch.Tensor,
+        antibody_attention_mask: torch.Tensor,
+        antigen_input_ids: torch.Tensor,
+        antigen_attention_mask: torch.Tensor,
+        position: int,
+        *,
+        guidance_strength: float,
+        guidance_target: int = 1,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Reweight one position's residue distribution given a precomputed forward.
+
+        This is the pure post-forward core of ``_guided_position_scores``, split
+        out so callers that have *already* run the model on the working state
+        (the ``guided_infill`` unmasking loop, which runs one forward per step for
+        position selection) can share the exact same guidance math without paying
+        for a second forward. ``_guided_position_scores`` runs the forward and
+        delegates here; the unmasking loop passes the ``mlm_logits`` it already
+        holds. Both routes therefore produce identical guided distributions.
+
+        Args:
+            mlm_logits:
+                ``[1, seq_len, vocab]`` MLM logits from a forward on the current
+                working state, with ``position`` still masked.
+            antibody_input_ids:
+                ``[1, seq_len]`` antibody stream in its current working state.
+            antibody_attention_mask:
+                ``[1, seq_len]`` antibody attention mask.
+            antigen_input_ids:
+                ``[1, antigen_len]`` antigen stream (constant across generation).
+            antigen_attention_mask:
+                ``[1, antigen_len]`` antigen attention mask.
+            position:
+                Token index into the antibody stream to score.
+            guidance_strength:
+                The guidance factor ``gamma``. ``0.0`` skips the enumeration
+                forward entirely so the classifier has provably zero effect.
+            guidance_target:
+                Compatibility-head class index to steer toward (``1`` = binder).
+
+        Returns:
+            The ``(guided_logits, unguided_logprobs)`` pair described in
+            ``_guided_position_scores``, both in ``self.canonical_token_ids``
+            order.
+        """
         canonical_logits = mlm_logits[0, position][self.canonical_token_ids]
         unguided_logprobs = torch.log_softmax(canonical_logits, dim=-1)
 
-        # Step 2: when guidance is off, skip the enumeration forward entirely so
-        # the classifier has provably zero effect and the call stays cheap.
+        # When guidance is off, skip the enumeration forward entirely so the
+        # classifier has provably zero effect and the call stays cheap.
         if guidance_strength == 0.0:
             return unguided_logprobs.clone(), unguided_logprobs
 
-        # Step 3: exact enumeration of the binder term over the ~20 canonical
-        # residues (batched into one forward), then combine. The helper returns
-        # values in `self.canonical_token_ids` order, matching `unguided_logprobs`.
+        # Exact enumeration of the binder term over the ~20 canonical residues
+        # (batched into one forward), then combine. The helper returns values in
+        # `self.canonical_token_ids` order, matching `unguided_logprobs`.
         binder_logprobs = self._binder_logprobs_by_candidate(
             antibody_input_ids,
             antibody_attention_mask,
@@ -771,10 +834,16 @@ class FixedLengthHCDR3Infiller:
 
         Returns:
             List of generated candidates. ``log_probability`` /
-            ``mean_log_probability`` are reported from the model's *unguided*
-            marginals so they remain comparable to ``infill`` output and across
-            lengths; guidance changes which residues are drawn, not how their
-            likelihood is scored.
+            ``mean_log_probability`` are accumulated from the model's *unguided*
+            marginals — guidance changes which residues are drawn, not how their
+            likelihood is scored — so guided candidates stay comparable to each
+            other and across lengths. Note they are **not** the same quantity as
+            ``infill``'s score: ``infill`` sums independent per-position marginals
+            from a single fully-masked forward, whereas ``guided_infill`` sums the
+            unguided conditionals along the iterative unmasking path (each term
+            conditioned on the residues already committed). The two summations
+            differ even at ``guidance_strength == 0``, so do not pool guided and
+            single-pass ``infill`` scores into one ranking.
         """
         if num_samples <= 0:
             return []

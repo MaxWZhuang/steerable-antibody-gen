@@ -1,13 +1,21 @@
-# Example config for a ~1M-sequence unpaired MLM pretraining run.
-# Replace data_path with your processed JSONL(.gz) file before launching.
-
-data_path: /absolute/path/to/your_unpaired_oas_1m.jsonl.gz
-output_dir: checkpoints/mlm_oas_1m_unpaired
+# Stage 1/4 — base MLM pretraining on unpaired OAS (~3M heavy+light).
+# Chain: THIS -> refine_oas_paired -> refine_antigen_real_label -> refine_antigen_hcdr3_infill
+# Produces checkpoints/mlm_3m_unpaired_v3/best.pt, consumed by stage 2's init_checkpoint.
+#
+# resume_from_last: safe here because this is a fresh v3 dir. WARNING: if you edit
+# hyperparameters and relaunch into a populated dir, resume silently reloads last.pt and
+# IGNORES your edits (and init_checkpoint). Delete last.pt (or set false) on an intentional
+# config change. (filename is historical — this is the full 3M run, not a "small" one.)
+training_stage: base
+data_path: data/processed/oas_unpaired_3m/oas_all.jsonl.gz
+output_dir: checkpoints/mlm_3m_unpaired_v3
+resume_from_last: true
 
 seed: 42
-batch_size: 64
-eval_batch_size: 64
-num_workers: 4
+batch_size: 16
+eval_batch_size: 16
+train_num_workers: 0
+eval_num_workers: 0
 max_length: 192
 bucket_width: 8
 
@@ -19,23 +27,19 @@ shuffle_pair_probability: 0.0
 pair_loss_weight: 0.0
 
 learning_rate: 0.0003
+warmup_steps: 1000        # NEW vs prior run: linear LR warmup, guards from-scratch early divergence.
 weight_decay: 0.01
-epochs: 5
 grad_clip_norm: 1.0
-mixed_precision: true
+epochs: 3            # was 10. best.pt is val-selected (mlm_train.py:2847), so this is a
+                    # compute ceiling, not a quality knob; MLM over ~3M rows saturates in
+                    # 2-3 passes. This stage dominates wall-clock on a single small GPU.
 
-model:
-  d_model: 256
-  n_heads: 8
-  n_layers: 6
-  d_ff: 1024
-  dropout: 0.1
+d_model: 256
+n_heads: 8
+n_layers: 6
+d_ff: 1024
+dropout: 0.1
 
-optimizer:
-  betas: [0.9, 0.999]
-  eps: 1.0e-8
-
-logging:
-  log_every: 100
-  eval_every: 2000
-  save_every: 2000
+use_amp: true
+show_progress: true
+device: cuda

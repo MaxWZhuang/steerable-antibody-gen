@@ -24,6 +24,7 @@ from smallAntibodyGen.infill.hcdr3 import (
     HCDR3Span,
 )
 from smallAntibodyGen.models.mlm import AntibodyAntigenCrossAttention
+from smallAntibodyGen.tokenizer import AminoAcidTokenizer
 from mlm_train import TrainConfig, _train_config_defaults, build_model, build_tokenizer, choose_device
 
 
@@ -145,6 +146,60 @@ def load_dual_stream_model(
     return model, cfg
 
 
+def build_infiller(
+    model: torch.nn.Module,
+    tokenizer: AminoAcidTokenizer,
+    cfg: TrainConfig,
+    device: torch.device,
+) -> FixedLengthHCDR3Infiller:
+    """
+    Construct a FixedLengthHCDR3Infiller wired to the checkpoint's antigen stream.
+
+    The antigen stream is tokenized independently of the model, so the infiller
+    MUST be told which antigen encoder the checkpoint was trained with. If these
+    fields are dropped, an ``antigen_encoder_type="esm"`` checkpoint is generated
+    with the *scratch* amino-acid tokenizer: scratch token ids are then fed into
+    an ESM encoder, silently corrupting the antigen representation at generation
+    time with no error raised (the antigen 3-site consistency rule). Threading
+    ``cfg`` here keeps generation byte-identical to training for both encoders.
+    """
+    return FixedLengthHCDR3Infiller(
+        model,
+        tokenizer,
+        max_length=cfg.max_length,
+        device=device,
+        antigen_encoder_type=cfg.antigen_encoder_type,
+        esm_model_name=cfg.esm_model_name,
+        antigen_max_length=cfg.antigen_max_length,
+    )
+
+
+def build_compatibility_scorer(
+    model: torch.nn.Module,
+    tokenizer: AminoAcidTokenizer,
+    cfg: TrainConfig,
+    device: torch.device,
+) -> AntigenCompatibilityScorer:
+    """
+    Construct an AntigenCompatibilityScorer wired to its checkpoint's antigen stream.
+
+    The scorer encodes the antigen with its *own* checkpoint's antigen tokenizer
+    (which may differ from the generation model's), so it is passed the score
+    checkpoint's config. Dropping the antigen-encoder fields here reintroduces
+    the same scratch-tokens-into-ESM-encoder corruption described in
+    ``build_infiller``, this time on the reported compatibility score.
+    """
+    return AntigenCompatibilityScorer(
+        model,
+        tokenizer,
+        max_length=cfg.max_length,
+        device=device,
+        antigen_encoder_type=cfg.antigen_encoder_type,
+        esm_model_name=cfg.esm_model_name,
+        antigen_max_length=cfg.antigen_max_length,
+    )
+
+
 def select_records(dataset: OASSequenceDataset, *, record_id: str | None, num_records: int) -> list[Any]:
     """
     Select target records from one split for candidate generation.
@@ -205,6 +260,25 @@ def candidate_to_json(
     }
 
 
+def assert_generated_any(rows: Sequence[dict[str, Any]], *, skipped_count: int) -> None:
+    """
+    Guard against a silent no-op generation run.
+
+    Per-length ``ValueError``s (e.g. a proposed length overflowing ``max_length``)
+    are skipped so one bad length does not abort the whole run. But if EVERY length
+    was skipped and no candidate was produced, writing an empty JSONL and exiting 0
+    makes a systematic data fault — wrong ``--data-path``, records missing antigen
+    sequences, no valid HCDR3 spans — look like a successful run. Fail loudly
+    instead so the no-op is not mistaken for success.
+    """
+    if not rows:
+        raise SystemExit(
+            f"no HCDR3 candidates were generated ({skipped_count} length(s) skipped). "
+            "Check that --data-path points at antigen-annotated records with valid HCDR3 "
+            "spans and antigen sequences, and that proposed lengths fit within max_length."
+        )
+
+
 def write_jsonl(rows: Sequence[dict[str, Any]], output_path: str | None) -> None:
     """
     Emit generated candidates as JSONL.
@@ -247,12 +321,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     device = choose_device(args.device)
     tokenizer = build_tokenizer()
     model, cfg = load_dual_stream_model(Path(args.checkpoint), data_path=args.data_path, device=device)
-    infiller = FixedLengthHCDR3Infiller(
-        model,
-        tokenizer,
-        max_length=cfg.max_length,
-        device=device,
-    )
+    infiller = build_infiller(model, tokenizer, cfg, device)
 
     scorer = None
     score_checkpoint_arg = args.score_checkpoint
@@ -265,12 +334,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             parser.error(f"--score-checkpoint path does not exist: {score_checkpoint}")
         if score_checkpoint.exists():
             score_model, score_cfg = load_dual_stream_model(score_checkpoint, data_path=args.data_path, device=device)
-            scorer = AntigenCompatibilityScorer(
-                score_model,
-                tokenizer,
-                max_length=score_cfg.max_length,
-                device=device,
-            )
+            scorer = build_compatibility_scorer(score_model, tokenizer, score_cfg, device)
 
     target_dataset = OASSequenceDataset(args.data_path, split=args.split)
     target_records = select_records(target_dataset, record_id=args.record_id, num_records=args.num_records)
@@ -281,6 +345,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         length_prior = EmpiricalHCDR3LengthPrior.fit(prior_dataset.records, positive_only=True)
 
     rows: list[dict[str, Any]] = []
+    skipped_count = 0
     for record in target_records:
         true_span = HCDR3Span.from_record(record)
         if args.length_mode == "fixed":
@@ -318,8 +383,10 @@ def main(argv: Sequence[str] | None = None) -> None:
                     )
             except ValueError as exc:
                 # e.g. a proposed length that overflows max_length; skip this
-                # length rather than aborting the whole generation run.
-                print(f"[warn] skipping length {proposed_length} for {record.record_id}: {exc}")
+                # length rather than aborting the whole generation run. A run that
+                # skips *every* length is caught below so it is not a silent no-op.
+                skipped_count += 1
+                print(f"[warn] skipping length {proposed_length} for {record.record_id}: {exc}", file=sys.stderr)
                 continue
             for candidate in candidates:
                 rows.append(
@@ -333,6 +400,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     )
                 )
 
+    assert_generated_any(rows, skipped_count=skipped_count)
     write_jsonl(rows, args.output_path)
 
 

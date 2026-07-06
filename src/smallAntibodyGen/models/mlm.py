@@ -102,7 +102,7 @@ class MLMConfig:
         if self.d_ff <= 0:
             raise ValueError("d_ff must be > 0")
         if not (0.0 <= self.dropout < 1.0):
-            raise ValueError("d_ff must be in [0, 1)")
+            raise ValueError("dropout must be in [0, 1)")
         if self.d_model % self.n_heads != 0:
             raise ValueError("d_model must be divisible by n_heads")
         if self.pad_token_id < 0 or self.pad_token_id >= self.vocab_size:

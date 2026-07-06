@@ -1,7 +1,15 @@
+# Stage 4/4 — antigen-conditioned, fixed-length HCDR3 infilling (from-scratch antigen stream).
+# Warm-starts from stage 3. Trains on the full is_strong_binder population (~216.6k train /
+# 1.78k val) -- positive-only conditional residue model, not a binder classifier.
+# Produces checkpoints/mlm_antigen_hcdr3_infill_v3/best.pt.
+#
+# Watch these metrics (logged as val_hcdr3_*): hcdr3_token_acc and hcdr3_span_exact_match.
+# When ranking generated candidates across proposed lengths, use mean_log_probability, not
+# the raw log-probability sum (raw sum grows with length).
 training_stage: antigen_hcdr3_infill_refine
 data_path: data/processed/antibody_antigen/antibody_antigen.jsonl.gz
-init_checkpoint: checkpoints/mlm_antigen_real_label_refine/best.pt
-output_dir: checkpoints/mlm_antigen_hcdr3_infill_refine
+init_checkpoint: checkpoints/mlm_antigen_real_label_v3/best.pt
+output_dir: checkpoints/mlm_antigen_hcdr3_infill_v3
 resume_from_last: true
 
 seed: 42
@@ -22,18 +30,19 @@ shuffle_pair_probability: 0.0
 shuffle_antigen_probability: 0.0
 
 learning_rate: 0.00003
+warmup_steps: 200
 weight_decay: 0.01
-epochs: 8
 grad_clip_norm: 1.0
 pair_loss_weight: 0.0
 compatibility_loss_weight: 0.0
+epochs: 8
+
+d_model: 256
+n_heads: 8
+n_layers: 6
+d_ff: 1024
+dropout: 0.1
+
 use_amp: true
 show_progress: true
 device: cuda
-
-model:
-  d_model: 256
-  n_heads: 8
-  n_layers: 6
-  d_ff: 1024
-  dropout: 0.1
