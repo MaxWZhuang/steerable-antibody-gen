@@ -554,6 +554,29 @@ def test_compatibility_binary_metrics_are_deterministic(project_root: Path):
     assert metrics["compatibility_auprc"] == pytest.approx(5 / 6)
 
 
+def test_binary_average_precision_is_tie_invariant(project_root: Path):
+    # Regression: with tied scores, AP must be order-invariant and equal the
+    # threshold-grouped (area-under-PR) value, not depend on input row order.
+    # One positive and one negative sharing a score => precision 0.5 either way.
+    mlm_train = load_mlm_train_module(project_root)
+
+    ap_pos_first = mlm_train.binary_average_precision([1, 0], [0.9, 0.9])
+    ap_neg_first = mlm_train.binary_average_precision([0, 1], [0.9, 0.9])
+    assert ap_pos_first == pytest.approx(0.5)
+    assert ap_neg_first == pytest.approx(0.5)
+    assert ap_pos_first == pytest.approx(ap_neg_first)
+
+    # A fully saturated head (all scores identical) with 2 of 4 positive:
+    # every row is one threshold group, precision = recall_end = 0.5.
+    assert mlm_train.binary_average_precision([1, 1, 0, 0], [1.0, 1.0, 1.0, 1.0]) == pytest.approx(0.5)
+
+    # Interleaved ties: two at 0.8 (1 pos/1 neg), two at 0.4 (1 pos/1 neg).
+    assert mlm_train.binary_average_precision([1, 1, 0, 0], [0.8, 0.4, 0.8, 0.4]) == pytest.approx(0.5)
+
+    # Strictly distinct scores are unaffected (matches the prior definition).
+    assert mlm_train.binary_average_precision([1, 0, 1, 0], [0.9, 0.8, 0.4, 0.1]) == pytest.approx(5 / 6)
+
+
 def test_hcdr3_metric_counts_and_finalization(project_root: Path):
     mlm_train = load_mlm_train_module(project_root)
     logits = mlm_train.torch.zeros((1, 5, 4), dtype=mlm_train.torch.float32)

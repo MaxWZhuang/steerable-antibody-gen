@@ -1,7 +1,17 @@
+# Stage 3/4 — antigen-conditioned compatibility on REAL binder/non-binder labels.
+# Warm-starts antibody encoder + heads from stage 2; the antigen encoder + cross-attention
+# fusion + compatibility head are trained here. Produces checkpoints/mlm_antigen_real_label_v3/best.pt.
+#
+# Data note: this stage keeps only binder_label in {0,1} == the affinity_type=="bool" rows
+# (~59.5k; ~54% positive). That is a smaller, different population than the strong-binder set
+# the stage-4 infiller trains on -- expected, but read compat metrics with that in mind.
+# Eval note: the group-majority shortcut baseline in mlm_train.py only fires for
+# training_stage=="antigen_refine", NOT this stage. Judge compat AUROC/MCC against the ~0.54
+# always-positive rate yourself, and watch the "[split] ... overlap" line for target leakage.
 training_stage: antigen_real_label_refine
 data_path: data/processed/antibody_antigen/antibody_antigen.jsonl.gz
-init_checkpoint: checkpoints/mlm_3m_paired_refine_hcdr3_01/best.pt
-output_dir: checkpoints/mlm_antigen_real_label_refine
+init_checkpoint: checkpoints/mlm_paired_refine_v3/best.pt
+output_dir: checkpoints/mlm_antigen_real_label_v3
 resume_from_last: true
 
 seed: 42
@@ -16,8 +26,18 @@ mask_probability: 0.10
 hcdr3_span_probability: 0.0
 hcdr3_span_min: 3
 hcdr3_span_max: 8
+hcdr3_mask_mode: sampled_span
+mask_replacement_strategy: bert
 shuffle_pair_probability: 0.0
 shuffle_antigen_probability: 0.0
+
+learning_rate: 0.00005
+warmup_steps: 300
+weight_decay: 0.01
+grad_clip_norm: 1.0
+pair_loss_weight: 0.0
+compatibility_loss_weight: 1.0
+epochs: 12
 
 d_model: 256
 n_heads: 8
@@ -25,12 +45,9 @@ n_layers: 6
 d_ff: 1024
 dropout: 0.1
 
-learning_rate: 0.00005
-weight_decay: 0.01
-grad_clip_norm: 1.0
-pair_loss_weight: 0.0
-compatibility_loss_weight: 1.0
-epochs: 12
+# Antigen stream = from-scratch transformer. NOTE: the scratch antigen encoder truncates the
+# antigen to max_length (192) tokens, so long antigens are only partially seen. The ESM variant
+# (refine_antigen_hcdr3_infill_esm.yaml) lifts this to 512.
 use_amp: true
 show_progress: true
 device: cuda

@@ -55,6 +55,11 @@ try:
 except ImportError:  # pragma: no cover - exercised only when dependency is missing
     yaml = None
 
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except ImportError:  # pragma: no cover - optional 'tb' extra not installed
+    SummaryWriter = None
+
 
 HCDR3_INFILL_STAGE = "antigen_hcdr3_infill_refine"
 ANTIGEN_STAGES = {"antigen_refine", "antigen_real_label_refine", HCDR3_INFILL_STAGE}
@@ -170,6 +175,14 @@ class TrainConfig:
     weight_decay: float = 1e-2
     grad_clip_norm: float = 1.0
     warmup_steps: int = 0
+    # Opt-in LR decay + regularization + logging knobs. Every default below
+    # reproduces the historical behavior exactly: warmup->constant LR, no early
+    # stopping, no TensorBoard. So an unmodified config is byte-for-byte unchanged.
+    lr_schedule: str = "constant"
+    min_lr_ratio: float = 0.0
+    early_stopping_patience: int = 0
+    early_stopping_min_delta: float = 0.0
+    tensorboard: bool = False
     pair_loss_weight: float = 1.0
     compatibility_loss_weight: float = 1.0
     epochs: int = 5
@@ -226,6 +239,14 @@ class TrainConfig:
             raise ValueError("grad_clip_norm must be > 0")
         if self.warmup_steps < 0:
             raise ValueError("warmup_steps must be >= 0")
+        if self.lr_schedule not in {"constant", "cosine"}:
+            raise ValueError("lr_schedule must be one of: constant, cosine")
+        if not (0.0 <= self.min_lr_ratio <= 1.0):
+            raise ValueError("min_lr_ratio must be in [0, 1]")
+        if self.early_stopping_patience < 0:
+            raise ValueError("early_stopping_patience must be >= 0")
+        if self.early_stopping_min_delta < 0:
+            raise ValueError("early_stopping_min_delta must be >= 0")
         if self.pair_loss_weight < 0:
             raise ValueError("pair_loss_weight must be >= 0")
         if self.compatibility_loss_weight < 0:
@@ -487,6 +508,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--weight-decay", type=float)
     parser.add_argument("--grad-clip-norm", type=float)
     parser.add_argument("--warmup-steps", type=int)
+    parser.add_argument("--lr-schedule", type=str, choices=("constant", "cosine"))
+    parser.add_argument("--min-lr-ratio", type=float)
+    parser.add_argument("--early-stopping-patience", type=int)
+    parser.add_argument("--early-stopping-min-delta", type=float)
+    parser.add_argument("--tensorboard", action="store_true", default=argparse.SUPPRESS)
     parser.add_argument("--pair-loss-weight", type=float)
     parser.add_argument("--compatibility-loss-weight", type=float)
     parser.add_argument("--epochs", type=int)
@@ -1320,25 +1346,155 @@ def build_optimizer(model: torch.nn.Module, cfg: TrainConfig) -> AdamW:
 
 
 def build_lr_scheduler(
-    optimizer: AdamW, cfg: TrainConfig
+    optimizer: AdamW,
+    cfg: TrainConfig,
+    total_steps: Optional[int] = None,
 ) -> torch.optim.lr_scheduler.LambdaLR | None:
     """
-    Build a linear LR warmup scheduler, or None when warmup is disabled.
+    Build the LR schedule: linear warmup, then a constant plateau or cosine decay.
 
-    For optimizer step ``s`` (0-based), the LR multiplier is
-    ``min(1.0, (s + 1) / warmup_steps)``; after ``warmup_steps`` updates the LR
-    stays at ``cfg.learning_rate``. Returns ``None`` when ``warmup_steps == 0``
-    so the constant-LR path is unchanged.
+    For optimizer step ``s`` (0-based) the LR multiplier is:
+
+    - ``(s + 1) / warmup_steps`` while ``s < warmup_steps`` (linear warmup), then
+    - ``1.0`` for ``lr_schedule == "constant"`` (historical behavior), or
+    - a half-cosine from ``1.0`` down to ``min_lr_ratio`` over the remaining
+      ``total_steps - warmup_steps`` updates for ``lr_schedule == "cosine"``.
+
+    Returns ``None`` only for the original no-op case (``warmup_steps == 0`` and
+    ``lr_schedule == "constant"``), so that path is byte-for-byte unchanged.
+    Cosine decay needs a horizon: when ``total_steps`` is missing or does not
+    extend past warmup, the schedule falls back to warmup-then-constant rather
+    than dividing by zero.
+
+    Args:
+        optimizer:
+            The optimizer whose LR is scheduled.
+        cfg:
+            Training configuration (reads ``warmup_steps``, ``lr_schedule``,
+            ``min_lr_ratio``).
+        total_steps:
+            Total planned optimizer steps (``steps_per_epoch * epochs``). Only
+            consulted for cosine decay; ignored for the constant schedule.
+
+    Returns:
+        A ``LambdaLR`` implementing the schedule, or ``None`` for the constant,
+        no-warmup case.
     """
-    if cfg.warmup_steps <= 0:
+    warmup = cfg.warmup_steps
+    use_cosine = cfg.lr_schedule == "cosine"
+
+    if not use_cosine and warmup <= 0:
         return None
 
-    warmup = cfg.warmup_steps
+    # Cosine needs room to decay past warmup; without a valid horizon we degrade
+    # gracefully to warmup-then-constant instead of dividing by zero.
+    if use_cosine and (total_steps is None or total_steps <= warmup):
+        use_cosine = False
+
+    min_ratio = cfg.min_lr_ratio
 
     def lr_lambda(step: int) -> float:
-        return min(1.0, float(step + 1) / float(warmup))
+        if warmup > 0 and step < warmup:
+            return float(step + 1) / float(warmup)
+        if not use_cosine:
+            return 1.0
+        progress = (step - warmup) / float(max(1, total_steps - warmup))
+        progress = min(1.0, max(0.0, progress))
+        return min_ratio + 0.5 * (1.0 - min_ratio) * (1.0 + math.cos(math.pi * progress))
 
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+
+def early_stopping_decision(
+    val_loss: float,
+    best_val_loss: float,
+    epochs_without_improvement: int,
+    patience: int,
+    min_delta: float,
+) -> tuple[int, bool]:
+    """
+    Decide whether training should stop early after an epoch's validation.
+
+    ``best_val_loss`` is the best loss observed *before* this epoch. An epoch
+    counts as an improvement only when ``val_loss`` is finite and beats that best
+    by more than ``min_delta``. Patience counts consecutive non-improving epochs;
+    a non-finite ``val_loss`` never counts as improvement.
+
+    Args:
+        val_loss:
+            This epoch's validation loss.
+        best_val_loss:
+            Best validation loss before this epoch (``inf`` if none yet).
+        epochs_without_improvement:
+            Running count of consecutive non-improving epochs.
+        patience:
+            Max non-improving epochs to tolerate; ``<= 0`` disables early stop.
+        min_delta:
+            Minimum loss decrease that counts as an improvement.
+
+    Returns:
+        Tuple ``(new_epochs_without_improvement, should_stop)``. When
+        ``patience <= 0`` this is always ``(0, False)``.
+    """
+    if patience <= 0:
+        return 0, False
+    improved = math.isfinite(val_loss) and val_loss < best_val_loss - min_delta
+    if improved:
+        return 0, False
+    new_count = epochs_without_improvement + 1
+    return new_count, new_count >= patience
+
+
+def build_tensorboard_writer(cfg: TrainConfig, output_dir: Path):
+    """
+    Build a TensorBoard ``SummaryWriter`` when ``cfg.tensorboard`` is set.
+
+    TensorBoard is an optional dependency (the ``tb`` extra). When requested but
+    unavailable, we warn and return ``None`` so training still runs — mirroring
+    the module's optional-``yaml``/``tqdm`` handling.
+
+    Args:
+        cfg:
+            Training configuration.
+        output_dir:
+            Run output directory; logs are written under ``output_dir / "tb"``.
+
+    Returns:
+        A ``SummaryWriter`` writing to ``output_dir / "tb"``, or ``None`` when
+        TensorBoard logging is disabled or the package is missing.
+    """
+    if not cfg.tensorboard:
+        return None
+    if SummaryWriter is None:
+        print(
+            "[warn] tensorboard=True but the 'tensorboard' package is not installed; "
+            "skipping TensorBoard logging. Install it with `pip install -e \".[tb]\"`."
+        )
+        return None
+    return SummaryWriter(log_dir=str(Path(output_dir) / "tb"))
+
+
+def log_epoch_scalars(
+    writer,
+    step: int,
+    train_metrics: Dict[str, float],
+    val_metrics: Dict[str, float],
+    learning_rate: float,
+) -> None:
+    """
+    Write one epoch's scalar metrics to TensorBoard, if a writer is present.
+
+    A ``None`` writer is a no-op so callers need not branch. Only a small, stable
+    set of scalars is logged (train/val loss, val MLM accuracy, LR); the full
+    metric record still lands in ``metrics.jsonl``.
+    """
+    if writer is None:
+        return
+    writer.add_scalar("loss/train", train_metrics["loss"], step)
+    writer.add_scalar("loss/val", val_metrics["loss"], step)
+    if "mlm_acc" in val_metrics:
+        writer.add_scalar("mlm_acc/val", val_metrics["mlm_acc"], step)
+    writer.add_scalar("lr", learning_rate, step)
 
 
 def move_batch_to_device(batch: Dict[str, Any], device: torch.device) -> Dict[str, Any]:
@@ -1567,6 +1723,15 @@ def binary_auroc(labels: Sequence[int], scores: Sequence[float]) -> float:
 def binary_average_precision(labels: Sequence[int], scores: Sequence[float]) -> float:
     """
     Compute average precision / area under the precision-recall curve.
+
+    Tied scores are collapsed into a single threshold group before precision and
+    recall are read off, matching ``sklearn.average_precision_score`` and the
+    area-under-PR definition. A naive "precision at each positive's row" sum is
+    ambiguous under ties: for one positive and one negative sharing a score, it
+    returns 1.0 or 0.5 purely from input order, whereas the threshold-grouped
+    value is 0.5 either way. Exact ties are realistic here because a confident
+    2-class head saturates ``softmax(...)[:, 1]`` to identical values across
+    rows. For strictly distinct scores this reduces to the previous definition.
     """
     y = np.asarray(labels, dtype=np.int64)
     s = np.asarray(scores, dtype=np.float64)
@@ -1577,11 +1742,24 @@ def binary_average_precision(labels: Sequence[int], scores: Sequence[float]) -> 
         return float("nan")
 
     order = np.argsort(-s, kind="mergesort")
+    sorted_scores = s[order]
     sorted_labels = y[order]
-    tp = np.cumsum(sorted_labels == 1)
-    seen = np.arange(1, len(sorted_labels) + 1)
-    precision = tp / seen
-    return float(precision[sorted_labels == 1].sum() / pos_count)
+    tp_cum = np.cumsum(sorted_labels == 1)
+    fp_cum = np.cumsum(sorted_labels == 0)
+
+    # Keep only the last row of each tied-score run: these are the distinct
+    # decision thresholds. tp/fp are read at the end of each run so a positive
+    # and a negative at the same score share one precision.
+    is_threshold = np.ones(len(sorted_scores), dtype=bool)
+    is_threshold[:-1] = sorted_scores[1:] != sorted_scores[:-1]
+    idx = np.nonzero(is_threshold)[0]
+
+    tp_at = tp_cum[idx].astype(np.float64)
+    fp_at = fp_cum[idx].astype(np.float64)
+    precision = tp_at / (tp_at + fp_at)
+    recall = tp_at / pos_count
+    recall_prev = np.concatenate(([0.0], recall[:-1]))
+    return float(np.sum((recall - recall_prev) * precision))
 
 
 def compatibility_binary_metrics(
@@ -2643,9 +2821,16 @@ def main() -> None:
     # The GradScaler and warmup scheduler are owned by main() and reused across
     # epochs (and persisted/restored) so their adaptive state is not reset.
     scaler = torch.amp.GradScaler("cuda", enabled=(cfg.use_amp and device.type == "cuda"))
-    scheduler = build_lr_scheduler(optimizer, cfg)
+    # Cosine decay needs the full training horizon; derive it from the epoch-0
+    # loader length (constant across epochs) x epochs. Constant/warmup-only runs
+    # ignore total_steps, so this is harmless there.
+    steps_per_epoch = len(build_train_loader(train_dataset, tokenizer, cfg, epoch=0, device=device))
+    total_training_steps = steps_per_epoch * cfg.epochs
+    scheduler = build_lr_scheduler(optimizer, cfg, total_steps=total_training_steps)
+    tb_writer = build_tensorboard_writer(cfg, output_dir)
 
     best_val_loss = float("inf")
+    epochs_without_improvement = 0
     start_epoch = 0
 
     print(f"training_stage: {cfg.training_stage}")
@@ -2809,6 +2994,14 @@ def main() -> None:
             epoch_metrics_record["row_random_probe"] = row_random_metrics
         append_metrics_jsonl(output_dir, epoch_metrics_record)
 
+        log_epoch_scalars(
+            tb_writer,
+            epoch + 1,
+            train_metrics,
+            val_metrics,
+            optimizer.param_groups[0]["lr"],
+        )
+
         save_checkpoint(
             path=output_dir / "last.pt",
             model=model,
@@ -2819,6 +3012,10 @@ def main() -> None:
             scaler=scaler,
             scheduler=scheduler,
         )
+
+        # Early stopping keys off the best *before* this epoch's update, so
+        # capture it before best_val_loss potentially advances below.
+        prev_best_val_loss = best_val_loss
 
         # Guard against NaN/Inf: `NaN < best` is always False, so a non-finite
         # val_loss would silently neither win nor warn. Skip and report instead.
@@ -2836,6 +3033,24 @@ def main() -> None:
             )
         elif not math.isfinite(val_loss):
             print(f"[warn] val_loss is non-finite ({val_loss}); best.pt not updated this epoch")
+
+        epochs_without_improvement, should_stop = early_stopping_decision(
+            val_loss=val_loss,
+            best_val_loss=prev_best_val_loss,
+            epochs_without_improvement=epochs_without_improvement,
+            patience=cfg.early_stopping_patience,
+            min_delta=cfg.early_stopping_min_delta,
+        )
+        if should_stop:
+            print(
+                f"[early-stop] no val_loss improvement for {epochs_without_improvement} "
+                f"epoch(s) (patience={cfg.early_stopping_patience}); stopping at epoch "
+                f"{epoch + 1}, best val_loss={best_val_loss:.4f}"
+            )
+            break
+
+    if tb_writer is not None:
+        tb_writer.close()
 
 
 if __name__ == "__main__":
