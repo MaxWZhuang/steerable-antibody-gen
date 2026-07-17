@@ -378,3 +378,70 @@ def test_prepare_antibody_antigen_filters_by_confidence_and_antigen_length(
     assert rows[0]["confidence"] == "high"
     assert "confidence_filtered" in result.stdout
     assert "antigen_length_out_of_range" in result.stdout
+
+
+def _nanomolar_kd_rows(make_row, n: int = 60) -> list[dict]:
+    # n DISTINCT kd rows whose measurements are nanomolar (median 50 nM), so no
+    # row clears the <=1.0 nM strong bar -> the dataset reports zero strong
+    # binders with a median far above the molar/nanomolar boundary, which is
+    # exactly the mislabeled-units shape --strict-units exists to catch. Rows must
+    # be distinct on the (heavy, light, antigen) dedupe triple to be counted, and
+    # the guard only fires above 50 values.
+    aa = "ACDEFGHIKLMNPQRSTVWY"
+    return [
+        make_row(
+            affinity_type="kd",
+            affinity="50.0",
+            processed_measurement="50.0",
+            antigen_sequence="MKTIIALSYIFCLVFADYKDD" + aa[i // 20] + aa[i % 20],
+        )
+        for i in range(n)
+    ]
+
+
+def test_strict_units_refuses_to_commit_the_corpus(
+    tmp_path: Path,
+    antigen_script_path: Path,
+    write_antibody_antigen_parquet,
+    make_antibody_antigen_row,
+):
+    # AB-03: the units guard raised only AFTER writer.close(), so the poisoned
+    # corpus was already sitting at --output when the run failed -- a file
+    # indistinguishable from a good one. The guard must prevent the artifact, not
+    # merely report on it afterwards.
+    raw_dir = tmp_path / "raw"
+    write_antibody_antigen_parquet(
+        raw_dir / "shard-0.parquet", _nanomolar_kd_rows(make_antibody_antigen_row)
+    )
+    out_path = tmp_path / "processed" / "antibody_antigen.jsonl.gz"
+
+    with pytest.raises(subprocess.CalledProcessError) as excinfo:
+        run_prepare_antibody_antigen(
+            antigen_script_path, raw_dir, out_path, ["--strict-units"]
+        )
+
+    assert "[kd-units]" in excinfo.value.stderr
+    assert not out_path.exists()  # pre-fix: the poisoned corpus was already here
+
+
+def test_without_strict_units_the_same_corpus_is_committed_with_a_warning(
+    tmp_path: Path,
+    antigen_script_path: Path,
+    write_antibody_antigen_parquet,
+    make_antibody_antigen_row,
+):
+    # The staged-commit path must leave the default (warn-only) behavior intact:
+    # same corpus, no --strict-units -> warns, and still commits every record.
+    raw_dir = tmp_path / "raw"
+    write_antibody_antigen_parquet(
+        raw_dir / "shard-0.parquet", _nanomolar_kd_rows(make_antibody_antigen_row)
+    )
+    out_path = tmp_path / "processed" / "antibody_antigen.jsonl.gz"
+
+    result = run_prepare_antibody_antigen(antigen_script_path, raw_dir, out_path)
+
+    assert "WARNING" in result.stdout
+    assert out_path.exists()
+    assert len(load_jsonl_gz(out_path)) == 60
+    # The staging file must not survive a successful run.
+    assert not out_path.with_name(out_path.name + ".tmp").exists()

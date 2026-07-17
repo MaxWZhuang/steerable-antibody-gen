@@ -166,6 +166,42 @@ Basic data pipeline detailed below:
 
 ---
 
+## Training options (all stages)
+
+`scripts/mlm_train.py` shares the knobs below across every stage. Each is
+**opt-in and defaults to the historical behavior**, so existing configs are
+byte-for-byte unchanged unless you set them. Every knob also has a matching CLI
+flag that overrides the config value.
+
+- **LR schedule** — `lr_schedule: constant` (default) keeps warmup-then-flat LR.
+  `lr_schedule: cosine` decays from the peak LR down to `min_lr_ratio × peak`
+  (default `0.0`) over the full run after `warmup_steps`. Flags: `--lr-schedule`,
+  `--min-lr-ratio`.
+- **Early stopping** — `early_stopping_patience: N` (default `0` = off) stops when
+  validation loss has not improved for `N` consecutive epochs;
+  `early_stopping_min_delta` (default `0.0`) is the minimum improvement that
+  counts. `best.pt` remains the val-loss-optimal checkpoint, so you can set a
+  generous `epochs` ceiling and let the run self-truncate. Flags:
+  `--early-stopping-patience`, `--early-stopping-min-delta`.
+- **Intra-epoch checkpointing** — `checkpoint_every_steps: N` (default `0` = off)
+  rewrites `last.pt` every `N` batches. Resume is epoch-granular: after a crash a
+  resumed run re-enters the in-progress epoch from its first batch with the saved
+  weights, so no weight progress is lost. Checkpoint writes are **atomic**
+  (temp file + `os.replace`), so a crash mid-write cannot corrupt `last.pt`. Flag:
+  `--checkpoint-every-steps`.
+- **TensorBoard** — `tensorboard: true` (default `false`) logs train/val loss, val
+  MLM accuracy, and LR to `<output_dir>/tb`. Needs the optional `tb` extra:
+
+  ```bash
+  pip install -e ".[tb]"
+  python scripts/mlm_train.py --config <config>.yaml   # config sets tensorboard: true
+  tensorboard --logdir checkpoints                      # overlays all stages' runs
+  ```
+
+  Flag: `--tensorboard`.
+
+---
+
 ## Antigen-Conditioned HCDR3 Infilling (implemented)
 
 The first generation task from Phase 6 is implemented as a fixed-length,

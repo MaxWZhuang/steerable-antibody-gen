@@ -167,8 +167,8 @@ class AminoAcidTokenizer:
                 *self.chain_tokens,
             }
             tokens = [tok for tok in tokens if tok not in special_tokens]
-        aa_tokens = [tok for tok in tokens if len(tok) == 1 and tok.isalpha()]
-        return "".join(aa_tokens)
+            tokens = [tok for tok in tokens if len(tok) == 1 and tok.isalpha()]
+        return "".join(tokens)
 
     def save_vocab(self, path: str) -> None:
         with open(path, "w", encoding="utf-8") as f:
