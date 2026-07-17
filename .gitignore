@@ -38,3 +38,7 @@ wandb/
 *.tar
 *.pt
 *.pth
+
+# Local-only machine setup / personal run scripts (kept on disk, never pushed)
+pythoncore_3_9_backup.reg
+retrain_overnight.ps1
