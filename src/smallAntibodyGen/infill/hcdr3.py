@@ -275,7 +275,20 @@ class FixedLengthHCDR3Infiller:
         prefix = heavy_sequence[:span.aa_start]
         suffix = heavy_sequence[span.aa_end:]
         light_sequence = (getattr(record, "sequence_light", None) or "").strip()
-        heavy_locus = getattr(record, "heavy_locus", None) or getattr(record, "locus", None) or "IGH"
+        # Resolve the heavy chain token as training does (MLMCollator._encode_record),
+        # which branches on pairing and so must this: on a PAIRED record `locus` is a
+        # record-type marker ("PAIRED_ANTIGEN"), not a chain identity, so consulting
+        # it would encode the heavy chain as [OTHER_CHAIN]; on a single-chain record
+        # `locus` IS the chain identity and must be honored.
+        # Residual, deliberate: the collator's single-chain branch ends at
+        # `heavy_locus or locus` with no "IGH" default, so a record with NEITHER set
+        # trains as [OTHER_CHAIN] but is encoded [IGH] here. No producer emits that
+        # shape (normalize_locus floors at "OTHER"; the AA producer hardcodes
+        # heavy_locus="IGH"), so it is unreachable rather than resolved.
+        heavy_locus = getattr(record, "heavy_locus", None)
+        if not light_sequence:
+            heavy_locus = heavy_locus or getattr(record, "locus", None)
+        heavy_locus = heavy_locus or "IGH"
         light_locus = getattr(record, "light_locus", None) or "IGK"
 
         tokens = [
@@ -990,9 +1003,21 @@ class AntigenCompatibilityScorer:
                 max_length=self.max_length,
             )
         else:
+            # Fall back through the record's own `locus` before "IGH", following
+            # the training collator's single-chain branch (`heavy_locus or locus`,
+            # MLMCollator._encode_record). Without the `locus` step a record
+            # carrying its chain identity only in `locus` is scored as [IGH] while
+            # training encoded its real chain token -- a silent first-position
+            # train/inference mismatch. See _encode_antibody_with_masked_hcdr3 for
+            # the one residual case (neither field set) where the trailing "IGH"
+            # still diverges from training.
             ids = self.tokenizer.encode_sequence(
                 heavy_sequence,
-                locus=getattr(record, "heavy_locus", None) or "IGH",
+                locus=(
+                    getattr(record, "heavy_locus", None)
+                    or getattr(record, "locus", None)
+                    or "IGH"
+                ),
                 max_length=self.max_length,
             )
         input_ids = torch.tensor([ids], dtype=torch.long, device=self.device)

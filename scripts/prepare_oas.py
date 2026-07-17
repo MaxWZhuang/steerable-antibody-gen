@@ -223,12 +223,16 @@ def normalize_locus(raw_locus: object) -> str:
         str: _description_
     """
     locus = str(raw_locus or "").strip().upper()
-    if locus in {"H", "IGH"}:
+    if locus in {"H", "IGH", "HEAVY", "VH"}:
         return "IGH"
-    if locus in {"K", "IGK"}:
+    if locus in {"K", "IGK", "KAPPA"}:
         return "IGK"
-    if locus in {"L", "IGL"}:
+    if locus in {"L", "IGL", "LAMBDA"}:
         return "IGL"
+    # A bare file-level "LIGHT" declaration cannot be resolved to IGK vs IGL
+    # (distinct loci with separate outputs and length windows), so it is left as
+    # OTHER rather than guessed. Rely on the per-row `locus` column for light
+    # chains; a fully-unresolved file then surfaces as a `bad_locus` drop.
     return "OTHER"
 
 def chain_group_from_locus(locus: str) -> str:
@@ -398,7 +402,9 @@ def choose_nt_sequence(row: Dict[str, str]) -> str:
         row.get("junction"),
     ]
     for cand in candidates:
-        text = str(cand or "").upper().replace(" ", "")
+        if cand is None or pd.isna(cand):
+            continue
+        text = str(cand).upper().replace(" ", "")
         text = re.sub(r"[^ACGTN]", "", text)
         if text:
             return text
@@ -424,7 +430,9 @@ def choose_nt_sequence_for_suffix(row: Dict[str, str], suffix: str) -> str:
         row.get(f"junction_{suffix}"),
     ]
     for cand in candidates:
-        text = str(cand or "").upper().replace(" ", "")
+        if cand is None or pd.isna(cand):
+            continue
+        text = str(cand).upper().replace(" ", "")
         text = re.sub(r"[^ACGTN]", "", text)
         if text:
             return text
@@ -603,11 +611,11 @@ def iter_kept_paired_records_for_file(
             "locus": "PAIRED",
             "chain_group": "paired",
             "split": deterministic_split(pair_key, val_percent=args.val_percent),
-            "productive": heavy_record["productive"] and light_record["productive"],
-            "vj_in_frame": heavy_record["vj_in_frame"] and light_record["vj_in_frame"],
-            "stop_codon": bool(heavy_record["stop_codon"]) or bool(light_record["stop_codon"]),
-            "v_frameshift": bool(heavy_record["v_frameshift"]) or bool(light_record["v_frameshift"]),
-            "complete_vdj": bool(heavy_record["complete_vdj"]) and bool(light_record["complete_vdj"]),
+            "productive": flag_and(heavy_record["productive"], light_record["productive"]),
+            "vj_in_frame": flag_and(heavy_record["vj_in_frame"], light_record["vj_in_frame"]),
+            "stop_codon": flag_or(heavy_record["stop_codon"], light_record["stop_codon"]),
+            "v_frameshift": flag_or(heavy_record["v_frameshift"], light_record["v_frameshift"]),
+            "complete_vdj": flag_and(heavy_record["complete_vdj"], light_record["complete_vdj"]),
             "sequence_source": f"{heavy_record['sequence_source']}|{light_record['sequence_source']}",
             "cdr3_aa": heavy_record["cdr3_aa"],
             "cdr3_start_aa": heavy_record["cdr3_start_aa"],
@@ -632,6 +640,36 @@ def iter_kept_paired_records_for_file(
             "source_file": path.name,
         }
 
+def flag_and(a: bool | None, b: bool | None) -> bool | None:
+    """
+    Three-valued (Kleene) AND that preserves unknown (None).
+
+    A definite ``False`` dominates; the result is ``None`` only when neither
+    operand is definitely ``False`` and at least one is unknown. This keeps an
+    absent flag on a paired record ``None`` (matching the unpaired path) instead
+    of coercing it to ``False`` via ``bool(None)``.
+    """
+    if a is False or b is False:
+        return False
+    if a is None or b is None:
+        return None
+    return bool(a and b)
+
+
+def flag_or(a: bool | None, b: bool | None) -> bool | None:
+    """
+    Three-valued (Kleene) OR that preserves unknown (None).
+
+    A definite ``True`` dominates; the result is ``None`` only when neither
+    operand is definitely ``True`` and at least one is unknown.
+    """
+    if a is True or b is True:
+        return True
+    if a is None or b is None:
+        return None
+    return bool(a or b)
+
+
 def keep_record(
     *,
     locus: str,
@@ -648,7 +686,8 @@ def keep_record(
 
     Args:
         locus:
-            Normalized locus string such as IGH, IGK, IGL, or VHH.
+            Normalized locus string as emitted by `normalize_locus`: IGH, IGK,
+            IGL, or OTHER. Anything else is dropped as `bad_locus`.
         seq:
             Cleaned amino-acid sequence chosen for modeling.
         productive:
@@ -681,7 +720,11 @@ def keep_record(
     if v_frameshift is True:
         return False, "v_frameshift"
 
-    if getattr(args, "require_complete_vdj", False) and complete_vdj is not True:
+    # Direct attribute access, not getattr-with-a-default: --require-complete-vdj
+    # exists, so the default is unreachable and would only serve to silently take
+    # over if the flag were renamed or dropped (that exact bug shipped once as
+    # Mirror BUG-11's dead --strict-units escalation).
+    if args.require_complete_vdj and complete_vdj is not True:
         return False, "incomplete_vdj"
 
     if locus == "IGH":
@@ -691,11 +734,6 @@ def keep_record(
 
     if locus in {"IGK", "IGL"}:
         if not (args.min_light <= len(seq) <= args.max_light):
-            return False, "length_out_of_range"
-        return True, "kept"
-
-    if locus == "VHH":
-        if not (args.min_nano <= len(seq) <= args.max_nano):
             return False, "length_out_of_range"
         return True, "kept"
 
@@ -722,7 +760,7 @@ def iter_oas_records(path: Path) -> Iterator[Dict[str, object]]:
     delimiter = detect_delimiter(path)
 
     with open_text(path) as f:
-        metadata = parse_metadata_line(f.readline())
+        metadata = parse_metadata_line(f.readline()) or {}
     basic_meta = extract_basic_metadata(metadata)
     
     with open_text(path) as f:
@@ -1279,7 +1317,7 @@ def sample_with_file_quotas(
         args:
             Parsed CLI arguments.
         writers:
-            Output writers, e.g. all / IGH / IGK / IGL / VHH.
+            Output writers, e.g. all / IGH / IGK / IGL / paired.
         stats:
             Mutable stats dictionary.
         seen:
@@ -1477,12 +1515,9 @@ def main() -> None:
         "allocated_quota_per_file": stats.get("allocated_quota_per_file", {}),
         "allocated_quota_per_file_locus": stats.get("allocated_quota_per_file_locus", {}),
         "allocated_quota_by_locus": stats.get("allocated_quota_by_locus", {}),
-        "outputs": {
-            "all": str(args.output_dir / "oas_all.jsonl.gz"),
-            "IGH": str(args.output_dir / "oas_igh.jsonl.gz"),
-            "IGK": str(args.output_dir / "oas_igk.jsonl.gz"),
-            "IGL": str(args.output_dir / "oas_igl.jsonl.gz"),
-        }
+        # Derived from `writers` so the manifest can never drift from what was
+        # actually written (previously the PAIRED output was silently omitted).
+        "outputs": {name: str(writer.path) for name, writer in writers.items()},
     }
 
     if args.stats_output is not None:

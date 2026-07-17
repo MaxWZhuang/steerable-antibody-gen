@@ -28,7 +28,10 @@ from smallAntibodyGen.tokenizer import AminoAcidTokenizer
 from mlm_train import TrainConfig, _train_config_defaults, build_model, build_tokenizer, choose_device
 
 
-DEFAULT_SCORE_CHECKPOINT = Path("checkpoints/mlm_antigen_real_label_refine/best.pt")
+# Repo-anchored (not CWD-relative) and pointed at the dir the stage-3 real-label
+# config (configs/refine_antigen_real_label.yaml) actually writes (`_v3`), not the
+# CLI-default `_refine` stage-name dir the chain never produces.
+DEFAULT_SCORE_CHECKPOINT = PROJECT_ROOT / "checkpoints" / "mlm_antigen_real_label_v3" / "best.pt"
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -324,7 +327,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     infiller = build_infiller(model, tokenizer, cfg, device)
 
     scorer = None
-    score_checkpoint_arg = args.score_checkpoint
+    score_checkpoint_arg = args.score_checkpoint or None  # treat "" as not provided
     score_checkpoint = Path(score_checkpoint_arg) if score_checkpoint_arg else DEFAULT_SCORE_CHECKPOINT
     if not args.no_score:
         # An explicitly-provided --score-checkpoint that is missing is a user
@@ -335,6 +338,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         if score_checkpoint.exists():
             score_model, score_cfg = load_dual_stream_model(score_checkpoint, data_path=args.data_path, device=device)
             scorer = build_compatibility_scorer(score_model, tokenizer, score_cfg, device)
+        else:
+            # The implicit default is absent: skip scoring, but say so rather than
+            # silently emitting null compatibility_score on every candidate.
+            print(
+                f"[info] default score checkpoint not found ({score_checkpoint}); "
+                "skipping compatibility scoring (compatibility_score will be null).",
+                file=sys.stderr,
+            )
 
     target_dataset = OASSequenceDataset(args.data_path, split=args.split)
     target_records = select_records(target_dataset, record_id=args.record_id, num_records=args.num_records)

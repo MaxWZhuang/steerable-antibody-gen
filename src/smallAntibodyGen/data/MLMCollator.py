@@ -142,6 +142,16 @@ class OASSequenceDataset(Dataset[OASRecord]):
             return None
 
         if affinity_type == "kd":
+            # KD may be stored in molar (e.g. 1e-9) or already in nanomolar
+            # (e.g. 1.0). Normalize nanomolar-encoded values to molar before the
+            # -log10 so raw and scaled encodings of the same measurement yield
+            # the SAME strength score, matching the magnitude disambiguation in
+            # _infer_is_strong_binder. Without this, a scaled-unit strong binder
+            # (1.0 nM -> score 0.0) never clears the >= 9.0 strength threshold.
+            if value <= 0:
+                return None
+            if value >= 1e-3:
+                value = value * 1e-9
             return -math.log10(max(value, 1e-12))
         return value
 
@@ -171,16 +181,57 @@ class OASSequenceDataset(Dataset[OASRecord]):
             "affinity_strength_label": strength_label,
         }
 
+    @staticmethod
+    def _marker_text(value: object) -> str:
+        """
+        Normalize a stored qualitative marker to comparable text.
+
+        Follows `clean_text` in `scripts/prepare_antibody_antigen.py`, which wrote
+        these values: a missing marker becomes "", everything else is stringified
+        and trimmed. Stringifying first is what lets a caller distinguish "absent"
+        from a present-but-falsy measurement such as `0.0`.
+
+        Only `None` and float NaN count as missing, where `clean_text` defers to
+        `pd.isna` and so also catches pandas/numpy sentinels (`pd.NaT`, `pd.NA`,
+        `np.float32` NaN). Those cannot appear here -- this reads `json.loads`
+        output, and a JSON `NaN` literal decodes to a Python float -- and the
+        difference fails safe (a sentinel would stringify to a non-"h" value, i.e.
+        not-strong) rather than inventing a strong binder.
+
+        Args:
+            value:
+                Raw scalar from a decoded JSONL row.
+
+        Returns:
+            Trimmed string, or "" when the value is missing.
+        """
+        if value is None:
+            return ""
+        if isinstance(value, float) and math.isnan(value):
+            return ""
+        return str(value).strip()
+
     @classmethod
     def _infer_is_strong_binder(cls, record: Dict[str, object]) -> bool:
         """
         Return the conservative phase-1 strong-binder flag used by the
         antibody-antigen compatibility stage.
 
-        Strong binders are intentionally narrow:
+        A stored `is_strong_binder` wins outright; the rest is the legacy
+        fallback for JSONL written before that field existed. The fallback
+        mirrors `infer_is_strong_binder` in `scripts/prepare_antibody_antigen.py`,
+        which is the authority for what counts as strong:
         - explicit boolean binders with label 1
-        - `kd <= 1e-9`
-        - `-log KD >= 9`
+        - fuzzy rows whose qualitative marker is "h"
+        - kd rows with Kd <= 1 nM (molar values <= 1e-9, or nanomolar <= 1.0)
+        - -log KD rows with processed measurement >= 9
+
+        Args:
+            record:
+                One decoded JSONL row.
+
+        Returns:
+            True when the row is a strong binder under the rules above.
         """
         if "is_strong_binder" in record:
             return bool(record.get("is_strong_binder"))
@@ -188,6 +239,17 @@ class OASSequenceDataset(Dataset[OASRecord]):
         affinity_type = cls._normalize_affinity_type(record.get("affinity_type"))
         if affinity_type == "bool":
             return record.get("binder_label") == 1
+        if affinity_type == "fuzzy":
+            # Mirror infer_is_strong_binder in prepare_antibody_antigen.py: the
+            # qualitative "high" marker == strong. Normalize BEFORE the `or` so a
+            # present-but-falsy measurement (0, 0.0, False) is not treated as
+            # absent and silently substituted by affinity_raw. Today's producer
+            # stores `clean_text(...) or None`, so a stored marker is already
+            # None-or-non-empty-string and the precedence cannot bite; this guards
+            # the legacy/hand-built rows the fallback exists to serve at all.
+            pm = cls._marker_text(record.get("processed_measurement_raw"))
+            raw = cls._marker_text(record.get("affinity_raw"))
+            return (pm or raw).lower() == "h"
         measurement = record.get("processed_measurement_float")
         if not isinstance(measurement, (int, float)) or isinstance(measurement, bool):
             return False

@@ -67,9 +67,9 @@ def main() -> None:
 
     records: list[dict] = []
     for idx, record in enumerate(iter_jsonl(args.path)):
-        records.append(record)
-        if args.limit is not None and idx + 1 >= args.limit:
+        if args.limit is not None and idx >= args.limit:
             break
+        records.append(record)
 
     if not records:
         print("No records found.")

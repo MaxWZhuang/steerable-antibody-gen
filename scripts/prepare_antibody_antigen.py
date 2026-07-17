@@ -5,6 +5,7 @@ import gzip
 import hashlib
 import json
 import math
+import os
 import re
 import statistics
 import sys
@@ -31,6 +32,16 @@ AA_ONLY = re.compile(r"[^A-Z]")
 BOOLEAN_TRUE = {"1", "TRUE", "T", "YES", "Y"}
 BOOLEAN_FALSE = {"0", "FALSE", "F", "NO", "N"}
 
+# Kd may be stored in molar (e.g. 1e-9) or already in nanomolar (e.g. 1.0). A real
+# antibody Kd in molar is always well below 1 mM, so any value at or above this
+# boundary must already be expressed in nanomolar. Defined once because three sites
+# disambiguate on it -- infer_is_strong_binder (per row, `>=`), guess_kd_unit_label
+# (per dataset median, `<`) and the units sanity guard (per dataset median, `>`).
+# They deliberately differ in operator, not in boundary: the label previously used
+# 1e-6 while the classifier used 1e-3, so a median of 1e-5 was reported
+# "nanomolar?" while every row in it was scored as molar.
+KD_MOLAR_NANOMOLAR_BOUNDARY = 1e-3
+
 
 def clean_aa_sequence(seq: object) -> str:
     """
@@ -50,7 +61,9 @@ def clean_aa_sequence(seq: object) -> str:
     Returns:
         Cleaned amino-acid string. Empty string means unusable / missing.
     """
-    seq = str(seq or "").upper().replace(" ", "")
+    if seq is None or pd.isna(seq):
+        return ""
+    seq = str(seq).upper().replace(" ", "")
     seq = AA_ONLY.sub("", seq)
     return "".join(ch for ch in seq if ch in VALID_AA)
 
@@ -428,12 +441,31 @@ def infer_is_strong_binder(
         # >= 1e-3 must already be expressed in nanomolar.
         if measurement <= 0:
             return False
-        if measurement >= 1e-3:
+        if measurement >= KD_MOLAR_NANOMOLAR_BOUNDARY:
             return measurement <= 1.0
         return measurement <= 1e-9
     if normalized_type == "-log kd":
         return measurement >= 9.0
     return False
+
+
+def guess_kd_unit_label(median_kd: float) -> str:
+    """
+    Label a dataset's KD units from its median, for the units sanity report.
+
+    Shares `KD_MOLAR_NANOMOLAR_BOUNDARY` with `infer_is_strong_binder` so the label
+    and the classifier cannot disagree about where molar ends and nanomolar begins.
+    The label is still only a per-dataset summary: it describes the median, so
+    individual rows on the far side of the boundary are classified the other way.
+
+    Args:
+        median_kd:
+            Median raw processed measurement across one dataset's kd rows.
+
+    Returns:
+        "molar?" below the molar/nanomolar boundary, else "nanomolar?".
+    """
+    return "molar?" if median_kd < KD_MOLAR_NANOMOLAR_BOUNDARY else "nanomolar?"
 
 
 def keep_record(
@@ -598,19 +630,47 @@ def build_processed_record(
 class JsonlGzWriter:
     """
     Minimal gzip JSONL writer matching the repository's existing preprocessing
-    pattern.
+    pattern, with a staged commit.
+
+    Records stream to a sibling `.tmp` file; the real output path only appears
+    when `commit()` is called. This is the same atomic-write discipline as the
+    checkpoint saver in `scripts/mlm_train.py` (`os.replace` is atomic on POSIX
+    and Windows), and it exists so that nothing downstream can ever consume a
+    half-written or sanity-check-failing corpus: a run that dies mid-write, or
+    that fails the `--strict-units` check in the post-write summary, leaves the
+    destination untouched rather than poisoned.
+
+    Args:
+        path:
+            Final output path. Its parent is created if needed.
     """
 
     def __init__(self, path: Path) -> None:
         self.path = path
+        self.tmp_path = path.with_name(path.name + ".tmp")
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.handle = gzip.open(self.path, "wt", encoding="utf-8")
+        self.handle = gzip.open(self.tmp_path, "wt", encoding="utf-8")
+        self.committed = False
 
     def write(self, record: Dict[str, object]) -> None:
         self.handle.write(json.dumps(record) + "\n")
 
     def close(self) -> None:
         self.handle.close()
+
+    def commit(self) -> Path:
+        """
+        Promote the staged file onto the real output path.
+
+        Call only once every post-write check has passed. Until then the staged
+        data has no claim on `path`.
+
+        Returns:
+            The final output path.
+        """
+        os.replace(self.tmp_path, self.path)
+        self.committed = True
+        return self.path
 
 
 def iter_parquet_files(input_path: Path) -> Iterator[Path]:
@@ -627,7 +687,7 @@ def iter_parquet_files(input_path: Path) -> Iterator[Path]:
     if input_path.is_file():
         yield input_path
         return
-    for path in sorted(input_path.glob("part-*.parquet")):
+    for path in sorted(input_path.glob("*.parquet")):
         yield path
 
 
@@ -754,6 +814,16 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional global cap for quick debugging.",
     )
+    parser.add_argument(
+        "--strict-units",
+        action="store_true",
+        help=(
+            "Escalate the KD-unit sanity check to a fatal error: a dataset whose "
+            "median measurement looks nanomolar but flags zero strong binders "
+            "raises instead of only warning (guards a mislabeled-units dataset "
+            "from silently training on zero strong binders)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -796,6 +866,7 @@ def main() -> None:
         "cdr3_span_unresolved": 0,
         "label_conflicts": 0,
         "file_errors": 0,
+        "row_errors": 0,
         "kd_values_by_dataset": {},
         "kd_strong_by_dataset": Counter(),
         "drop_reasons": Counter(),
@@ -810,33 +881,38 @@ def main() -> None:
         progress = tqdm(parquet_files, desc="parquet_shards")
         for parquet_path in progress:
             stats["files_seen"] += 1
+            # Only an unreadable/corrupt SHARD skips the shard. The per-row body
+            # gets its own narrow guard below so one bad row (e.g. an array-valued
+            # field making pd.isna raise) cannot discard the shard's remainder.
             try:
                 df = pd.read_parquet(parquet_path)
+            except Exception as exc:
+                stats["file_errors"] += 1
+                print(f"[warn] skipping unreadable shard {parquet_path.name}: {exc}")
+                continue
 
-                for row_idx, row in df.iterrows():
-                    stats["rows_seen"] += 1
+            for row_idx, row in df.iterrows():
+                stats["rows_seen"] += 1
+                try:
                     record, reason = build_processed_record(
                         row=row.to_dict(),
                         shard_name=parquet_path.name,
                         row_idx=int(row_idx),
                         args=args,
                     )
-                    if record is None:
-                        stats["drop_reasons"][reason] += 1
-                        continue
+                except Exception as exc:
+                    stats["row_errors"] += 1
+                    continue
+                if record is None:
+                    stats["drop_reasons"][reason] += 1
+                    continue
 
-                    write_record(record, writer, seen, stats)
+                write_record(record, writer, seen, stats)
 
-                    if args.max_records is not None and stats["records_kept"] >= args.max_records:
-                        if hasattr(progress, "close"):
-                            progress.close()
-                        raise StopIteration
-            except StopIteration:
-                raise
-            except Exception as exc:  # one unreadable/corrupt shard must not abort the run
-                stats["file_errors"] += 1
-                print(f"[warn] skipping unreadable shard {parquet_path.name}: {exc}")
-                continue
+                if args.max_records is not None and stats["records_kept"] >= args.max_records:
+                    if hasattr(progress, "close"):
+                        progress.close()
+                    raise StopIteration
     except StopIteration:
         pass
     finally:
@@ -859,6 +935,7 @@ def main() -> None:
     print(f"cdr3_span_unresolved: {stats['cdr3_span_unresolved']}")
     print(f"label_conflicts:     {stats['label_conflicts']}")
     print(f"file_errors:         {stats['file_errors']}")
+    print(f"row_errors:          {stats['row_errors']}")
     print(f"kept_by_split:       {dict(stats['kept_by_split'])}")
     print(f"kept_by_confidence:  {dict(stats['kept_by_confidence'])}")
     print(f"kept_by_affinity_type: {dict(stats['kept_by_affinity_type'])}")
@@ -866,18 +943,26 @@ def main() -> None:
     for dataset, values in sorted(stats["kd_values_by_dataset"].items()):
         med = statistics.median(values)
         strong = stats["kd_strong_by_dataset"][dataset]
-        unit_guess = "molar?" if med < 1e-6 else "nanomolar?"
+        unit_guess = guess_kd_unit_label(med)
         print(
             f"  {dataset}: n={len(values)} median={med:.3g} "
             f"min={min(values):.3g} max={max(values):.3g} strong={strong} [looks {unit_guess}]"
         )
         # A median KD above ~1e-3 cannot be in molar; if such a dataset still
         # flags zero strong binders, the molar <=1e-9 threshold is mislabeling it.
-        if med > 1e-3 and strong == 0 and len(values) > 50:
+        if med > KD_MOLAR_NANOMOLAR_BOUNDARY and strong == 0 and len(values) > 50:
             msg = (f"dataset {dataset!r}: median KD {med:.3g} looks nanomolar but "
                 f"0 strong binders flagged — molar <=1e-9 threshold likely wrong.")
-            if getattr(args, "strict_units", False):
-                raise ValueError(f"[kd-units] {msg}")
+            # Direct attribute access, not getattr-with-a-default: if --strict-units
+            # is ever dropped from parse_args again, this must fail loudly rather
+            # than silently reverting to warn-only (that exact bug shipped once).
+            if args.strict_units:
+                # Raising before writer.commit() is what makes the flag a real
+                # guard: the corpus stays staged and never reaches args.output.
+                raise ValueError(
+                    f"[kd-units] {msg} Output NOT written to {args.output}; "
+                    f"the rejected corpus is staged at {writer.tmp_path}."
+                )
             print(f"  WARNING: {msg}")
 
     print("top_datasets:")
@@ -889,6 +974,12 @@ def main() -> None:
     print("drop_reasons:")
     for key, value in stats["drop_reasons"].most_common():
         print(f"  {key}: {value}")
+
+    # Every post-write check above has passed, so the staged corpus may now claim
+    # the real output path. Anything that raised earlier leaves args.output
+    # untouched -- that is the whole point of staging (see JsonlGzWriter).
+    writer.commit()
+    print(f"committed:           {args.output}")
 
 
 if __name__ == "__main__":

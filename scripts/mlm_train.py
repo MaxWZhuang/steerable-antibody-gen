@@ -183,6 +183,7 @@ class TrainConfig:
     early_stopping_patience: int = 0
     early_stopping_min_delta: float = 0.0
     tensorboard: bool = False
+    checkpoint_every_steps: int = 0
     pair_loss_weight: float = 1.0
     compatibility_loss_weight: float = 1.0
     epochs: int = 5
@@ -247,6 +248,8 @@ class TrainConfig:
             raise ValueError("early_stopping_patience must be >= 0")
         if self.early_stopping_min_delta < 0:
             raise ValueError("early_stopping_min_delta must be >= 0")
+        if self.checkpoint_every_steps < 0:
+            raise ValueError("checkpoint_every_steps must be >= 0")
         if self.pair_loss_weight < 0:
             raise ValueError("pair_loss_weight must be >= 0")
         if self.compatibility_loss_weight < 0:
@@ -513,6 +516,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--early-stopping-patience", type=int)
     parser.add_argument("--early-stopping-min-delta", type=float)
     parser.add_argument("--tensorboard", action="store_true", default=argparse.SUPPRESS)
+    parser.add_argument("--checkpoint-every-steps", type=int)
     parser.add_argument("--pair-loss-weight", type=float)
     parser.add_argument("--compatibility-loss-weight", type=float)
     parser.add_argument("--epochs", type=int)
@@ -782,11 +786,18 @@ class RecordSubsetDataset(Dataset):
 def choose_probe_size(total_records: int, eval_batch_size: int) -> int:
     """
     Pick a small deterministic probe size for extra evaluations.
+
+    The probe rows are held out and REMOVED from training, so the size is capped
+    at 20% of the training set. The old ``total_records - 1`` bound could hand the
+    probe almost the entire dataset (e.g. 179 of 180 rows), silently leaving a
+    single training record. Datasets under 5 records skip probing entirely. For
+    real config-scale datasets this is byte-identical to the old cap, since
+    ``total // 5`` far exceeds ``min(target, 4096)`` there.
     """
-    if total_records <= 1:
+    if total_records < 5:
         return 0
     target = max(eval_batch_size * 32, 1024)
-    return min(total_records - 1, target, 4096)
+    return min(total_records // 5, target, 4096)
 
 
 def choose_baseline_fit_size(total_records: int, eval_batch_size: int) -> int:
@@ -2160,6 +2171,8 @@ def train_one_epoch(
     cfg: TrainConfig,
     device: torch.device,
     epoch: int,
+    output_dir: Optional[Path] = None,
+    best_val_loss: float = float("inf"),
 ) -> Dict[str, float]:
     """
     Train the model for one epoch.
@@ -2179,6 +2192,15 @@ def train_one_epoch(
             Target device.
         epoch:
             Zero-based epoch index.
+        output_dir:
+            Run output directory. When provided together with
+            ``cfg.checkpoint_every_steps > 0``, ``last.pt`` is rewritten every N
+            batches for crash recovery. ``None`` (the default) disables
+            intra-epoch checkpointing, leaving the historical behavior unchanged.
+        best_val_loss:
+            Best validation loss observed so far. Written into any intra-epoch
+            ``last.pt`` so that a resume restores best-tracking correctly instead
+            of resetting it to this in-progress epoch's (unknown) loss.
 
     Returns:
         Dictionary containing averaged training metrics for the epoch.
@@ -2217,7 +2239,7 @@ def train_one_epoch(
         desc=f"train {epoch + 1}/{cfg.epochs}",
         cfg=cfg,
     )
-    for batch in progress:
+    for step, batch in enumerate(progress):
         batch = move_batch_to_device(batch, device)
         optimizer.zero_grad(set_to_none=True)
 
@@ -2269,6 +2291,27 @@ def train_one_epoch(
         # (it skips on inf/NaN grads), so warmup progress tracks real updates.
         if scheduler is not None and scaler.get_scale() >= scale_before:
             scheduler.step()
+
+        # Intra-epoch checkpoint (epoch-granular resume). Save the current
+        # 0-based epoch index so a resumed run re-enters this epoch from batch 0
+        # with these advanced weights; best_val_loss is carried through so
+        # best-tracking survives the resume. Disabled unless both an output_dir
+        # and cfg.checkpoint_every_steps > 0 are provided.
+        if (
+            output_dir is not None
+            and cfg.checkpoint_every_steps > 0
+            and (step + 1) % cfg.checkpoint_every_steps == 0
+        ):
+            save_checkpoint(
+                path=output_dir / "last.pt",
+                model=model,
+                optimizer=optimizer,
+                cfg=cfg,
+                epoch=epoch,
+                val_loss=best_val_loss,
+                scaler=scaler,
+                scheduler=scheduler,
+            )
 
         if is_antigen_stage(cfg.training_stage):
             mlm_correct, mlm_tokens = masked_accuracy_counts(logits.detach(), batch["antibody_labels"])
@@ -2443,19 +2486,25 @@ def save_checkpoint(
         "torch": torch.get_rng_state(),
         "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
     }
-    torch.save(
-        {
-            "epoch": epoch,
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "scaler_state_dict": scaler.state_dict() if scaler is not None else None,
-            "scheduler_state_dict": scheduler.state_dict() if scheduler is not None else None,
-            "rng_state": rng_state,
-            "val_loss": val_loss,
-            "train_config": asdict(cfg),
-        },
-        path
-    )
+    payload = {
+        "epoch": epoch,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "scaler_state_dict": scaler.state_dict() if scaler is not None else None,
+        "scheduler_state_dict": scheduler.state_dict() if scheduler is not None else None,
+        "rng_state": rng_state,
+        "val_loss": val_loss,
+        "train_config": asdict(cfg),
+    }
+    # Atomic write: serialize to a temp file on the same filesystem, then
+    # os.replace() onto the final path. os.replace is atomic on both POSIX and
+    # Windows, so a crash mid-write leaves the previous checkpoint intact rather
+    # than truncating the only resume point. This matters most for frequent
+    # intra-epoch saves (cfg.checkpoint_every_steps), where the odds of a crash
+    # landing during a write are much higher than with once-per-epoch saves.
+    tmp_path = path.with_name(path.name + ".tmp")
+    torch.save(payload, tmp_path)
+    os.replace(tmp_path, path)
     
 def load_checkpoint(
     path: Path,
@@ -2936,6 +2985,8 @@ def main() -> None:
             cfg=cfg,
             device=device,
             epoch=epoch,
+            output_dir=output_dir,
+            best_val_loss=best_val_loss,
         )
 
         train_known_target_metrics = None
