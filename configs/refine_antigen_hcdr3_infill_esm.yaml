@@ -1,0 +1,57 @@
+# Stage 4 ABLATION — same objective/data as refine_antigen_hcdr3_infill.yaml, but the antigen
+# stream is a frozen pretrained ESM-2 8M encoder (Direction 1) instead of the from-scratch
+# transformer. Warm-starts the antibody encoder + fusion + heads from the SAME stage-3
+# checkpoint as the scratch run; the ESM backbone stays frozen and only the projection /
+# cross-attention / heads train. Run this IN PARALLEL with the scratch stage 4 (same init),
+# not after it, then compare HCDR3 metrics to make the Stage-B (LoRA) GO/NO-GO call.
+#
+# Requires the optional extra: pip install -e ".[esm]"  (transformers + peft), plus network
+# access (or a pre-populated HF cache / HF_HOME) to fetch esm2_t6_8M weights at model build.
+# Note: ESM sees the antigen at 512 tokens vs 192 for the scratch stream, so a scratch-vs-ESM
+# gap is partly a context-length effect, not purely pretraining.
+training_stage: antigen_hcdr3_infill_refine
+data_path: data/processed/antibody_antigen/antibody_antigen.jsonl.gz
+init_checkpoint: checkpoints/mlm_antigen_real_label_v3/best.pt
+output_dir: checkpoints/mlm_antigen_hcdr3_infill_esm_v3
+resume_from_last: true
+
+seed: 42
+batch_size: 16
+eval_batch_size: 16
+train_num_workers: 0
+eval_num_workers: 0
+max_length: 192
+bucket_width: 8
+
+mask_probability: 0.10
+hcdr3_span_probability: 1.0
+hcdr3_span_min: 3
+hcdr3_span_max: 8
+hcdr3_mask_mode: full_span
+mask_replacement_strategy: always_mask
+shuffle_pair_probability: 0.0
+shuffle_antigen_probability: 0.0
+
+learning_rate: 0.00003
+warmup_steps: 200
+weight_decay: 0.01
+grad_clip_norm: 1.0
+pair_loss_weight: 0.0
+compatibility_loss_weight: 0.0
+epochs: 8
+
+d_model: 256
+n_heads: 8
+n_layers: 6
+d_ff: 1024
+dropout: 0.1
+
+antigen_encoder:
+  type: esm
+  esm_model_name: facebook/esm2_t6_8M_UR50D
+  antigen_max_length: 512
+  finetune: frozen
+
+use_amp: true
+show_progress: true
+device: cuda
