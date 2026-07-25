@@ -21,6 +21,7 @@ from smallAntibodyGen.infill.hcdr3 import (
     AntigenCompatibilityScorer,
     EmpiricalHCDR3LengthPrior,
     FixedLengthHCDR3Infiller,
+    LearnedLengthProposal,
     HCDR3Span,
 )
 from smallAntibodyGen.models.mlm import AntibodyAntigenCrossAttention
@@ -67,7 +68,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--top-k", type=int, default=None)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--length-mode", choices=("fixed", "empirical"), default="fixed")
+    parser.add_argument(
+        "--length-mode", choices=("fixed", "empirical", "learned"), default="fixed"
+    )
+    parser.add_argument(
+        "--learned-length-mode",
+        choices=("sample", "top_k"),
+        default="sample",
+        help="How --length-mode learned turns the posterior into proposals: "
+        "'sample' draws from it, 'top_k' takes the most probable feasible lengths.",
+    )
     # ProteinGuide-style guidance (opt-in; 0.0 keeps the original infill path).
     parser.add_argument(
         "--guidance-strength",
@@ -88,6 +98,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=1,
         choices=(0, 1),
         help="Compatibility-head class index to steer toward (1 = binder).",
+    )
+    parser.add_argument(
+        "--guidance-checkpoint",
+        type=str,
+        default=None,
+        help="Optional separately trained guidance classifier (a dual-stream "
+        "checkpoint) whose compatibility head supplies the binder term instead "
+        "of the generation model's own head. Requires --guidance-strength > 0.",
     )
     parser.add_argument("--score-checkpoint", type=str, default=None)
     parser.add_argument("--no-score", action="store_true")
@@ -157,6 +175,8 @@ def build_infiller(
     tokenizer: AminoAcidTokenizer,
     cfg: TrainConfig,
     device: torch.device,
+    guidance_model: torch.nn.Module | None = None,
+    guidance_cfg: TrainConfig | None = None,
 ) -> FixedLengthHCDR3Infiller:
     """
     Construct a FixedLengthHCDR3Infiller wired to the checkpoint's antigen stream.
@@ -168,16 +188,31 @@ def build_infiller(
     an ESM encoder, silently corrupting the antigen representation at generation
     time with no error raised (the antigen 3-site consistency rule). Threading
     ``cfg`` here keeps generation byte-identical to training for both encoders.
+
+    When ``guidance_model`` is provided, its OWN checkpoint config
+    (``guidance_cfg``) is threaded the same way -- its antigen encoder settings
+    and ``max_length`` must come from the guidance checkpoint, not the generation
+    one, for exactly the reason above. Omitting it leaves the infiller in its
+    default behavior (the generation model's own head supplies the binder term).
     """
-    return FixedLengthHCDR3Infiller(
-        model,
-        tokenizer,
+    kwargs: dict[str, Any] = dict(
         max_length=cfg.max_length,
         device=device,
         antigen_encoder_type=cfg.antigen_encoder_type,
         esm_model_name=cfg.esm_model_name,
         antigen_max_length=cfg.antigen_max_length,
     )
+    if guidance_model is not None:
+        if guidance_cfg is None:
+            raise ValueError("guidance_cfg is required when guidance_model is provided")
+        kwargs.update(
+            guidance_model=guidance_model,
+            guidance_antigen_encoder_type=guidance_cfg.antigen_encoder_type,
+            guidance_esm_model_name=guidance_cfg.esm_model_name,
+            guidance_antigen_max_length=guidance_cfg.antigen_max_length,
+            guidance_max_length=guidance_cfg.max_length,
+        )
+    return FixedLengthHCDR3Infiller(model, tokenizer, **kwargs)
 
 
 def build_compatibility_scorer(
@@ -238,6 +273,7 @@ def candidate_to_json(
     candidate: Any,
     guidance_strength: float = 0.0,
     guidance_order: str | None = None,
+    guidance_checkpoint: str | None = None,
 ) -> dict[str, Any]:
     """
     Convert one generated candidate into a JSON-serializable output row.
@@ -246,6 +282,10 @@ def candidate_to_json(
     downstream consumer can tell guided candidates from unguided ones and knows
     which schedule produced them. ``guidance_order`` is reported only when
     guidance was actually active (``guidance_strength > 0``).
+    ``guidance_checkpoint`` records WHICH classifier drove the binder term: a path
+    string when an external guidance checkpoint was attached, ``None`` when the
+    generation model's own head was used (or when guidance was off). Without it a
+    merged sweep cannot tell self-judged rows from externally-judged ones.
     """
     return {
         "record_id": record.record_id,
@@ -263,6 +303,7 @@ def candidate_to_json(
         "compatibility_score": candidate.compatibility_score,
         "guidance_strength": guidance_strength,
         "guidance_order": guidance_order if guidance_strength > 0 else None,
+        "guidance_checkpoint": guidance_checkpoint if guidance_strength > 0 else None,
     }
 
 
@@ -319,6 +360,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error("--top-k must be >= 0 (0 or omitted disables top-k filtering)")
     if args.guidance_strength < 0:
         parser.error("--guidance-strength must be >= 0 (0 disables guidance)")
+    if args.guidance_checkpoint and args.guidance_strength == 0:
+        # A guidance checkpoint at gamma == 0 never runs: gamma == 0 takes the
+        # unguided branch and no classifier is consulted. Accepting and ignoring
+        # it would poison a sweep -- rows would be labeled with a guidance
+        # checkpoint that had no effect on a single sampled residue.
+        parser.error(
+            "--guidance-checkpoint requires --guidance-strength > 0; at gamma=0 no "
+            "classifier is consulted, so a guidance checkpoint would be a silent no-op."
+        )
 
     random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -327,7 +377,28 @@ def main(argv: Sequence[str] | None = None) -> None:
     device = choose_device(args.device)
     tokenizer = build_tokenizer()
     model, cfg = load_dual_stream_model(Path(args.checkpoint), data_path=args.data_path, device=device)
-    infiller = build_infiller(model, tokenizer, cfg, device)
+
+    guidance_model = None
+    guidance_cfg = None
+    if args.guidance_checkpoint:
+        guidance_path = Path(args.guidance_checkpoint)
+        if not guidance_path.exists():
+            parser.error(f"--guidance-checkpoint path does not exist: {guidance_path}")
+        # Loaded through the same strict dual-stream loader as the generation
+        # model; its own config is threaded into the infiller (antigen tokenizer
+        # + max_length) by build_infiller.
+        guidance_model, guidance_cfg = load_dual_stream_model(
+            guidance_path, data_path=args.data_path, device=device
+        )
+
+    infiller = build_infiller(
+        model,
+        tokenizer,
+        cfg,
+        device,
+        guidance_model=guidance_model,
+        guidance_cfg=guidance_cfg,
+    )
 
     scorer = None
     score_checkpoint_arg = args.score_checkpoint or None  # treat "" as not provided
@@ -357,6 +428,20 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.length_mode == "empirical":
         prior_dataset = OASSequenceDataset(args.data_path, split="train")
         length_prior = EmpiricalHCDR3LengthPrior.fit(prior_dataset.records, positive_only=True)
+    elif args.length_mode == "learned":
+        # The conditional posterior lives in the generation checkpoint, so its
+        # length_head_max is the authority; passing the checkpoint's own value
+        # means the two can never disagree.
+        if getattr(model, "length_head", None) is None:
+            parser.error(
+                "--length-mode learned requires a checkpoint trained with "
+                "length_loss_weight > 0 (no length_head in this checkpoint)"
+            )
+        length_prior = LearnedLengthProposal(
+            infiller,
+            length_head_max=cfg.length_head_max,
+            mode=args.learned_length_mode,
+        )
 
     rows: list[dict[str, Any]] = []
     skipped_count = 0
@@ -367,12 +452,25 @@ def main(argv: Sequence[str] | None = None) -> None:
         else:
             assert length_prior is not None
             lengths = length_prior.propose_lengths(record, num_lengths=args.num_samples, rng=rng)
+            if not lengths:
+                # A learned proposal can legitimately return nothing when no
+                # length fits max_length for this scaffold. Count it as a skip so
+                # assert_generated_any can distinguish "nothing was feasible" from
+                # "the run silently produced no rows".
+                skipped_count += 1
+                print(
+                    f"[warn] no feasible proposed length for {record.record_id}",
+                    file=sys.stderr,
+                )
+                continue
 
         for proposed_length in lengths:
             try:
                 if args.guidance_strength > 0:
-                    # Opt-in guided path: iterative, binder-steered decoding using
-                    # the generation model's own compatibility head.
+                    # Opt-in guided path: iterative, binder-steered decoding. The
+                    # binder term comes from the generation model's own
+                    # compatibility head unless --guidance-checkpoint attached an
+                    # external classifier.
                     candidates = infiller.guided_infill(
                         record,
                         length=proposed_length,
@@ -411,6 +509,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                         candidate=candidate,
                         guidance_strength=args.guidance_strength,
                         guidance_order=args.guidance_order,
+                        guidance_checkpoint=args.guidance_checkpoint or None,
                     )
                 )
 

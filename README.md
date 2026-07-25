@@ -223,6 +223,87 @@ flag that overrides the config value.
   > checkpoint with no `norm_first` key as post-LN (every pre-knob checkpoint
   > was). Warm-starting a pre-LN stage from a post-LN checkpoint is an error, by
   > design.
+- **Compatibility readout** — `compat_readout: cls` (default) is the historical
+  CLS-concat: the two fused streams are collapsed to their index-0 summaries
+  before `fusion_mlp`. `compat_readout: mean` mask-aware mean-pools each fused
+  stream over its non-pad positions instead. The knob exists because the
+  CLS-concat readout is only weakly sensitive to a single-residue substitution —
+  and that logit is exactly the term guided decoding steers with. No parameters
+  change in either mode, so a checkpoint loads under both; the init-compat check
+  therefore validates `compat_readout` the way it validates `norm_first`.
+  Flag: `--compat-readout {cls,mean}`.
+- **Loss weights** — `mlm_loss_weight` (default `1.0`) scales the MLM term on the
+  antigen stages; `0.0` lets the compatibility term alone drive training. The
+  reported `mlm_loss` stays unweighted so curves remain comparable. Flag:
+  `--mlm-loss-weight`.
+- **New-module LR** — `new_module_lr_multiplier` (default `1.0`) gives the
+  modules the antigen warm-start leaves randomly initialized (cross-attention,
+  fusion norms, `fusion_mlp`, `compatibility_head`) their own learning rate, so a
+  warm-started trunk is not dragged by a head still finding its scale. `1.0`
+  keeps the historical two-group optimizer exactly. Flag:
+  `--new-module-lr-multiplier`.
+- **Checkpoint selection metric** — `best_checkpoint_metric: val_loss` (default)
+  or `val_compat_loss`. On the antigen stages the combined loss is dominated by
+  the MLM term, so "best" can advance on an epoch where the compatibility head
+  got *worse* — and that head is what scoring and guidance actually read. The
+  knob routes `best.pt`, early stopping, and the checkpoint's tracked `val_loss`
+  through one selection value, so resume stays coherent. Flag:
+  `--best-checkpoint-metric`.
+- **Masking-rate schedule** — `mask_rate_schedule: fixed` (default) keeps the
+  per-row target budget from `mask_probability` and consumes zero extra collator
+  RNG draws, so existing runs are byte-identical. `uniform` draws a per-row rate
+  `t ~ U(0, 1]` and ignores `mask_probability` — the schedule-covering corruption
+  a masked-diffusion denoiser needs, so one model is trained across the whole
+  ladder rather than only at 15%. Inert in `full_span` HCDR3 mode.
+  `eval_mask_rate_schedule` (default `""` = inherit) sets the eval-side schedule
+  independently, so arms differing in train schedule can share one
+  arm-independent eval protocol. `report_masked_fraction_bins: true` (default
+  `false`) additionally emits per-epoch MLM accuracy binned by each row's
+  realized masked fraction (`mlm_acc_frac_0_20` … `mlm_acc_frac_80_100`, plus
+  token counts). Flags: `--mask-rate-schedule`, `--eval-mask-rate-schedule`,
+  `--report-masked-fraction-bins` / `--no-report-masked-fraction-bins`.
+- **Graded-affinity supervision (experimental)** — `strength_loss_weight`
+  (default `0.0`) adds a scalar regression head on the joint representation,
+  trained against per-`(dataset, affinity_type)` strength quantiles produced by
+  `scripts/annotate_affinity_targets.py`. Weight `0.0` builds **no** head at all
+  (zero extra init RNG), so every existing run is byte-identical.
+  `include_strength_rows` (default `false`) separately widens the stage-3 row
+  filter to admit rows carrying a quantile but no binary label — kept separate on
+  purpose, because flipping both at once confounds "the graded head helps" with
+  "the larger population helps". Reports a pooled tie-aware
+  `val_strength_spearman`. Flags: `--strength-loss-weight`,
+  `--include-strength-rows` / `--no-include-strength-rows`.
+
+  ```bash
+  python scripts/annotate_affinity_targets.py \
+    --input  data/processed/antibody_antigen/antibody_antigen.jsonl.gz \
+    --output data/processed/antibody_antigen/antibody_antigen_quantiled.jsonl.gz
+  ```
+
+  The annotator fits its CDFs on the **train split only**, negates the score
+  where lower means stronger (raw KD) so `1.0` is always the strongest, uses
+  mid-ranks so ties are interchangeable, excludes groups with fewer than
+  `--min-group-size` train rows, and refuses to write in place. Stripping the
+  added key reproduces the input byte-for-byte.
+- **Learned length posterior (experimental)** — `length_loss_weight` (default
+  `0.0`) adds a categorical head over `1..length_head_max` predicting the HCDR3
+  length from `(scaffold, antigen)`. It is queried on a **separate forward** over
+  the *collapsed-span* encoding (the whole HCDR3 replaced by exactly one
+  `[MASK]`), because on the ordinary encoding the number of mask tokens *is* the
+  answer. Out-of-range lengths are **masked out**, never clamped. Reports
+  `length_acc` and `length_nll`. Flags: `--length-loss-weight`,
+  `--length-head-max`.
+
+  Choose `length_head_max` from a census rather than by eye:
+
+  ```bash
+  python scripts/length_census.py \
+    --data-path data/processed/antibody_antigen/antibody_antigen.jsonl.gz
+  ```
+
+  It reports the length distribution per split and, separately, for the
+  strong-binder population the infill stage actually trains on, plus the fraction
+  of rows each candidate `length_head_max` would exclude.
 
 ---
 
@@ -299,6 +380,22 @@ only the projection/fusion/heads; `finetune: lora` adds LoRA adapters on the ESM
 Compare its HCDR3 metrics and compatibility AUROC against the scratch baseline
 (`refine_antigen_hcdr3_infill.yaml`) on the same split before committing to it. See
 `docs/antigen-encoder-hybrid-implementation.md` for the full rollout and rationale.
+
+### Unknown-length design
+
+`--length-mode` selects how many `[MASK]` tokens to place:
+
+- `fixed` (default) — the record's known HCDR3 length.
+- `empirical` — sample from a context-free histogram of training-set HCDR3
+  lengths (`EmpiricalHCDR3LengthPrior`, fitted on the strong-binder population).
+- `learned` — sample from the model's *conditional* posterior
+  `p(L | scaffold, antigen)` via `LearnedLengthProposal`. This requires a
+  checkpoint trained with `length_loss_weight > 0`; the checkpoint's own
+  `length_head_max` is authoritative, and asking for a larger one is a
+  construction-time error rather than an `IndexError` deep inside proposal. The
+  posterior is filtered to lengths whose masked encoding actually fits
+  `max_length` and renormalized, so no probability mass is spent on lengths that
+  could never generate. `--learned-length-mode top_k` makes it deterministic.
 
 ### Generating candidates
 
@@ -381,18 +478,71 @@ python scripts/hcdr3_infill.py \
   --output-path outputs/hcdr3_guided_candidates.jsonl
 ```
 
-Two things to keep in mind:
+Things to keep in mind:
 
-- **The guidance predictor is the generation model's own compatibility head.**
-  `--score-checkpoint` is unrelated: it only attaches a post-hoc compatibility
-  score for reporting and never influences sampling.
-- **v1 caveat (this is a first cut).** The compatibility head was trained on
-  fully HCDR3-masked inputs, whereas guidance queries it on *partially* filled
-  intermediate states, so the signal is noisiest at the earliest steps. Training
-  a dedicated "noisy" binder classifier on a variable partial-mask schedule
-  (supervised by `is_strong_binder`) is the planned v2 upgrade.
-  `log_probability` / `mean_log_probability` are always reported from the model's
-  *unguided* marginals, so guided and unguided candidates stay comparable.
+- **By default the guidance predictor is the generation model's own
+  compatibility head.** `--score-checkpoint` is unrelated: it only attaches a
+  post-hoc compatibility score for reporting and never influences sampling.
+- **`--guidance-checkpoint` attaches an EXTERNAL classifier** to supply the
+  binder term instead, so the steerer and the judge can be different heads. Only
+  the binder term switches: position selection and the reported unguided
+  marginals still come from the generation model. It requires
+  `--guidance-strength > 0` (at γ = 0 no classifier is consulted, so accepting it
+  would label sweep rows with a checkpoint that touched nothing), and each output
+  row records `guidance_checkpoint` for provenance.
+- **The head is trained on a different state distribution than it is queried
+  on.** The compatibility head is trained on fully HCDR3-masked inputs, whereas
+  guidance queries it on *partially* filled intermediate states, so the signal is
+  noisiest at the earliest steps. Two levers now exist for this:
+  `hcdr3_mask_mode: partial_span` trains on a uniformly random `k`-subset of the
+  span (`k ~ U{0..L}`, so both the fully-visible and fully-masked endpoints are
+  reachable), which is the state distribution decoding actually visits; and
+  `--guidance-checkpoint` lets a separately trained classifier do the steering.
+- **Before funding a γ sweep, measure whether γ can move anything.**
+
+  ```bash
+  python scripts/probe_steering_reachability.py \
+    --checkpoint checkpoints/mlm_antigen_hcdr3_infill_v3/best.pt \
+    --data-path data/processed/antibody_antigen/antibody_antigen.jsonl.gz \
+    --split val --num-records 20
+  ```
+
+  Both terms of `guided = unguided + γ · binder` are functions of the state, not
+  of γ, so **two** forwards give the exact guided distribution for every γ on a
+  grid. The probe reports the flip fraction, total variation, and the *spread* of
+  the binder term — the ceiling on what any γ can do. Exact only for a fixed
+  context (in a real run the committed residues are themselves γ-dependent), so
+  it answers "can γ move this decision", not "what does a full sweep generate".
+- **Score reporting.** `log_probability` / `mean_log_probability` are always
+  accumulated from the model's *unguided* marginals, so guidance changes which
+  residues are drawn without inflating the reported likelihood. They are **not**
+  the same quantity as `infill`'s score, though: `infill` sums independent
+  per-position marginals from one fully-masked forward, while `guided_infill`
+  sums the unguided conditionals along the iterative unmasking path. The two
+  summations differ **even at γ = 0**, so do not pool guided and single-pass
+  candidates into one ranking by these fields.
+- **To rank across samplers, use evidence instead.**
+  `smallAntibodyGen.infill.evidence` computes `E-hat`, the order-averaged path
+  log-likelihood over `K` random unmasking orders — sampler-independent by
+  construction, with a Monte-Carlo standard error so a rank gap smaller than the
+  error is visibly not a gap. `scripts/score_candidates.py` attaches it plus an
+  explicit weighted decision score:
+
+  ```bash
+  python scripts/score_candidates.py \
+    --candidates outputs/hcdr3_guided_candidates.jsonl \
+    --checkpoint checkpoints/mlm_antigen_hcdr3_infill_v3/best.pt \
+    --data-path data/processed/antibody_antigen/antibody_antigen.jsonl.gz \
+    --split val --num-orders 8 --w-match 1.0 --w-evidence 0.5 \
+    --output outputs/hcdr3_candidates_scored.jsonl --report-demotion 5
+  ```
+
+  The weights are required, not defaulted — there is no calibrated default to
+  pretend to. A row missing its compatibility score gets `decision_score: null`
+  and `decision_score_omitted: ["compatibility"]` rather than a partial score
+  that looks complete. `--report-demotion k` measures the real tension: evidence
+  rewards *typicality*, so ranking by it can demote exactly the unusual
+  candidates steering exists to find.
 
 ---
 

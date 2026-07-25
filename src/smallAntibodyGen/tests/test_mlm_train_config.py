@@ -1135,3 +1135,167 @@ def test_warm_start_into_esm_model_keeps_backbone_and_loads_antibody(tmp_path: P
     assert torch.allclose(
         esm_model.antigen_encoder.esm.embeddings.word_embeddings.weight, esm_before
     )
+
+
+# --------------------------------------------------------------------------- #
+# Mechanism-search knobs: mlm_loss_weight + compat_readout (ported from mirror)
+# --------------------------------------------------------------------------- #
+def _knob_cfg(mlm_train, tmp_path: Path, *extra: str):
+    data_path = tmp_path / "tiny.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+    return mlm_train.parse_args(["--data-path", str(data_path), *extra])
+
+
+def test_new_knobs_default_to_historical_behavior(tmp_path: Path, project_root: Path):
+    mlm_train = load_mlm_train_module(project_root)
+    cfg = _knob_cfg(mlm_train, tmp_path)
+    assert cfg.mlm_loss_weight == 1.0
+    assert cfg.compat_readout == "cls"
+    cfg.validate()  # must not raise
+
+
+def test_mlm_loss_weight_parses_and_validates_on_antigen_stages(
+    tmp_path: Path, project_root: Path
+):
+    mlm_train = load_mlm_train_module(project_root)
+    ckpt = tmp_path / "init.pt"
+    ckpt.write_text("", encoding="utf-8")
+    cfg = _knob_cfg(
+        mlm_train,
+        tmp_path,
+        "--training-stage",
+        "antigen_real_label_refine",
+        "--init-checkpoint",
+        str(ckpt),
+        "--mlm-loss-weight",
+        "0.0",
+    )
+    assert cfg.mlm_loss_weight == 0.0
+    cfg.validate()  # must not raise
+
+
+def test_mlm_loss_weight_rejected_off_antigen_stages(tmp_path: Path, project_root: Path):
+    """The antibody-only loss composition never reads the weight, so accepting it
+    there would silently do nothing -- fail loud instead."""
+    mlm_train = load_mlm_train_module(project_root)
+    with pytest.raises(ValueError, match="only supported for antigen stages"):
+        _knob_cfg(mlm_train, tmp_path, "--mlm-loss-weight", "0.0")
+
+
+def test_negative_mlm_loss_weight_is_rejected(tmp_path: Path, project_root: Path):
+    mlm_train = load_mlm_train_module(project_root)
+    with pytest.raises(ValueError, match="mlm_loss_weight must be >= 0"):
+        _knob_cfg(mlm_train, tmp_path, "--mlm-loss-weight", "-1.0")
+
+
+def test_compat_readout_parses_and_reaches_the_model_config(
+    tmp_path: Path, project_root: Path
+):
+    mlm_train = load_mlm_train_module(project_root)
+    ckpt = tmp_path / "init.pt"
+    ckpt.write_text("", encoding="utf-8")
+    cfg = _knob_cfg(
+        mlm_train,
+        tmp_path,
+        "--training-stage",
+        "antigen_real_label_refine",
+        "--init-checkpoint",
+        str(ckpt),
+        "--compat-readout",
+        "mean",
+    )
+    cfg.validate()
+    assert cfg.compat_readout == "mean"
+
+    import torch
+
+    from smallAntibodyGen.tokenizer import AminoAcidTokenizer
+
+    model = mlm_train.build_model(AminoAcidTokenizer(), cfg, torch.device("cpu"))
+    assert model.config.compat_readout == "mean"
+
+
+def test_compat_readout_mismatch_is_rejected_by_init_compat_check(
+    tmp_path: Path, project_root: Path
+):
+    """The two readouts share a parameter set byte-for-byte, so `strict=True`
+    cannot catch the mismatch -- the pre-flight check has to."""
+    import torch
+
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = tmp_path / "tiny.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+    ckpt_path = tmp_path / "cls_best.pt"
+    torch.save({"train_config": {"d_model": 256, "compat_readout": "cls"}}, ckpt_path)
+
+    cfg = mlm_train.parse_args(
+        [
+            "--data-path",
+            str(data_path),
+            "--init-checkpoint",
+            str(ckpt_path),
+            "--training-stage",
+            "antigen_real_label_refine",
+            "--compat-readout",
+            "mean",
+        ]
+    )
+    with pytest.raises(ValueError, match="compat_readout"):
+        mlm_train.validate_init_checkpoint_compatibility(cfg, ckpt_path)
+
+
+def test_legacy_checkpoint_without_compat_readout_is_treated_as_cls(
+    tmp_path: Path, project_root: Path
+):
+    import torch
+
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = tmp_path / "tiny.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+    ckpt_path = tmp_path / "legacy_best.pt"
+    torch.save({"train_config": {"d_model": 256}}, ckpt_path)
+
+    cfg = mlm_train.parse_args(
+        [
+            "--data-path",
+            str(data_path),
+            "--init-checkpoint",
+            str(ckpt_path),
+            "--training-stage",
+            "antigen_real_label_refine",
+            "--compat-readout",
+            "mean",
+        ]
+    )
+    with pytest.raises(ValueError, match="compat_readout"):
+        mlm_train.validate_init_checkpoint_compatibility(cfg, ckpt_path)
+
+
+def test_new_knobs_round_trip_through_config_from_checkpoint(
+    tmp_path: Path, project_root: Path
+):
+    """Inference reconstructs its TrainConfig from the checkpoint, so a run
+    trained with `mean` must generate with `mean` without any CLI flag."""
+    import importlib.util
+    import sys
+
+    import torch
+
+    script = project_root.parents[1] / "scripts" / "hcdr3_infill.py"
+    spec = importlib.util.spec_from_file_location("hcdr3_infill", script)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    checkpoint = {
+        "train_config": {
+            "compat_readout": "mean",
+            "mlm_loss_weight": 0.0,
+            "training_stage": "antigen_hcdr3_infill_refine",
+            "init_checkpoint": "checkpoints/stage3/best.pt",
+        }
+    }
+    cfg = module.config_from_checkpoint(checkpoint, data_path="d", device="cpu")
+    assert cfg.compat_readout == "mean"
+    assert cfg.mlm_loss_weight == 0.0
+    del torch  # keep the import meaningful without an unused-name warning

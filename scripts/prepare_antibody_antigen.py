@@ -20,6 +20,8 @@ if str(SRC_ROOT) not in sys.path:
 
 import pandas as pd
 
+from smallAntibodyGen.data import affinity as affinity_rules
+
 try:
     from tqdm import tqdm
 except ImportError:  # pragma: no cover - exercised only when tqdm is absent
@@ -40,7 +42,10 @@ BOOLEAN_FALSE = {"0", "FALSE", "F", "NO", "N"}
 # They deliberately differ in operator, not in boundary: the label previously used
 # 1e-6 while the classifier used 1e-3, so a median of 1e-5 was reported
 # "nanomolar?" while every row in it was scored as molar.
-KD_MOLAR_NANOMOLAR_BOUNDARY = 1e-3
+# Re-exported from the shared decision-tree module so producer and reader read
+# the same constant. Kept as a module-level name because several diagnostics
+# below reference it.
+KD_MOLAR_NANOMOLAR_BOUNDARY = affinity_rules.KD_MOLAR_NANOMOLAR_BOUNDARY
 
 
 def clean_aa_sequence(seq: object) -> str:
@@ -420,34 +425,26 @@ def infer_is_strong_binder(
     - fuzzy assay rows labeled "h"
     - kd rows with Kd <= 1 nM (molar values <= 1e-9, or nanomolar values <= 1.0)
     - -log KD rows with processed measurement >= 9
+
+    The decision tree itself lives in ``smallAntibodyGen.data.affinity``, shared
+    with the reader-side fallback in ``data/MLMCollator.py`` so the two cannot
+    drift apart. THIS function keeps the producer's own coercion (pandas-aware
+    ``clean_text`` / ``safe_float`` / ``parse_binder_label``), which parses
+    numeric strings and treats ``pd.NA`` as missing -- the reader's json-side
+    coercion does neither, and conflating them would change what this producer
+    labels.
     """
     normalized_type = clean_text(affinity_type).lower()
-    if normalized_type == "bool":
-        return parse_binder_label(affinity_type, processed_measurement) == 1
-    if normalized_type == "fuzzy":
-        # Prefer processed_measurement when present (including a literal 0/0.0),
-        # falling back to affinity_raw only when it is genuinely missing. Using
-        # `or` here would treat a numeric 0.0 as absent and substitute affinity_raw.
-        pm = clean_text(processed_measurement)
-        raw_value = (pm or clean_text(affinity_raw)).lower()
-        return raw_value == "h"
-    measurement = safe_float(processed_measurement)
-    if measurement is None:
-        return False
-    if normalized_type == "kd":
-        # Kd may be stored in molar (e.g. 1e-9) or already in nanomolar
-        # (e.g. 1.0). A strong binder is Kd <= 1 nM. Disambiguate by magnitude:
-        # a real antibody Kd in molar is always well below 1 mM, so any value
-        # >= 1e-3 must already be expressed in nanomolar.
-        if measurement <= 0:
-            return False
-        if measurement >= KD_MOLAR_NANOMOLAR_BOUNDARY:
-            return measurement <= 1.0
-        return measurement <= 1e-9
-    if normalized_type == "-log kd":
-        return measurement >= 9.0
-    return False
-
+    # Resolve the fuzzy marker here so a present-but-falsy processed measurement
+    # (0, 0.0, False) is not treated as absent and silently replaced by
+    # affinity_raw -- `clean_text` stringifies first, so "0.0" is truthy.
+    marker = clean_text(processed_measurement) or clean_text(affinity_raw)
+    return affinity_rules.is_strong_binder_from_fields(
+        affinity_type=normalized_type,
+        marker=marker,
+        measurement=safe_float(processed_measurement),
+        binder_label=parse_binder_label(affinity_type, processed_measurement),
+    )
 
 def guess_kd_unit_label(median_kd: float) -> str:
     """
