@@ -158,6 +158,12 @@ Basic data pipeline detailed below:
 - `scripts/prepare_antibody_antigen.py`
   Cleans ASD parquet shards into processed antibody-antigen JSONL files, keeps heavy/light plus antigen context, preserves nested numbering metadata, computes HCDR3 spans when possible, and assigns leakage-aware splits.
 
+  KD values arrive either in molar (`1e-9`) or already in nanomolar (`1.0`), so units are
+  inferred per row by magnitude. Pass `--strict-units` to make a suspected unit mislabel a
+  hard error instead of a warning: without it, a dataset whose units are misread yields **zero
+  strong binders**, and the HCDR3 infill stage then trains on an empty population without
+  complaining. Use it whenever you ingest a new ASD export.
+
 - `scripts/mlm_train.py`
   Trains the antibody MLM, paired VH/VL refinement, antigen-conditioned compatibility refinement (synthetic-negative and real-label), and the fixed-length antigen-conditioned HCDR3 infill stage.
 
@@ -199,6 +205,24 @@ flag that overrides the config value.
   ```
 
   Flag: `--tensorboard`.
+- **Norm placement** — `norm_first: false` (default) is post-LN,
+  `LayerNorm(x + sublayer(x))`: the original Transformer arrangement and the
+  PyTorch default. `norm_first: true` is pre-LN, `x + sublayer(LayerNorm(x))`,
+  which keeps an unnormalized identity path from input to output so gradients
+  reach early layers without being rescaled at each depth. It governs both
+  encoder stacks **and** the cross-attention fusion block, so the two cannot
+  drift apart. Accepted at the top level or inside the nested `model:` section.
+  Flags: `--norm-first`, `--no-norm-first`.
+
+  > **Changing this is a from-scratch retrain of the whole chain, not a
+  > migration.** Post-LN and pre-LN produce *identical* parameter names and
+  > shapes in the single-stream model, so a checkpoint trained under one setting
+  > loads into the other under `strict=True` reporting "All keys matched
+  > successfully" and then computes something different. The init-compat check
+  > in `scripts/mlm_train.py` is what makes the mismatch fatal, and it treats a
+  > checkpoint with no `norm_first` key as post-LN (every pre-knob checkpoint
+  > was). Warm-starting a pre-LN stage from a post-LN checkpoint is an error, by
+  > design.
 
 ---
 
@@ -282,13 +306,13 @@ Fixed-length (uses each target record's known HCDR3 length):
 
 ```bash
 python scripts/hcdr3_infill.py \
-  --checkpoint checkpoints/mlm_antigen_hcdr3_infill_refine/best.pt \
+  --checkpoint checkpoints/mlm_antigen_hcdr3_infill_v3/best.pt \
   --data-path data/processed/antibody_antigen/antibody_antigen.jsonl.gz \
   --split val \
   --num-records 20 \
   --num-samples 16 \
   --length-mode fixed \
-  --score-checkpoint checkpoints/mlm_antigen_real_label_refine/best.pt \
+  --score-checkpoint checkpoints/mlm_antigen_real_label_v3/best.pt \
   --output-path outputs/hcdr3_fixed_candidates.jsonl
 ```
 
@@ -297,13 +321,13 @@ training distribution, then infills each proposed length):
 
 ```bash
 python scripts/hcdr3_infill.py \
-  --checkpoint checkpoints/mlm_antigen_hcdr3_infill_refine/best.pt \
+  --checkpoint checkpoints/mlm_antigen_hcdr3_infill_v3/best.pt \
   --data-path data/processed/antibody_antigen/antibody_antigen.jsonl.gz \
   --split val \
   --num-records 20 \
   --num-samples 16 \
   --length-mode empirical \
-  --score-checkpoint checkpoints/mlm_antigen_real_label_refine/best.pt \
+  --score-checkpoint checkpoints/mlm_antigen_real_label_v3/best.pt \
   --output-path outputs/hcdr3_empirical_length_candidates.jsonl
 ```
 
@@ -346,7 +370,7 @@ single-pass `infill`; larger values steer harder). The order is
 
 ```bash
 python scripts/hcdr3_infill.py \
-  --checkpoint checkpoints/mlm_antigen_hcdr3_infill_refine/best.pt \
+  --checkpoint checkpoints/mlm_antigen_hcdr3_infill_v3/best.pt \
   --data-path data/processed/antibody_antigen/antibody_antigen.jsonl.gz \
   --split val \
   --num-records 20 \

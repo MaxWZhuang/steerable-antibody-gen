@@ -550,7 +550,13 @@ def test_default_score_checkpoint_is_repo_anchored_and_matches_stage3(project_ro
     default = hcdr3_infill.DEFAULT_SCORE_CHECKPOINT
     assert default.is_absolute()
     config = project_root.parents[1] / "configs" / "refine_antigen_real_label.yaml"
-    assert default.parent.name == "mlm_antigen_real_label_v3"
+    # Was pinned to the literal "mlm_antigen_real_label_v3". Relaxed to a
+    # version-agnostic prefix when the pre-LN (norm_first) retrain bumped the
+    # chain to _v4: the invariant BUG-21 is about is that this default tracks
+    # whatever dir the stage-3 config writes, not that it names any particular
+    # generation. The coupling assertion below is the one with teeth -- it reads
+    # the config file, so a default that drifts from it still fails.
+    assert default.parent.name.startswith("mlm_antigen_real_label_v")
     assert f"output_dir: checkpoints/{default.parent.name}" in config.read_text(encoding="utf-8")
 
 

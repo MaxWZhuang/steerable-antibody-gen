@@ -159,6 +159,13 @@ class TrainConfig:
     n_layers: int = 6
     d_ff: int = 1024
     dropout: float = 0.1
+    # Pre-LN (True) vs post-LN (False) residual arrangement. Default False keeps
+    # the historical post-LN stack, so an unmodified config is unchanged.
+    # Flipping this is a from-scratch retrain of the whole chain, not a
+    # migration: post-LN and pre-LN single-stream state dicts are
+    # name/shape-identical, so strict loading cannot catch the mismatch. The
+    # init-compat check below treats it as an architecture key for that reason.
+    norm_first: bool = False
 
     # Antigen-stream encoder selection (Direction 1: hybrid PLM antigen encoder).
     # Defaults reproduce the original from-scratch dual-stream model, so setting
@@ -404,7 +411,7 @@ def normalize_config_data(raw_config: Dict[str, Any]) -> Dict[str, Any]:
     if model_config is not None:
         if not isinstance(model_config, dict):
             raise ValueError("The `model` config section must be a mapping")
-        for key in ("d_model", "n_heads", "n_layers", "d_ff", "dropout"):
+        for key in ("d_model", "n_heads", "n_layers", "d_ff", "dropout", "norm_first"):
             if key in model_config:
                 normalized.setdefault(key, model_config[key])
 
@@ -498,6 +505,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--n-layers", type=int)
     parser.add_argument("--d-ff", type=int)
     parser.add_argument("--dropout", type=float)
+    parser.add_argument("--norm-first", action="store_true", default=argparse.SUPPRESS)
+    parser.add_argument("--no-norm-first", dest="norm_first", action="store_false", default=argparse.SUPPRESS)
 
     parser.add_argument("--antigen-encoder-type", type=str, choices=("scratch", "esm"))
     parser.add_argument("--esm-model-name", type=str)
@@ -1312,6 +1321,7 @@ def build_model(
         n_layers=cfg.n_layers,
         d_ff=cfg.d_ff,
         dropout=cfg.dropout,
+        norm_first=cfg.norm_first,
         # Carried onto the model config so the antigen stream can branch on the
         # encoder choice in Stage A. Defaults ("scratch") keep today's model.
         antigen_encoder_type=cfg.antigen_encoder_type,
@@ -2720,6 +2730,20 @@ def validate_init_checkpoint_compatibility(
             continue
         if run_value != ckpt_value:
             mismatches.append(f"{key}: checkpoint={ckpt_value}, run={run_value}")
+
+    # `norm_first` is checked separately because it must NOT take the
+    # skip-when-absent path above. Checkpoints written before the knob existed
+    # carry no `norm_first` key and were all post-LN, so a missing key means
+    # False, not "unknown". Skipping would wave a pre-LN run through against a
+    # post-LN checkpoint -- and for the single-stream model that mismatch is
+    # invisible to `strict=True`, since post-LN and pre-LN encoder layers have
+    # identical parameter names and shapes and differ only in forward order.
+    ckpt_norm_first = bool(train_cfg.get("norm_first", False))
+    if bool(cfg.norm_first) != ckpt_norm_first:
+        mismatches.append(
+            f"norm_first: checkpoint={ckpt_norm_first}, run={bool(cfg.norm_first)} "
+            "(pre-LN and post-LN weights are not interchangeable; retrain from scratch)"
+        )
 
     if mismatches:
         details = "; ".join(mismatches)

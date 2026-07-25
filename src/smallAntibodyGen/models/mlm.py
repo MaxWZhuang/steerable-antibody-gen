@@ -35,6 +35,24 @@ class MLMConfig:
             Options are "relu", Rectified Linear Unit, or "gelu", Gaussian Error Linear Unit
         tie_weights (bool):
             Whether to tie the output project weights to the input token embeddings
+        norm_first (bool):
+            Where LayerNorm sits relative to each residual sublayer.
+            ``False`` (default) is post-LN — ``LayerNorm(x + sublayer(x))``, the
+            original Vaswani-2017 arrangement and the PyTorch default. ``True``
+            is pre-LN — ``x + sublayer(LayerNorm(x))`` — which keeps an
+            unnormalized identity path from input to output and is what modern
+            transformer stacks use, because gradients reach early layers without
+            being rescaled at every depth.
+
+            This flag governs the encoder stacks AND the cross-attention fusion
+            block, so the two cannot drift apart.
+
+            WARNING: post-LN and pre-LN produce *identical* parameter names and
+            shapes. A checkpoint trained under one setting loads into the other
+            under ``strict=True`` without complaint and then computes something
+            different. Changing this value requires retraining from scratch;
+            ``validate_init_checkpoint_compatibility`` in ``scripts/mlm_train.py``
+            is what makes the mismatch fatal rather than silent.
         antigen_encoder_type (str):
             Which encoder backs the antigen stream of the dual-stream model.
             ``"scratch"`` (default) keeps the original in-repo
@@ -71,6 +89,10 @@ class MLMConfig:
     dropout: float = 0.1
     activation: str = "gelu"
     tie_weights: bool = True
+    # Post-LN by default so every pre-existing config and checkpoint is
+    # unchanged. See the attribute docs above: flipping this is a retrain, not a
+    # migration, because the state dict is silently compatible either way.
+    norm_first: bool = False
 
     # Antigen-stream encoder selection (Direction 1: hybrid PLM antigen encoder).
     # Defaults preserve the original from-scratch dual-stream behavior, so these
@@ -107,6 +129,8 @@ class MLMConfig:
             raise ValueError("d_model must be divisible by n_heads")
         if self.pad_token_id < 0 or self.pad_token_id >= self.vocab_size:
             raise ValueError("pad_token_id must be a valid token ID")
+        if not isinstance(self.norm_first, bool):
+            raise ValueError("norm_first must be a bool")
         if self.activation not in {"relu", "gelu"}:
             raise ValueError("activation must be either 'relu' (ReLU/Rectified Linear Unit) or 'gelu' (GELU/Gaussian Error Linear Unit)")
         if self.antigen_encoder_type not in {"scratch", "esm"}:
@@ -207,13 +231,17 @@ class TransformerSequenceEncoder(nn.Module):
             dropout=config.dropout,
             activation=config.activation,
             batch_first=True,
-            norm_first=False,
+            norm_first=config.norm_first,
         )
         self.encoder = nn.TransformerEncoder(
             encoder_layer,
             num_layers=config.n_layers,
             enable_nested_tensor=False,
         )
+        # Required in pre-LN mode (the stack's output is un-normalized there);
+        # near-redundant but harmless in post-LN mode, where the last layer
+        # already ends in a LayerNorm. Kept unconditional so the parameter set
+        # does not depend on norm_first.
         self.final_norm = nn.LayerNorm(config.d_model)
 
     def _validate_inputs(
@@ -610,6 +638,14 @@ class AntibodyAntigenCrossAttention(nn.Module):
         )
         self.fusion_norm_antibody = nn.LayerNorm(config.d_model)
         self.fusion_norm_antigen = nn.LayerNorm(config.d_model)
+        # Pre-LN leaves the fused residual stream un-normalized, so the heads
+        # need a terminal norm the way a pre-LN stack needs one before its head.
+        # Registered ONLY in pre-LN mode: the post-LN state dict stays exactly
+        # what it was, and a cross-mode checkpoint now fails the strict load as
+        # well as the init-compat check.
+        if config.norm_first:
+            self.fusion_out_norm_antibody = nn.LayerNorm(config.d_model)
+            self.fusion_out_norm_antigen = nn.LayerNorm(config.d_model)
         self.fusion_mlp = nn.Sequential(
             nn.Linear(config.d_model * 2, config.d_model),
             nn.GELU() if config.activation == "gelu" else nn.ReLU(),
@@ -645,23 +681,46 @@ class AntibodyAntigenCrossAttention(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Apply symmetric cross-attention between antibody and antigen branches.
+
+        Norm placement follows ``config.norm_first`` so this block matches the
+        encoder stacks feeding it:
+
+        - post-LN (default): ``LayerNorm(x + crossattn(x))``
+        - pre-LN: ``fusion_out_norm(x + crossattn(LayerNorm(x)))`` — the residual
+          path itself carries no norm, and the terminal norm exists so the heads
+          still read a normalized representation.
+
+        Both branches are normalized from their own pre-attention states, so the
+        two streams stay symmetric.
         """
+        if self.config.norm_first:
+            antibody_query = self.fusion_norm_antibody(antibody_hidden)
+            antigen_query = self.fusion_norm_antigen(antigen_hidden)
+        else:
+            antibody_query = antibody_hidden
+            antigen_query = antigen_hidden
+
         antibody_ctx, _ = self.antibody_to_antigen(
-            query=antibody_hidden,
-            key=antigen_hidden,
-            value=antigen_hidden,
+            query=antibody_query,
+            key=antigen_query,
+            value=antigen_query,
             key_padding_mask=(antigen_attention_mask == 0),
             need_weights=False,
         )
         antigen_ctx, _ = self.antigen_to_antibody(
-            query=antigen_hidden,
-            key=antibody_hidden,
-            value=antibody_hidden,
+            query=antigen_query,
+            key=antibody_query,
+            value=antibody_query,
             key_padding_mask=(antibody_attention_mask == 0),
             need_weights=False,
         )
-        antibody_hidden = self.fusion_norm_antibody(antibody_hidden + antibody_ctx)
-        antigen_hidden = self.fusion_norm_antigen(antigen_hidden + antigen_ctx)
+
+        if self.config.norm_first:
+            antibody_hidden = self.fusion_out_norm_antibody(antibody_hidden + antibody_ctx)
+            antigen_hidden = self.fusion_out_norm_antigen(antigen_hidden + antigen_ctx)
+        else:
+            antibody_hidden = self.fusion_norm_antibody(antibody_hidden + antibody_ctx)
+            antigen_hidden = self.fusion_norm_antigen(antigen_hidden + antigen_ctx)
         return antibody_hidden, antigen_hidden
 
     def joint_representation(

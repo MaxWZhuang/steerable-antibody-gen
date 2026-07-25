@@ -1,11 +1,14 @@
 # Stage 2/4 — paired VH/VL refinement. Warm-starts from the stage-1 base model.
-# Produces checkpoints/mlm_paired_refine_v3/best.pt, consumed by stage 3's init_checkpoint.
+# Produces checkpoints/mlm_paired_refine_v4/best.pt, consumed by stage 3's init_checkpoint.
 # This is BY FAR the largest compute item in the chain (45 epochs over ~1.8M paired rows);
 # best.pt is checkpointed on val loss, but all 45 epochs run (no early stopping).
+#
+# v3 -> v4: norm_first: true (pre-LN), matching stage 1. Never warm-start this from a v3
+# checkpoint — see the generation note in configs/pretrain_oas_small.yaml.
 training_stage: paired_refine
 data_path: data/processed/oas_paired_all/oas_paired.jsonl.gz
-init_checkpoint: checkpoints/mlm_3m_unpaired_v3/best.pt
-output_dir: checkpoints/mlm_paired_refine_v3
+init_checkpoint: checkpoints/mlm_3m_unpaired_v4/best.pt
+output_dir: checkpoints/mlm_paired_refine_v4
 resume_from_last: true
 
 seed: 42
@@ -35,6 +38,7 @@ n_heads: 8
 n_layers: 6
 d_ff: 1024                # FIX: old example said 512, which fails the init-compat check against the 1024 base.
 dropout: 0.1
+norm_first: true          # v4: pre-LN. Must match stage 1 exactly or init-compat rejects the warm start.
 
 use_amp: false            # matches the known-good prior paired run. Flip to true for speed if stable.
 show_progress: true

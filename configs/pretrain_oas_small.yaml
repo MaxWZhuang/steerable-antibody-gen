@@ -1,14 +1,22 @@
 # Stage 1/4 — base MLM pretraining on unpaired OAS (~3M heavy+light).
 # Chain: THIS -> refine_oas_paired -> refine_antigen_real_label -> refine_antigen_hcdr3_infill
-# Produces checkpoints/mlm_3m_unpaired_v3/best.pt, consumed by stage 2's init_checkpoint.
+# Produces checkpoints/mlm_3m_unpaired_v4/best.pt, consumed by stage 2's init_checkpoint.
 #
-# resume_from_last: safe here because this is a fresh v3 dir. WARNING: if you edit
+# v3 -> v4: norm_first: true (pre-LN). This is an architecture change, so the whole chain
+# retrains from scratch and NO v3 checkpoint may be warm-started, evaluated, or compared
+# against a v4 one. The v3 dirs are left on disk untouched; treat them as a separate,
+# closed generation. Every v3 metric is dead — re-measure floors on v4 before any claim.
+# The init-compat check enforces the boundary (it reads a missing norm_first key as post-LN),
+# which matters because single-stream pre-LN and post-LN state dicts are name- and
+# shape-identical: strict=True loads one into the other without complaint.
+#
+# resume_from_last: safe here because this is a fresh v4 dir. WARNING: if you edit
 # hyperparameters and relaunch into a populated dir, resume silently reloads last.pt and
 # IGNORES your edits (and init_checkpoint). Delete last.pt (or set false) on an intentional
 # config change. (filename is historical — this is the full 3M run, not a "small" one.)
 training_stage: base
 data_path: data/processed/oas_unpaired_3m/oas_all.jsonl.gz
-output_dir: checkpoints/mlm_3m_unpaired_v3
+output_dir: checkpoints/mlm_3m_unpaired_v4
 resume_from_last: true
 
 seed: 42
@@ -39,6 +47,11 @@ n_heads: 8
 n_layers: 6
 d_ff: 1024
 dropout: 0.1
+norm_first: true    # v4: pre-LN. Was post-LN (the PyTorch default, never a deliberate
+                    # choice) through v3. At 6 layers post-LN trains fine, so do not expect
+                    # a large quality delta; the gain is a clean identity residual path and
+                    # less dependence on warmup to avoid early divergence. MUST be identical
+                    # across all four stages — the init-compat check rejects a mismatch.
 
 use_amp: true
 show_progress: true
