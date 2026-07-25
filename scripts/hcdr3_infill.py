@@ -29,9 +29,12 @@ from mlm_train import TrainConfig, _train_config_defaults, build_model, build_to
 
 
 # Repo-anchored (not CWD-relative) and pointed at the dir the stage-3 real-label
-# config (configs/refine_antigen_real_label.yaml) actually writes (`_v3`), not the
+# config (configs/refine_antigen_real_label.yaml) actually writes (`_v4`), not the
 # CLI-default `_refine` stage-name dir the chain never produces.
-DEFAULT_SCORE_CHECKPOINT = PROJECT_ROOT / "checkpoints" / "mlm_antigen_real_label_v3" / "best.pt"
+# Bumped v3 -> v4 with the pre-LN (norm_first) chain retrain, in the same commit as
+# the config change: this default and the stage-3 output_dir must move together, or
+# generation silently scores every candidate against the wrong generation's model.
+DEFAULT_SCORE_CHECKPOINT = PROJECT_ROOT / "checkpoints" / "mlm_antigen_real_label_v4" / "best.pt"
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

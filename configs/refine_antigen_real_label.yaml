@@ -1,6 +1,12 @@
 # Stage 3/4 — antigen-conditioned compatibility on REAL binder/non-binder labels.
 # Warm-starts antibody encoder + heads from stage 2; the antigen encoder + cross-attention
-# fusion + compatibility head are trained here. Produces checkpoints/mlm_antigen_real_label_v3/best.pt.
+# fusion + compatibility head are trained here. Produces checkpoints/mlm_antigen_real_label_v4/best.pt.
+#
+# v3 -> v4: norm_first: true (pre-LN), matching stages 1-2. In pre-LN mode `fuse` also gains
+# terminal fusion_out_norm_* layers (docs/ARCHITECTURE.md 4.3), so this stage's dual-stream
+# state dict differs structurally from v3 and a cross-generation load fails strict=True as
+# well as the init-compat check. The ~0.54 floor below is a property of the label population,
+# not of v3, so it still applies -- but every measured v3 compat number is dead. Re-measure.
 #
 # Data note: this stage keeps only binder_label in {0,1} == the affinity_type=="bool" rows
 # (~59.5k; ~54% positive). That is a smaller, different population than the strong-binder set
@@ -10,8 +16,8 @@
 # always-positive rate yourself, and watch the "[split] ... overlap" line for target leakage.
 training_stage: antigen_real_label_refine
 data_path: data/processed/antibody_antigen/antibody_antigen.jsonl.gz
-init_checkpoint: checkpoints/mlm_paired_refine_v3/best.pt
-output_dir: checkpoints/mlm_antigen_real_label_v3
+init_checkpoint: checkpoints/mlm_paired_refine_v4/best.pt
+output_dir: checkpoints/mlm_antigen_real_label_v4
 resume_from_last: true
 
 seed: 42
@@ -44,6 +50,7 @@ n_heads: 8
 n_layers: 6
 d_ff: 1024
 dropout: 0.1
+norm_first: true    # v4: pre-LN. Must match stage 2 exactly or init-compat rejects the warm start.
 
 # Antigen stream = from-scratch transformer. NOTE: the scratch antigen encoder truncates the
 # antigen to max_length (192) tokens, so long antigens are only partially seen. The ESM variant

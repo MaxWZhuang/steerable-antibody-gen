@@ -9,10 +9,15 @@
 # access (or a pre-populated HF cache / HF_HOME) to fetch esm2_t6_8M weights at model build.
 # Note: ESM sees the antigen at 512 tokens vs 192 for the scratch stream, so a scratch-vs-ESM
 # gap is partly a context-length effect, not purely pretraining.
+#
+# v3 -> v4: norm_first: true, tracking the scratch stage 4 so the ablation keeps its shared
+# init and its single varied axis (antigen encoder). norm_first must stay IDENTICAL to the
+# scratch arm or the comparison gains a second confound. Here it governs the antibody encoder
+# and the fusion block only -- the antigen stream is ESM, which brings its own architecture.
 training_stage: antigen_hcdr3_infill_refine
 data_path: data/processed/antibody_antigen/antibody_antigen.jsonl.gz
-init_checkpoint: checkpoints/mlm_antigen_real_label_v3/best.pt
-output_dir: checkpoints/mlm_antigen_hcdr3_infill_esm_v3
+init_checkpoint: checkpoints/mlm_antigen_real_label_v4/best.pt
+output_dir: checkpoints/mlm_antigen_hcdr3_infill_esm_v4
 resume_from_last: true
 
 seed: 42
@@ -45,6 +50,7 @@ n_heads: 8
 n_layers: 6
 d_ff: 1024
 dropout: 0.1
+norm_first: true    # v4: pre-LN. MUST equal the scratch stage-4 value (one-axis rule).
 
 antigen_encoder:
   type: esm
