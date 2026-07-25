@@ -15,6 +15,8 @@ from torch.utils.data import Dataset, get_worker_info
 from smallAntibodyGen.tokenizer import AminoAcidTokenizer
 from smallAntibodyGen.antigen_tokenization import build_antigen_tokenizer
 from smallAntibodyGen.data.MLMSampler import ChainLengthBucketBatchSampler
+from smallAntibodyGen.data import affinity as affinity_rules
+from smallAntibodyGen.infill.hcdr3 import HCDR3Span, encode_masked_hcdr3_ids
 
 @dataclass
 class OASRecord:
@@ -60,6 +62,11 @@ class OASRecord:
     affinity_family: str | None = None
     affinity_strength_score: float | None = None
     affinity_strength_label: int | None = None
+    # Per-(dataset, affinity_type) train-split CDF rank written by
+    # scripts/annotate_affinity_targets.py. Pure passthrough: absent in every
+    # corpus produced before the annotator existed, hence None-tolerant
+    # everywhere downstream.
+    affinity_strength_quantile: float | None = None
     record_id: str | None = None
     source_file: str | None = None
     antigen_length: int | None = None
@@ -70,15 +77,12 @@ class OASRecord:
 class OASSequenceDataset(Dataset[OASRecord]):
     """Dataset that reads processed single-chain or paired OAS JSONL records."""
 
-    KD_STRONG_THRESHOLD_MOLAR = 1e-9
-    NEG_LOG_KD_STRONG_THRESHOLD = 9.0
-    AFFINITY_FAMILY_IDS = {
-        "unknown": 0,
-        "binary_binding": 1,
-        "ordered_strength": 2,
-        "ranking_regression": 3,
-        "mutation_effect": 4,
-    }
+    # Re-exported from data/affinity.py, which is the single home of the
+    # strong-binder decision tree. Kept as class attributes so existing callers
+    # and tests that read them keep working.
+    KD_STRONG_THRESHOLD_MOLAR = affinity_rules.KD_STRONG_THRESHOLD_MOLAR
+    NEG_LOG_KD_STRONG_THRESHOLD = affinity_rules.NEG_LOG_KD_STRONG_THRESHOLD
+    AFFINITY_FAMILY_IDS = affinity_rules.AFFINITY_FAMILY_IDS
 
     def __init__(
         self, 
@@ -100,175 +104,37 @@ class OASSequenceDataset(Dataset[OASRecord]):
 
     @staticmethod
     def _normalize_affinity_type(value: object) -> str:
-        """Return a stable lowercase affinity-type key."""
-        return str(value or "").strip().lower()
-
+        """Return a stable lowercase affinity-type key (delegates to data/affinity.py)."""
+        return affinity_rules.normalize_affinity_type(value)
     @classmethod
     def _affinity_family_for_type(cls, affinity_type: object) -> str:
-        """
-        Map heterogeneous affinity types into conservative supervision families.
-        """
-        normalized = cls._normalize_affinity_type(affinity_type)
-        if normalized == "bool":
-            return "binary_binding"
-        if normalized in {"kd", "-log kd"}:
-            return "ranking_regression"
-        if normalized in {"ddg", "elisa_mut_to_wt_ratio"}:
-            return "mutation_effect"
-        return "unknown"
-
+        """Map affinity types to supervision families (delegates to data/affinity.py)."""
+        return affinity_rules.affinity_family_for_type(affinity_type)
     @classmethod
     def _base_affinity_strength_score(cls, record: Dict[str, object]) -> float | None:
-        """
-        Convert one record into a simple scalar used by affinity supervision.
-        """
-        affinity_type = cls._normalize_affinity_type(record.get("affinity_type"))
-        family = cls._affinity_family_for_type(affinity_type)
-        measurement = record.get("processed_measurement_float")
-        binder_label = record.get("binder_label")
-
-        if family == "binary_binding":
-            if binder_label in (0, 1):
-                return float(binder_label)
-            return None
-
-        if family != "ranking_regression":
-            return None
-
-        if not isinstance(measurement, (int, float)) or isinstance(measurement, bool):
-            return None
-        value = float(measurement)
-        if not math.isfinite(value):
-            return None
-
-        if affinity_type == "kd":
-            # KD may be stored in molar (e.g. 1e-9) or already in nanomolar
-            # (e.g. 1.0). Normalize nanomolar-encoded values to molar before the
-            # -log10 so raw and scaled encodings of the same measurement yield
-            # the SAME strength score, matching the magnitude disambiguation in
-            # _infer_is_strong_binder. Without this, a scaled-unit strong binder
-            # (1.0 nM -> score 0.0) never clears the >= 9.0 strength threshold.
-            if value <= 0:
-                return None
-            if value >= 1e-3:
-                value = value * 1e-9
-            return -math.log10(max(value, 1e-12))
-        return value
-
+        """Scalar for graded affinity supervision (delegates to data/affinity.py)."""
+        return affinity_rules.base_affinity_strength_score(record)
     def _annotate_affinity(
         self,
         record: Dict[str, object],
     ) -> dict[str, object]:
-        """
-        Derive conservative affinity supervision fields for one record.
-        """
-        affinity_type_normalized = self._normalize_affinity_type(record.get("affinity_type"))
-        affinity_family = self._affinity_family_for_type(affinity_type_normalized)
-        strength_score = self._base_affinity_strength_score(record)
-        strength_label: int | None = None
-
-        if affinity_family == "binary_binding":
-            if record.get("binder_label") in (0, 1):
-                strength_label = int(record["binder_label"])
-        elif affinity_family == "ranking_regression" and strength_score is not None:
-            if strength_score >= self.NEG_LOG_KD_STRONG_THRESHOLD:
-                strength_label = 1
-
-        return {
-            "affinity_type_normalized": affinity_type_normalized or None,
-            "affinity_family": affinity_family,
-            "affinity_strength_score": strength_score,
-            "affinity_strength_label": strength_label,
-        }
-
+        """Derive affinity supervision fields (delegates to data/affinity.py)."""
+        return affinity_rules.annotate_affinity(record)
     @staticmethod
     def _marker_text(value: object) -> str:
-        """
-        Normalize a stored qualitative marker to comparable text.
-
-        Follows `clean_text` in `scripts/prepare_antibody_antigen.py`, which wrote
-        these values: a missing marker becomes "", everything else is stringified
-        and trimmed. Stringifying first is what lets a caller distinguish "absent"
-        from a present-but-falsy measurement such as `0.0`.
-
-        Only `None` and float NaN count as missing, where `clean_text` defers to
-        `pd.isna` and so also catches pandas/numpy sentinels (`pd.NaT`, `pd.NA`,
-        `np.float32` NaN). Those cannot appear here -- this reads `json.loads`
-        output, and a JSON `NaN` literal decodes to a Python float -- and the
-        difference fails safe (a sentinel would stringify to a non-"h" value, i.e.
-        not-strong) rather than inventing a strong binder.
-
-        Args:
-            value:
-                Raw scalar from a decoded JSONL row.
-
-        Returns:
-            Trimmed string, or "" when the value is missing.
-        """
-        if value is None:
-            return ""
-        if isinstance(value, float) and math.isnan(value):
-            return ""
-        return str(value).strip()
+        """Normalize a qualitative marker (delegates to data/affinity.py)."""
+        return affinity_rules.marker_text(value)
 
     @classmethod
     def _infer_is_strong_binder(cls, record: Dict[str, object]) -> bool:
         """
-        Return the conservative phase-1 strong-binder flag used by the
-        antibody-antigen compatibility stage.
+        The conservative strong-binder flag for one decoded JSONL row.
 
-        A stored `is_strong_binder` wins outright; the rest is the legacy
-        fallback for JSONL written before that field existed. The fallback
-        mirrors `infer_is_strong_binder` in `scripts/prepare_antibody_antigen.py`,
-        which is the authority for what counts as strong:
-        - explicit boolean binders with label 1
-        - fuzzy rows whose qualitative marker is "h"
-        - kd rows with Kd <= 1 nM (molar values <= 1e-9, or nanomolar <= 1.0)
-        - -log KD rows with processed measurement >= 9
-
-        Args:
-            record:
-                One decoded JSONL row.
-
-        Returns:
-            True when the row is a strong binder under the rules above.
+        Delegates to ``data/affinity.py`` -- the single home of this decision
+        tree, shared with the producer in ``scripts/prepare_antibody_antigen.py``
+        so the two cannot drift apart.
         """
-        if "is_strong_binder" in record:
-            return bool(record.get("is_strong_binder"))
-
-        affinity_type = cls._normalize_affinity_type(record.get("affinity_type"))
-        if affinity_type == "bool":
-            return record.get("binder_label") == 1
-        if affinity_type == "fuzzy":
-            # Mirror infer_is_strong_binder in prepare_antibody_antigen.py: the
-            # qualitative "high" marker == strong. Normalize BEFORE the `or` so a
-            # present-but-falsy measurement (0, 0.0, False) is not treated as
-            # absent and silently substituted by affinity_raw. Today's producer
-            # stores `clean_text(...) or None`, so a stored marker is already
-            # None-or-non-empty-string and the precedence cannot bite; this guards
-            # the legacy/hand-built rows the fallback exists to serve at all.
-            pm = cls._marker_text(record.get("processed_measurement_raw"))
-            raw = cls._marker_text(record.get("affinity_raw"))
-            return (pm or raw).lower() == "h"
-        measurement = record.get("processed_measurement_float")
-        if not isinstance(measurement, (int, float)) or isinstance(measurement, bool):
-            return False
-        value = float(measurement)
-        if not math.isfinite(value):
-            return False
-        if affinity_type == "kd":
-            # Mirror infer_is_strong_binder in prepare_antibody_antigen.py: KD may
-            # be stored in molar (e.g. 1e-9) or already in nanomolar (e.g. 1.0);
-            # a strong binder is KD <= 1 nM. Disambiguate by magnitude.
-            if value <= 0:
-                return False
-            if value >= 1e-3:
-                return value <= 1.0
-            return value <= cls.KD_STRONG_THRESHOLD_MOLAR
-        if affinity_type == "-log kd":
-            return value >= cls.NEG_LOG_KD_STRONG_THRESHOLD
-        return False
-    
+        return affinity_rules.infer_is_strong_binder(record)
     def _load(self) -> None: 
         """
         Load the requested split into memory as `OASRecord` objects.
@@ -334,6 +200,7 @@ class OASSequenceDataset(Dataset[OASRecord]):
                     affinity_family=affinity_annotations["affinity_family"],
                     affinity_strength_score=affinity_annotations["affinity_strength_score"],
                     affinity_strength_label=affinity_annotations["affinity_strength_label"],
+                    affinity_strength_quantile=record.get("affinity_strength_quantile"),
                     record_id=record.get("record_id"),
                     source_file=record.get("source_file"),
                     antigen_length=record.get("antigen_length"),
@@ -382,7 +249,8 @@ class MLMCollator:
         hcdr3_mask_mode: str = "sampled_span",
         mask_replacement_strategy: str = "bert",
         shuffle_pair_probability: float = 0.5,
-        rng_seed: int = 42
+        rng_seed: int = 42,
+        mask_rate_schedule: str = "fixed",
     ) -> None:
         """
         Stores tokenizer/configuration state and prepare RNG and list of residue-token IDs that are legal (not special) 
@@ -418,7 +286,18 @@ class MLMCollator:
                 model the number of HCDR3 residues through the number of mask
                 tokens; unknown-length design is handled outside the collator by
                 proposing a length first and then reusing the same fixed-length
-                infiller.
+                infiller. ``"partial_span"`` is the "noisy" schedule: for a
+                record with a valid heavy-chain CDR3 of token length ``L`` it
+                masks a uniformly random ``k``-subset of the span positions with
+                ``k`` drawn uniformly from ``{0, ..., L}`` (so both ``k == 0`` --
+                a fully visible span, the fully-filled decode endpoint -- and
+                ``k == L`` -- the full-span state -- are reachable) and adds no
+                non-span positions. This reproduces the mixed filled/masked span
+                states that classifier-guided decoding queries the compatibility
+                head on. Like ``full_span`` it is strict: a record without a
+                valid span contributes zero targets. ``mask_probability`` is
+                intentionally ignored in this mode -- the masked count comes only
+                from the span, never from a global budget.
             mask_replacement_strategy:
                 Controls how selected target residues are corrupted. ``"bert"``
                 preserves the standard 80/10/10 BERT-style corruption. In
@@ -427,10 +306,26 @@ class MLMCollator:
                 model sees a contiguous block of mask tokens rather than a
                 mixture of masks, random residues, and visible true residues.
             rng_seed (int, optional): seed for the Python random number generator used by this collator Defaults to 42.
+            mask_rate_schedule:
+                Controls the per-row MLM target budget in the random-selection
+                path. ``"fixed"`` (default) preserves the historical behavior
+                exactly: every row uses ``mask_probability`` and NO extra RNG
+                draw is consumed, so existing runs are byte-identical.
+                ``"uniform"`` draws a per-row masking rate ``t ~ U(0, 1]`` (one
+                extra ``rng`` draw per row, consumed immediately before the
+                budget computation) and IGNORES ``mask_probability`` -- the
+                schedule-covering corruption a masked-diffusion denoiser needs,
+                so a single model is trained across the whole corruption ladder
+                instead of only at 15%. Inert in ``full_span`` HCDR3 mode, which
+                returns before the budget path.
 
         """
-        if hcdr3_mask_mode not in {"sampled_span", "full_span"}:
-            raise ValueError("hcdr3_mask_mode must be one of: sampled_span, full_span")
+        if mask_rate_schedule not in {"fixed", "uniform"}:
+            raise ValueError("mask_rate_schedule must be one of: fixed, uniform")
+        if hcdr3_mask_mode not in {"sampled_span", "full_span", "partial_span"}:
+            raise ValueError(
+                "hcdr3_mask_mode must be one of: sampled_span, full_span, partial_span"
+            )
         if mask_replacement_strategy not in {"bert", "always_mask"}:
             raise ValueError("mask_replacement_strategy must be one of: bert, always_mask")
         
@@ -442,6 +337,7 @@ class MLMCollator:
         self.hcdr3_span_max = hcdr3_span_max
         self.hcdr3_mask_mode = hcdr3_mask_mode
         self.mask_replacement_strategy = mask_replacement_strategy
+        self.mask_rate_schedule = mask_rate_schedule
         self.shuffle_pair_probability = shuffle_pair_probability
         self._base_rng_seed = rng_seed
         self._worker_seeded_id: int | None = None
@@ -581,6 +477,31 @@ class MLMCollator:
         """
         if self.hcdr3_mask_mode == "full_span":
             return set(self._heavy_hcdr3_positions(input_ids_row, record))
+
+        if self.hcdr3_mask_mode == "partial_span":
+            # The "noisy" schedule the guided decoder actually queries. Mirror
+            # full_span's strictness: a missing/truncated span contributes zero
+            # targets. Otherwise mask a uniformly random k-subset of the HCDR3
+            # with k ~ uniform{0..L}. Both k == 0 (fully visible -- the
+            # fully-filled decode endpoint) and k == L (the full_span state) are
+            # reachable, and no non-HCDR3 positions are ever added, so
+            # mask_probability plays no role here.
+            #
+            # Why it matters: the compatibility head that guides decoding is
+            # trained only on fully-masked spans under full_span, yet at
+            # generation time it is queried on partially-filled spans. This mode
+            # is the training distribution that matches the query distribution.
+            #
+            # RNG discipline: the two draws below are the ONLY randomness this
+            # mode consumes and they run ONLY in partial_span. The
+            # sampled_span/full_span branches return before reaching here, so
+            # their RNG stream is byte-identical to the pre-partial_span code.
+            positions = self._heavy_hcdr3_positions(input_ids_row, record)
+            if not positions:
+                return set()
+            k = self.rng.randint(0, len(positions))
+            return set(self.rng.sample(positions, k))
+
         
         selected: set[int] = set()
         
@@ -593,7 +514,15 @@ class MLMCollator:
         if not eligible_positions:
             return selected
         
-        target_budget = max(1, int(round(len(eligible_positions) * self.mask_probability)))
+        if self.mask_rate_schedule == "uniform":
+            # Per-row rate t ~ U(0, 1]: 1 - random() maps [0, 1) -> (0, 1].
+            # This draw exists ONLY in uniform mode, immediately before the
+            # budget computation -- "fixed" consumes zero extra draws, so the
+            # historical RNG stream stays byte-identical.
+            row_rate = 1.0 - self.rng.random()
+        else:
+            row_rate = self.mask_probability
+        target_budget = max(1, int(round(len(eligible_positions) * row_rate)))
         
         if (
             self.rng.random() < self.hcdr3_span_probability
@@ -968,6 +897,9 @@ class AntibodyAntigenCollator(MLMCollator):
         esm_model_name: str = "facebook/esm2_t6_8M_UR50D",
         antigen_max_length: int | None = None,
         rng_seed: int = 42,
+        mask_rate_schedule: str = "fixed",
+        build_length_query: bool = False,
+        length_head_max: int | None = None,
     ) -> None:
         super().__init__(
             tokenizer=tokenizer,
@@ -980,9 +912,16 @@ class AntibodyAntigenCollator(MLMCollator):
             mask_replacement_strategy=mask_replacement_strategy,
             shuffle_pair_probability=0.0,
             rng_seed=rng_seed,
+            mask_rate_schedule=mask_rate_schedule,
         )
         self.shuffle_antigen_probability = shuffle_antigen_probability
         self.antigen_length_bucket_width = antigen_length_bucket_width
+        # Length-query tensors are built ONLY on request: the extra keys are
+        # additive, so a default batch has exactly the historical key set.
+        self.build_length_query = build_length_query
+        if build_length_query and length_head_max is None:
+            raise ValueError("build_length_query=True requires length_head_max")
+        self.length_head_max = length_head_max
 
         # Antigen stream tokenization (Direction 1). The scratch adapter reproduces
         # the previous inline encode exactly, so the from-scratch model is
@@ -1183,6 +1122,123 @@ class AntibodyAntigenCollator(MLMCollator):
             torch.tensor(attention_masks, dtype=torch.long),
         )
 
+    def _build_length_query(
+        self,
+        effective_batch: Sequence[OASRecord],
+        is_shuffled_antigen: Sequence[bool],
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Build the length-query tensors and labels (additive keys).
+
+        For each record the antibody stream is the COLLAPSED-SPAN encoding (the
+        HCDR3 interval replaced by exactly ONE ``[MASK]``), built through the SAME
+        ``encode_masked_hcdr3_ids`` the infiller uses, so the query is
+        byte-identical to the infiller's ``proposed_length=1`` output (parity
+        pinned by test). The single mask is the whole point: on the ordinary
+        encoding the mask COUNT *is* the true length, so a head trained there
+        would learn to count masks rather than predict a length. Two records that
+        differ only in HCDR3 length produce length-query streams with exactly one
+        mask each, at the same query position.
+
+        ``length_labels`` are 0-based class indices (length L -> L-1, see
+        ``mlm.length_to_class_index``). ``length_label_mask`` is True only for rows
+        that are (a) a valid heavy span, (b) in range ``1..length_head_max``, and
+        (c) NOT a shuffled-antigen negative -- a donor antigen makes the true
+        length a lie about the (scaffold, antigen) pair, the same trap the strength
+        targets avoid. Out-of-range and invalid-span rows are MASKED, never
+        clamped and never fatal.
+
+        This method consumes no ``self.rng``, so turning it on never perturbs the
+        masking stream.
+        """
+        assert self.length_head_max is not None  # guaranteed by __init__ when enabled
+        length_encoded: list[list[int]] = []
+        length_labels: list[int] = []
+        length_label_mask: list[bool] = []
+        # Minimal masked-out placeholder so invalid/overflow rows still have a
+        # valid, paddable stream for the forward; the row is masked out, so its
+        # content never reaches the length loss or metrics.
+        placeholder = [
+            self.tokenizer.cls_id,
+            self.tokenizer.token_to_id[self.tokenizer.get_chain_token("IGH")],
+            self.tokenizer.eos_id,
+        ]
+        for item, shuffled in zip(effective_batch, is_shuffled_antigen):
+            tokens: list[int] | None = None
+            true_length: int | None = None
+            try:
+                span = HCDR3Span.from_record(item)
+                tokens, _, _, _ = encode_masked_hcdr3_ids(
+                    self.tokenizer, item, span, proposed_length=1
+                )
+                true_length = span.length
+            except ValueError:
+                tokens = None
+
+            fits = tokens is not None and len(tokens) <= self.max_length
+            in_range = true_length is not None and 1 <= true_length <= self.length_head_max
+            eligible = bool(fits and in_range and not shuffled)
+
+            length_encoded.append(tokens if fits else list(placeholder))
+            # Class index L-1 mirrors mlm.length_to_class_index; 0 is a masked-out
+            # placeholder label, never a real target.
+            length_labels.append((true_length - 1) if eligible else 0)
+            length_label_mask.append(eligible)
+
+        length_input_ids, length_attention_mask = self._pad_encoded(length_encoded)
+        return {
+            "length_query_input_ids": length_input_ids,
+            "length_query_attention_mask": length_attention_mask,
+            "length_labels": torch.tensor(length_labels, dtype=torch.long),
+            "length_label_mask": torch.tensor(length_label_mask, dtype=torch.bool),
+        }
+
+    def _build_strength_targets(
+        self,
+        effective_batch: Sequence[OASRecord],
+        is_shuffled_antigen: Sequence[bool],
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Build the graded-strength regression targets for one dual-stream batch.
+
+        Returns three parallel tensors of shape ``[batch_size]``:
+
+        - ``strength_targets`` (f32): the record's stored
+          ``affinity_strength_quantile``, 0.0 where absent (the mask is what makes
+          those rows inert, not the value).
+        - ``strength_mask`` (bool): which rows carry usable supervision.
+        - ``affinity_family_ids`` (long): the supervision family, so a consumer
+          can pool or separate assay types rather than treating a ddG and a KD as
+          the same scale.
+
+        The mask is forced ``False`` for **shuffled-antigen rows**. A shuffled row
+        keeps the antibody's measured affinity for its ORIGINAL antigen while
+        being paired with a different one, so training the head on it would teach
+        that the measured strength is a property of the antibody alone -- exactly
+        the antigen-independence the dual stream exists to avoid.
+        """
+        targets: list[float] = []
+        mask: list[bool] = []
+        family_ids: list[int] = []
+        for item, shuffled in zip(effective_batch, is_shuffled_antigen):
+            quantile = item.affinity_strength_quantile
+            usable = (
+                not shuffled
+                and isinstance(quantile, (int, float))
+                and not isinstance(quantile, bool)
+                and math.isfinite(float(quantile))
+            )
+            targets.append(float(quantile) if usable else 0.0)
+            mask.append(bool(usable))
+            family_ids.append(
+                affinity_rules.AFFINITY_FAMILY_IDS.get(item.affinity_family or "unknown", 0)
+            )
+        return {
+            "strength_targets": torch.tensor(targets, dtype=torch.float32),
+            "strength_mask": torch.tensor(mask, dtype=torch.bool),
+            "affinity_family_ids": torch.tensor(family_ids, dtype=torch.long),
+        }
+
     def __call__(self, batch: Sequence[OASRecord]) -> Dict[str, torch.Tensor | list[str | None]]:
         """
         Build a dual-stream antibody-antigen batch with antibody MLM labels and
@@ -1221,6 +1277,12 @@ class AntibodyAntigenCollator(MLMCollator):
             "compatibility_labels": torch.tensor(compatibility_labels, dtype=torch.long),
             "compatibility_mask": torch.tensor(compatibility_mask, dtype=torch.bool),
             "is_shuffled_antigen": torch.tensor(is_shuffled_antigen, dtype=torch.bool),
+            **self._build_strength_targets(effective_batch, is_shuffled_antigen),
+            **(
+                self._build_length_query(effective_batch, is_shuffled_antigen)
+                if self.build_length_query
+                else {}
+            ),
             "record_ids": [item.record_id for item in effective_batch],
             "target_keys": [item.target_key for item in effective_batch],
             "dataset_names": [item.dataset_name for item in effective_batch],

@@ -367,3 +367,212 @@ def test_intra_epoch_checkpoint_disabled_when_steps_zero(
         output_dir=out_dir, best_val_loss=0.42,
     )
     assert not (out_dir / "last.pt").exists()
+
+
+# --------------------------------------------------------------------------- #
+# new_module_lr_multiplier + best_checkpoint_metric (ported from mirror)
+# --------------------------------------------------------------------------- #
+def _lr_knob_cfg(mlm_train, tmp_path: Path, *extra: str):
+    data_path = tmp_path / "tiny.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+    ckpt = tmp_path / "init.pt"
+    ckpt.write_text("", encoding="utf-8")
+    return mlm_train.parse_args(
+        [
+            "--data-path",
+            str(data_path),
+            "--training-stage",
+            "antigen_real_label_refine",
+            "--init-checkpoint",
+            str(ckpt),
+            *extra,
+        ]
+    )
+
+
+def _dual_model(mlm_train, norm_first: bool = False):
+    from smallAntibodyGen.models.mlm import AntibodyAntigenCrossAttention, MLMConfig
+
+    return AntibodyAntigenCrossAttention(
+        MLMConfig(
+            vocab_size=40,
+            pad_token_id=0,
+            max_length=64,
+            d_model=32,
+            n_heads=4,
+            n_layers=1,
+            d_ff=64,
+            dropout=0.0,
+            norm_first=norm_first,
+        )
+    )
+
+
+def test_new_module_lr_prefixes_match_the_warm_start_missing_keys(project_root: Path):
+    """The prefix tuple is not eyeballed: it must equal the set of modules the
+    real translation function leaves randomly initialized, in BOTH norm modes.
+
+    If someone renames a fusion module, this test fails instead of the multiplier
+    silently applying to nothing.
+    """
+    from smallAntibodyGen.models.mlm import AntibodyMLM, MLMConfig
+
+    mlm_train = load_mlm_train_module(project_root)
+    base = dict(
+        vocab_size=40,
+        pad_token_id=0,
+        max_length=64,
+        d_model=32,
+        n_heads=4,
+        n_layers=1,
+        d_ff=64,
+        dropout=0.0,
+    )
+    single = AntibodyMLM(MLMConfig(**base))
+    translated = mlm_train.build_antigen_refine_init_state_dict(single.state_dict())
+
+    observed: set[str] = set()
+    for norm_first in (False, True):
+        dual = _dual_model(mlm_train, norm_first=norm_first)
+        incompatible = dual.load_state_dict(translated, strict=False)
+        observed |= {key.split(".")[0] + "." for key in incompatible.missing_keys}
+
+    assert observed == set(mlm_train.NEW_MODULE_LR_PREFIXES)
+
+
+def test_default_multiplier_keeps_the_historical_two_group_optimizer(
+    tmp_path: Path, project_root: Path
+):
+    mlm_train = load_mlm_train_module(project_root)
+    cfg = _lr_knob_cfg(mlm_train, tmp_path)
+    assert cfg.new_module_lr_multiplier == 1.0
+    optimizer = mlm_train.build_optimizer(_dual_model(mlm_train), cfg)
+    assert len(optimizer.param_groups) == 2
+    assert all(group["lr"] == cfg.learning_rate for group in optimizer.param_groups)
+
+
+def test_multiplier_splits_four_groups_with_the_scaled_lr(
+    tmp_path: Path, project_root: Path
+):
+    mlm_train = load_mlm_train_module(project_root)
+    cfg = _lr_knob_cfg(mlm_train, tmp_path, "--new-module-lr-multiplier", "4.0")
+    model = _dual_model(mlm_train)
+    optimizer = mlm_train.build_optimizer(model, cfg)
+    assert len(optimizer.param_groups) == 4
+    base_lr = cfg.learning_rate
+    assert [group["lr"] for group in optimizer.param_groups] == [
+        base_lr,
+        base_lr,
+        base_lr * 4.0,
+        base_lr * 4.0,
+    ]
+    assert [group["weight_decay"] for group in optimizer.param_groups] == [
+        cfg.weight_decay,
+        0.0,
+        cfg.weight_decay,
+        0.0,
+    ]
+    # Every trainable parameter lands in exactly one group, none is dropped.
+    grouped = sum(len(group["params"]) for group in optimizer.param_groups)
+    assert grouped == sum(1 for p in model.parameters() if p.requires_grad)
+
+
+def test_multiplier_routes_exactly_the_new_modules(tmp_path: Path, project_root: Path):
+    mlm_train = load_mlm_train_module(project_root)
+    cfg = _lr_knob_cfg(mlm_train, tmp_path, "--new-module-lr-multiplier", "4.0")
+    model = _dual_model(mlm_train)
+    optimizer = mlm_train.build_optimizer(model, cfg)
+
+    scaled_ids = {
+        id(p) for group in optimizer.param_groups[2:] for p in group["params"]
+    }
+    expected_ids = {
+        id(p)
+        for name, p in model.named_parameters()
+        if p.requires_grad and name.startswith(mlm_train.NEW_MODULE_LR_PREFIXES)
+    }
+    assert scaled_ids == expected_ids
+    assert scaled_ids  # the set is non-empty, i.e. the test is not vacuous
+
+
+def test_multiplier_fails_loud_when_no_targeted_modules_exist(
+    tmp_path: Path, project_root: Path
+):
+    """A single-stream model has none of the targeted modules; silently applying
+    the knob to nothing would make an arm look like it ran when it did not."""
+    from smallAntibodyGen.models.mlm import AntibodyMLM, MLMConfig
+
+    mlm_train = load_mlm_train_module(project_root)
+    cfg = _lr_knob_cfg(mlm_train, tmp_path, "--new-module-lr-multiplier", "4.0")
+    single = AntibodyMLM(
+        MLMConfig(
+            vocab_size=40,
+            pad_token_id=0,
+            max_length=64,
+            d_model=32,
+            n_heads=4,
+            n_layers=1,
+            d_ff=64,
+            dropout=0.0,
+        )
+    )
+    with pytest.raises(ValueError, match="none of the targeted modules"):
+        mlm_train.build_optimizer(single, cfg)
+
+
+def test_multiplier_rejected_off_antigen_stages_and_when_non_positive(
+    tmp_path: Path, project_root: Path
+):
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = tmp_path / "tiny.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+    with pytest.raises(ValueError, match="only supported for antigen stages"):
+        mlm_train.parse_args(
+            ["--data-path", str(data_path), "--new-module-lr-multiplier", "4.0"]
+        )
+    with pytest.raises(ValueError, match="new_module_lr_multiplier must be > 0"):
+        _lr_knob_cfg(mlm_train, tmp_path, "--new-module-lr-multiplier", "0.0")
+
+
+def test_select_checkpoint_metric_value_defaults_to_combined_loss(
+    tmp_path: Path, project_root: Path
+):
+    mlm_train = load_mlm_train_module(project_root)
+    cfg = _lr_knob_cfg(mlm_train, tmp_path)
+    assert cfg.best_checkpoint_metric == "val_loss"
+    metrics = {"loss": 1.25, "compatibility_loss": 0.5}
+    assert mlm_train.select_checkpoint_metric_value(cfg, metrics) == 1.25
+
+
+def test_select_checkpoint_metric_value_can_key_on_the_compat_term(
+    tmp_path: Path, project_root: Path
+):
+    mlm_train = load_mlm_train_module(project_root)
+    cfg = _lr_knob_cfg(mlm_train, tmp_path, "--best-checkpoint-metric", "val_compat_loss")
+    metrics = {"loss": 1.25, "compatibility_loss": 0.5}
+    assert mlm_train.select_checkpoint_metric_value(cfg, metrics) == 0.5
+
+
+def test_best_checkpoint_metric_rejected_off_antigen_stages(
+    tmp_path: Path, project_root: Path
+):
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = tmp_path / "tiny.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+    with pytest.raises(ValueError, match="only supported for antigen"):
+        mlm_train.parse_args(
+            ["--data-path", str(data_path), "--best-checkpoint-metric", "val_compat_loss"]
+        )
+
+
+def test_mechanism_search_knob_defaults_are_pinned(tmp_path: Path, project_root: Path):
+    """One cross-knob default pin: any of these flipping by accident silently
+    changes every existing run."""
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = tmp_path / "tiny.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+    cfg = mlm_train.parse_args(["--data-path", str(data_path)])
+    assert cfg.mlm_loss_weight == 1.0
+    assert cfg.compat_readout == "cls"
+    assert cfg.new_module_lr_multiplier == 1.0
+    assert cfg.best_checkpoint_metric == "val_loss"

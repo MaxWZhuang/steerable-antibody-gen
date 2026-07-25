@@ -14,6 +14,7 @@ from typing import Any, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.optim import AdamW
 from torch.utils.data import DataLoader, Dataset
 try:
@@ -151,6 +152,19 @@ class TrainConfig:
     hcdr3_span_max: int = 8
     hcdr3_mask_mode: str = "sampled_span"
     mask_replacement_strategy: str = "bert"
+    # Schedule-covering corruption (masked-diffusion direction). All three
+    # defaults reproduce the historical behavior exactly: "fixed" consumes zero
+    # extra collator RNG draws (byte-identical batches), "" inherits the train
+    # schedule on the eval side, and False emits no new metrics keys -- so every
+    # existing run and its metrics.jsonl are byte-for-byte unchanged.
+    # "uniform" draws a per-row masking rate t ~ U(0, 1] and IGNORES
+    # mask_probability (inert in the full_span HCDR3 mode).
+    # eval_mask_rate_schedule exists so arms that differ in TRAIN schedule can
+    # share one ARM-INDEPENDENT eval schedule (eval uniform for every arm,
+    # binned post-hoc by realized masked fraction).
+    mask_rate_schedule: str = "fixed"
+    eval_mask_rate_schedule: str = ""
+    report_masked_fraction_bins: bool = False
     shuffle_pair_probability: float = 0.5
     shuffle_antigen_probability: float = 0.5
 
@@ -193,6 +207,44 @@ class TrainConfig:
     checkpoint_every_steps: int = 0
     pair_loss_weight: float = 1.0
     compatibility_loss_weight: float = 1.0
+    # Opt-in diagnostic knob. 1.0 reproduces the historical total exactly (a
+    # multiply by exactly 1.0 is bit-exact); 0.0 removes MLM from optimization on
+    # antigen stages so the compatibility term alone drives training. The
+    # reported mlm_loss stays unweighted so curves remain comparable across arms.
+    mlm_loss_weight: float = 1.0
+    # Plumbed into MLMConfig. "cls" is the historical CLS-concat readout; "mean"
+    # mask-aware mean-pools both fused streams before fusion_mlp.
+    compat_readout: str = "cls"
+    # Multiplies the LR of the modules the antigen-stage warm-start leaves
+    # randomly initialized (the set is pinned in NEW_MODULE_LR_PREFIXES and
+    # verified by a test that derives it from the real translation function).
+    # 1.0 keeps the historical single-LR optimizer with its exact param-group
+    # layout, so an unset run is byte-identical.
+    new_module_lr_multiplier: float = 1.0
+    # "val_compat_loss" keys best.pt selection, early stopping, and the
+    # checkpoint's tracked val_loss payload on the compatibility term instead of
+    # the MLM-dominated combined loss. Training gradients are unchanged either
+    # way -- this is a selection knob, not an objective knob.
+    best_checkpoint_metric: str = "val_loss"
+    # Graded-affinity supervision. Both default to the historical behavior:
+    # weight 0.0 builds NO strength head (no extra init-RNG) and adds a 0-scaled
+    # differentiable-zero loss term, so every existing run is byte-for-byte
+    # unchanged. `use_strength_head` on the model config is DERIVED from the
+    # weight, so there is one source of truth rather than two flags that can
+    # disagree.
+    strength_loss_weight: float = 0.0
+    # Whether the antigen-stage row filter also admits rows that carry a strength
+    # quantile but NO binary label. Kept separate from the loss weight on purpose:
+    # turning the head on and widening the training population at the same time
+    # confounds "the head helps" with "more rows help".
+    include_strength_rows: bool = False
+    # Learned conditional length posterior. 0.0 (default) builds NO length head
+    # and adds a 0-scaled differentiable-zero term, so existing runs are
+    # byte-identical. `length_head_max` must cover the corpus's HCDR3 lengths;
+    # rows longer than it are MASKED OUT of the length loss, never clamped, and
+    # scripts/length_census.py is what tells you the right value.
+    length_loss_weight: float = 0.0
+    length_head_max: int = 32
     epochs: int = 5
     seed: int = 42
 
@@ -235,10 +287,20 @@ class TrainConfig:
             raise ValueError("HCDR3 span lengths must be > 0")
         if self.hcdr3_span_min > self.hcdr3_span_max:
             raise ValueError("hcdr3_span_min must be <= hcdr3_span_max")
-        if self.hcdr3_mask_mode not in {"sampled_span", "full_span"}:
-            raise ValueError("hcdr3_mask_mode must be one of: sampled_span, full_span")
+        if self.hcdr3_mask_mode not in {"sampled_span", "full_span", "partial_span"}:
+            raise ValueError(
+                "hcdr3_mask_mode must be one of: sampled_span, full_span, partial_span"
+            )
         if self.mask_replacement_strategy not in {"bert", "always_mask"}:
             raise ValueError("mask_replacement_strategy must be one of: bert, always_mask")
+        if self.mask_rate_schedule not in {"fixed", "uniform"}:
+            raise ValueError("mask_rate_schedule must be one of: fixed, uniform")
+        if self.eval_mask_rate_schedule not in {"", "fixed", "uniform"}:
+            raise ValueError(
+                "eval_mask_rate_schedule must be one of: '' (inherit), fixed, uniform"
+            )
+        if not isinstance(self.report_masked_fraction_bins, bool):
+            raise ValueError("report_masked_fraction_bins must be a bool")
         if self.learning_rate <= 0:
             raise ValueError("learning_rate must be > 0")
         if self.weight_decay < 0:
@@ -261,6 +323,49 @@ class TrainConfig:
             raise ValueError("pair_loss_weight must be >= 0")
         if self.compatibility_loss_weight < 0:
             raise ValueError("compatibility_loss_weight must be >= 0")
+        if self.mlm_loss_weight < 0:
+            raise ValueError("mlm_loss_weight must be >= 0")
+        if self.mlm_loss_weight != 1.0 and not is_antigen_stage(self.training_stage):
+            raise ValueError(
+                "mlm_loss_weight != 1.0 is only supported for antigen stages; the "
+                "antibody-only loss composition does not read it"
+            )
+        if self.compat_readout not in {"cls", "mean"}:
+            raise ValueError("compat_readout must be either 'cls' or 'mean'")
+        if self.new_module_lr_multiplier <= 0:
+            raise ValueError("new_module_lr_multiplier must be > 0")
+        if self.new_module_lr_multiplier != 1.0 and not is_antigen_stage(self.training_stage):
+            raise ValueError(
+                "new_module_lr_multiplier != 1.0 is only supported for antigen stages; "
+                "the antibody-only model has none of the targeted modules"
+            )
+        if self.best_checkpoint_metric not in {"val_loss", "val_compat_loss"}:
+            raise ValueError("best_checkpoint_metric must be one of: val_loss, val_compat_loss")
+        if self.strength_loss_weight < 0:
+            raise ValueError("strength_loss_weight must be >= 0")
+        if self.strength_loss_weight > 0 and not is_antigen_stage(self.training_stage):
+            raise ValueError(
+                "strength_loss_weight > 0 is only supported for antigen stages; the "
+                "antibody-only model has no joint representation to read strength off"
+            )
+        if not isinstance(self.include_strength_rows, bool):
+            raise ValueError("include_strength_rows must be a bool")
+        if self.length_loss_weight < 0:
+            raise ValueError("length_loss_weight must be >= 0")
+        if self.length_loss_weight > 0 and not is_antigen_stage(self.training_stage):
+            raise ValueError(
+                "length_loss_weight > 0 is only supported for antigen stages; the "
+                "length posterior is conditioned on the antigen"
+            )
+        if self.length_head_max <= 0:
+            raise ValueError("length_head_max must be > 0")
+        if self.best_checkpoint_metric == "val_compat_loss" and not is_antigen_stage(
+            self.training_stage
+        ):
+            raise ValueError(
+                "best_checkpoint_metric='val_compat_loss' is only supported for antigen "
+                "stages; other stages report no compatibility loss"
+            )
         if self.epochs <= 0:
             raise ValueError("epochs must be > 0")
         if self.train_num_workers < 0 or self.eval_num_workers < 0:
@@ -495,8 +600,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hcdr3-span-probability", type=float)
     parser.add_argument("--hcdr3-span-min", type=int)
     parser.add_argument("--hcdr3-span-max", type=int)
-    parser.add_argument("--hcdr3-mask-mode", type=str, choices=("sampled_span", "full_span"))
+    parser.add_argument(
+        "--hcdr3-mask-mode",
+        type=str,
+        choices=("sampled_span", "full_span", "partial_span"),
+    )
     parser.add_argument("--mask-replacement-strategy", type=str, choices=("bert", "always_mask"))
+    parser.add_argument("--mask-rate-schedule", type=str, choices=("fixed", "uniform"))
+    parser.add_argument(
+        "--eval-mask-rate-schedule", type=str, choices=("", "fixed", "uniform")
+    )
+    parser.add_argument(
+        "--report-masked-fraction-bins", action="store_true", default=argparse.SUPPRESS
+    )
+    parser.add_argument(
+        "--no-report-masked-fraction-bins",
+        dest="report_masked_fraction_bins",
+        action="store_false",
+        default=argparse.SUPPRESS,
+    )
     parser.add_argument("--shuffle-pair-probability", type=float)
     parser.add_argument("--shuffle-antigen-probability", type=float)
 
@@ -528,6 +650,27 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--checkpoint-every-steps", type=int)
     parser.add_argument("--pair-loss-weight", type=float)
     parser.add_argument("--compatibility-loss-weight", type=float)
+    parser.add_argument("--mlm-loss-weight", type=float)
+    parser.add_argument("--compat-readout", type=str, choices=("cls", "mean"))
+    parser.add_argument("--new-module-lr-multiplier", type=float)
+    parser.add_argument(
+        "--best-checkpoint-metric", type=str, choices=("val_loss", "val_compat_loss")
+    )
+    parser.add_argument("--strength-loss-weight", type=float)
+    parser.add_argument("--length-loss-weight", type=float)
+    parser.add_argument("--length-head-max", type=int)
+    parser.add_argument(
+        "--include-strength-rows",
+        dest="include_strength_rows",
+        action="store_true",
+        default=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--no-include-strength-rows",
+        dest="include_strength_rows",
+        action="store_false",
+        default=argparse.SUPPRESS,
+    )
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--seed", type=int)
 
@@ -756,12 +899,21 @@ def build_datasets(cfg: TrainConfig) -> Tuple[OASSequenceDataset, OASSequenceDat
     train_dataset = OASSequenceDataset(cfg.data_path, split="train")
     val_dataset = OASSequenceDataset(cfg.data_path, split="val")
     if cfg.training_stage == "antigen_real_label_refine":
-        train_dataset.records = [
-            record for record in train_dataset.records if record.binder_label in (0, 1)
-        ]
-        val_dataset.records = [
-            record for record in val_dataset.records if record.binder_label in (0, 1)
-        ]
+        # `include_strength_rows` widens this filter to admit rows that carry a
+        # graded strength quantile but NO binary label -- rows the binary head
+        # cannot use and the strength head can. It is a SEPARATE knob from
+        # `strength_loss_weight` on purpose: flipping both at once confounds
+        # "the graded head helps" with "the larger population helps".
+        def _eligible(record) -> bool:
+            if record.binder_label in (0, 1):
+                return True
+            if not cfg.include_strength_rows:
+                return False
+            quantile = record.affinity_strength_quantile
+            return isinstance(quantile, (int, float)) and not isinstance(quantile, bool)
+
+        train_dataset.records = [r for r in train_dataset.records if _eligible(r)]
+        val_dataset.records = [r for r in val_dataset.records if _eligible(r)]
     elif is_hcdr3_infill_stage(cfg.training_stage):
         train_dataset.records = [
             record for record in train_dataset.records if is_hcdr3_infill_record(record)
@@ -1163,6 +1315,9 @@ def build_train_loader(
             esm_model_name=cfg.esm_model_name,
             antigen_max_length=cfg.antigen_max_length,
             rng_seed=cfg.seed + epoch,
+            mask_rate_schedule=cfg.mask_rate_schedule,
+            build_length_query=cfg.length_loss_weight > 0,
+            length_head_max=cfg.length_head_max,
         )
     elif cfg.training_stage == "antigen_refine":
         collator = AntibodyAntigenCollator(
@@ -1179,6 +1334,9 @@ def build_train_loader(
             esm_model_name=cfg.esm_model_name,
             antigen_max_length=cfg.antigen_max_length,
             rng_seed=cfg.seed + epoch,
+            mask_rate_schedule=cfg.mask_rate_schedule,
+            build_length_query=cfg.length_loss_weight > 0,
+            length_head_max=cfg.length_head_max,
         )
     else:
         collator = MLMCollator(
@@ -1192,6 +1350,7 @@ def build_train_loader(
             mask_replacement_strategy=cfg.mask_replacement_strategy,
             shuffle_pair_probability=cfg.shuffle_pair_probability,
             rng_seed=cfg.seed + epoch,
+            mask_rate_schedule=cfg.mask_rate_schedule,
         )
 
     loader = DataLoader(
@@ -1251,6 +1410,9 @@ def build_eval_loader(
             esm_model_name=cfg.esm_model_name,
             antigen_max_length=cfg.antigen_max_length,
             rng_seed=cfg.seed + 20_000,
+            mask_rate_schedule=(cfg.eval_mask_rate_schedule or cfg.mask_rate_schedule),
+            build_length_query=cfg.length_loss_weight > 0,
+            length_head_max=cfg.length_head_max,
         )
     elif cfg.training_stage == "antigen_real_label_refine" or is_hcdr3_infill_stage(cfg.training_stage):
         collator = AntibodyAntigenRealLabelCollator(
@@ -1267,6 +1429,9 @@ def build_eval_loader(
             esm_model_name=cfg.esm_model_name,
             antigen_max_length=cfg.antigen_max_length,
             rng_seed=cfg.seed + 20_000,
+            mask_rate_schedule=(cfg.eval_mask_rate_schedule or cfg.mask_rate_schedule),
+            build_length_query=cfg.length_loss_weight > 0,
+            length_head_max=cfg.length_head_max,
         )
     else:
         collator = MLMCollator(
@@ -1280,6 +1445,7 @@ def build_eval_loader(
             mask_replacement_strategy=cfg.mask_replacement_strategy,
             shuffle_pair_probability=cfg.shuffle_pair_probability,
             rng_seed=cfg.seed + 20_000,
+            mask_rate_schedule=(cfg.eval_mask_rate_schedule or cfg.mask_rate_schedule),
         )
 
     loader = DataLoader(
@@ -1331,12 +1497,39 @@ def build_model(
         lora_r=cfg.lora_r,
         lora_alpha=cfg.lora_alpha,
         lora_dropout=cfg.lora_dropout,
+        compat_readout=cfg.compat_readout,
+        # Single source of truth: the head exists iff its loss is weighted.
+        use_strength_head=cfg.strength_loss_weight > 0,
+        # Same single-source-of-truth contract as the strength head.
+        use_length_head=cfg.length_loss_weight > 0,
+        length_head_max=cfg.length_head_max,
     )
     if is_antigen_stage(cfg.training_stage):
         model = AntibodyAntigenCrossAttention(model_cfg).to(device)
     else:
         model = AntibodyMLM(model_cfg).to(device)
     return model
+
+
+# The exact modules `build_antigen_refine_init_state_dict` leaves randomly
+# initialized when warm-starting an antigen stage from an antibody-only or
+# paired checkpoint. Derived empirically (not by eye) and pinned by
+# `test_new_module_lr_prefixes_match_the_warm_start_missing_keys`, which
+# recomputes the set from the real translation function in both norm modes.
+#
+# `antigen_encoder.` is deliberately absent: on the scratch path it is warm-started
+# from the antibody encoder, and on the ESM path its backbone is pretrained. A
+# fresh-init projection inside the ESM adapter is a separate concern.
+NEW_MODULE_LR_PREFIXES = (
+    "antibody_to_antigen.",
+    "antigen_to_antibody.",
+    "fusion_norm_antibody.",
+    "fusion_norm_antigen.",
+    "fusion_out_norm_antibody.",  # pre-LN only; absent in post-LN models
+    "fusion_out_norm_antigen.",
+    "fusion_mlp.",
+    "compatibility_head.",
+)
 
 
 def build_optimizer(model: torch.nn.Module, cfg: TrainConfig) -> AdamW:
@@ -1355,12 +1548,47 @@ def build_optimizer(model: torch.nn.Module, cfg: TrainConfig) -> AdamW:
     # Weight decay should not be applied to biases or LayerNorm gains/biases
     # (1-D tensors); decaying them is a known training defect that pulls norm
     # gains toward zero. Split parameters into a decay and a no-decay group.
-    decay_params = [p for p in model.parameters() if p.requires_grad and p.dim() >= 2]
-    no_decay_params = [p for p in model.parameters() if p.requires_grad and p.dim() < 2]
+    if cfg.new_module_lr_multiplier == 1.0:
+        decay_params = [p for p in model.parameters() if p.requires_grad and p.dim() >= 2]
+        no_decay_params = [p for p in model.parameters() if p.requires_grad and p.dim() < 2]
+        return AdamW(
+            [
+                {"params": decay_params, "weight_decay": cfg.weight_decay},
+                {"params": no_decay_params, "weight_decay": 0.0},
+            ],
+            lr=cfg.learning_rate,
+        )
+
+    # multiplier != 1.0: give the randomly-initialized fusion/head modules their
+    # own LR so a warm-started trunk is not dragged by a head still finding its
+    # scale. Group ORDER is load-bearing for the optimizer state_dict layout; a
+    # resume across a changed multiplier fails loudly on group-count mismatch,
+    # which is the correct outcome (a changed config gets a fresh output_dir).
+    base_decay: list = []
+    base_no_decay: list = []
+    new_decay: list = []
+    new_no_decay: list = []
+    for name, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        is_new = name.startswith(NEW_MODULE_LR_PREFIXES)
+        decay = p.dim() >= 2
+        if is_new:
+            (new_decay if decay else new_no_decay).append(p)
+        else:
+            (base_decay if decay else base_no_decay).append(p)
+    if not (new_decay or new_no_decay):
+        raise ValueError(
+            "new_module_lr_multiplier is set but the model has none of the targeted "
+            f"modules ({', '.join(NEW_MODULE_LR_PREFIXES)})"
+        )
+    new_lr = cfg.learning_rate * cfg.new_module_lr_multiplier
     return AdamW(
         [
-            {"params": decay_params, "weight_decay": cfg.weight_decay},
-            {"params": no_decay_params, "weight_decay": 0.0},
+            {"params": base_decay, "weight_decay": cfg.weight_decay, "lr": cfg.learning_rate},
+            {"params": base_no_decay, "weight_decay": 0.0, "lr": cfg.learning_rate},
+            {"params": new_decay, "weight_decay": cfg.weight_decay, "lr": new_lr},
+            {"params": new_no_decay, "weight_decay": 0.0, "lr": new_lr},
         ],
         lr=cfg.learning_rate,
     )
@@ -1579,6 +1807,85 @@ def masked_accuracy_counts(logits: torch.Tensor, labels: torch.Tensor) -> tuple[
     return correct, total
 
 
+# Masked-fraction bin edges for the corruption-coverage curve.
+# Right-open bins except the last: [0,.2) [.2,.4) [.4,.6) [.6,.8) [.8,1.0].
+MASKED_FRACTION_BIN_EDGES = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)
+
+
+def masked_fraction_bin_key(lo: float, hi: float) -> str:
+    """Metric-key suffix for one bin, e.g. ``(0.2, 0.4) -> 'frac_20_40'``."""
+    return f"frac_{int(round(lo * 100))}_{int(round(hi * 100))}"
+
+
+def masked_fraction_bin_counts(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    input_ids: torch.Tensor,
+    special_ids: set[int],
+) -> dict[str, list[int]]:
+    """
+    Per-bin ``[correct, total]`` masked-token counts, binned by each row's
+    REALIZED masked fraction (the corruption-coverage curve; opt-in via
+    ``report_masked_fraction_bins`` -- never computed otherwise).
+
+    A row's masked fraction is ``#targets / #eligible`` where targets are the
+    non-``-100`` label positions and eligible is the UNION of target positions
+    and non-special input positions. The union is what makes the denominator
+    corruption-invariant: under BERT corruption a target may hold ``[MASK]``
+    (special) or a kept/replaced residue (non-special), and post-corruption
+    ``input_ids`` alone cannot reconstruct the eligible count. Rows with zero
+    eligible or zero target positions are skipped.
+    """
+    preds = logits.argmax(dim=-1)
+    target_mask = labels != -100
+    special = torch.zeros_like(input_ids, dtype=torch.bool)
+    for sid in special_ids:
+        special |= input_ids == sid
+    eligible_mask = target_mask | ~special
+
+    counts: dict[str, list[int]] = {}
+    for row in range(labels.shape[0]):
+        n_targets = int(target_mask[row].sum().item())
+        n_eligible = int(eligible_mask[row].sum().item())
+        if n_eligible == 0 or n_targets == 0:
+            continue
+        # Bin index in EXACT integer arithmetic. The float form
+        # `int((n_targets / n_eligible) / 0.2)` misbins frac == 3/5, because
+        # 0.6 / 0.2 == 2.9999999999999996 -- every eligible-20 row with 12
+        # targets landed one bin too low. `n_targets * 5 // n_eligible`
+        # implements the documented right-open edges exactly, with the last bin
+        # right-closed (frac == 1.0 -> 5 -> clamped to 4).
+        bin_idx = min(n_targets * 5 // n_eligible, len(MASKED_FRACTION_BIN_EDGES) - 2)
+        lo = MASKED_FRACTION_BIN_EDGES[bin_idx]
+        hi = MASKED_FRACTION_BIN_EDGES[bin_idx + 1]
+        key = masked_fraction_bin_key(lo, hi)
+        row_correct = int(
+            (preds[row][target_mask[row]] == labels[row][target_mask[row]]).sum().item()
+        )
+        entry = counts.setdefault(key, [0, 0])
+        entry[0] += row_correct
+        entry[1] += n_targets
+    return counts
+
+
+def finalize_masked_fraction_bins(counts: dict[str, list[int]]) -> dict[str, float]:
+    """
+    Turn accumulated per-bin counts into metric entries.
+
+    EVERY bin is emitted (empty ones as NaN accuracy / 0 tokens) so arm-vs-arm
+    comparisons never silently drop a key.
+    """
+    metrics: dict[str, float] = {}
+    for lo, hi in zip(MASKED_FRACTION_BIN_EDGES[:-1], MASKED_FRACTION_BIN_EDGES[1:]):
+        bin_key = masked_fraction_bin_key(lo, hi)
+        bin_correct, bin_total = counts.get(bin_key, [0, 0])
+        metrics[f"mlm_acc_{bin_key}"] = (
+            (bin_correct / bin_total) if bin_total > 0 else float("nan")
+        )
+        metrics[f"mlm_tokens_{bin_key}"] = float(bin_total)
+    return metrics
+
+
 def hcdr3_metric_counts(
     logits: torch.Tensor,
     labels: torch.Tensor,
@@ -1710,6 +2017,52 @@ def masked_classification_counts(
     correct = int((preds[mask] == labels[mask]).sum().item())
     total = int(mask.sum().item())
     return correct, total
+
+
+def tie_aware_spearman(x: Sequence[float], y: Sequence[float]) -> float:
+    """
+    Spearman rank correlation with MID-RANKS for ties.
+
+    Ties are the normal case here, not an edge case: a corpus with many rows at
+    the same reported affinity produces long runs of equal values, and ordinal
+    (competition) ranking would silently order them by list position -- turning
+    an arbitrary input order into apparent signal. Mid-ranks make tied values
+    genuinely interchangeable.
+
+    Returns ``nan`` for fewer than two pairs or when either side is constant
+    (an undefined correlation must not be reported as 0.0, which reads as
+    "measured, no relationship").
+    """
+    n = len(x)
+    if n != len(y):
+        raise ValueError("x and y must have the same length")
+    if n < 2:
+        return float("nan")
+
+    def mid_ranks(values: Sequence[float]) -> list[float]:
+        order = sorted(range(len(values)), key=lambda i: values[i])
+        ranks = [0.0] * len(values)
+        i = 0
+        while i < len(order):
+            j = i
+            while j + 1 < len(order) and values[order[j + 1]] == values[order[i]]:
+                j += 1
+            average = (i + j) / 2.0 + 1.0
+            for k in range(i, j + 1):
+                ranks[order[k]] = average
+            i = j + 1
+        return ranks
+
+    rx = mid_ranks(x)
+    ry = mid_ranks(y)
+    mean_x = sum(rx) / n
+    mean_y = sum(ry) / n
+    cov = sum((a - mean_x) * (b - mean_y) for a, b in zip(rx, ry))
+    var_x = sum((a - mean_x) ** 2 for a in rx)
+    var_y = sum((b - mean_y) ** 2 for b in ry)
+    if var_x <= 0 or var_y <= 0:
+        return float("nan")
+    return cov / math.sqrt(var_x * var_y)
 
 
 def binary_auroc(labels: Sequence[int], scores: Sequence[float]) -> float:
@@ -2002,6 +2355,9 @@ def evaluate(
         if is_antigen_stage(cfg.training_stage)
         else cfg.pair_loss_weight
     )
+    # 1.0 on every non-antigen stage (validate() forbids anything else there), so
+    # the reported/selection loss is unchanged unless the knob is set.
+    _mlm_weight = cfg.mlm_loss_weight if is_antigen_stage(cfg.training_stage) else 1.0
     compatibility_labels_all: list[int] = []
     compatibility_scores_all: list[float] = []
     compatibility_preds_all: list[int] = []
@@ -2011,6 +2367,21 @@ def evaluate(
         "hcdr3_exact_matches": 0,
         "hcdr3_valid_spans": 0,
     }
+    # Corruption-coverage curve (opt-in; default False emits nothing, so
+    # metrics.jsonl stays byte-identical for existing runs).
+    want_fraction_bins = cfg.report_masked_fraction_bins
+    fraction_bin_counts: dict[str, list[int]] = {}
+    # Graded-strength supervision (opt-in). Off by default, in which case the
+    # forward keeps its historical 2-tuple shape and no metric key is emitted.
+    want_strength = cfg.strength_loss_weight > 0 and is_antigen_stage(cfg.training_stage)
+    strength_pred_all: list[float] = []
+    strength_target_all: list[float] = []
+    # Learned length posterior (opt-in). The length query is a SEPARATE forward
+    # on the collapsed-span encoding, so it runs only when the loss is active.
+    want_length = cfg.length_loss_weight > 0 and is_antigen_stage(cfg.training_stage)
+    length_correct = 0
+    length_total = 0
+    length_nll_sum = 0.0
 
     progress = _make_progress_bar(
         val_loader,
@@ -2021,24 +2392,82 @@ def evaluate(
     for batch in progress:
         batch = move_batch_to_device(batch, device)
         if is_antigen_stage(cfg.training_stage):
-            logits, compatibility_logits = model(
-                antibody_input_ids=batch["antibody_input_ids"],
-                antibody_attention_mask=batch["antibody_attention_mask"],
-                antigen_input_ids=batch["antigen_input_ids"],
-                antigen_attention_mask=batch["antigen_attention_mask"],
-            )
+            # The 3-tuple forward is taken ONLY when the head exists, so the
+            # default path keeps the exact historical 2-tuple call.
+            if want_strength:
+                logits, compatibility_logits, strength_predictions = model(
+                    antibody_input_ids=batch["antibody_input_ids"],
+                    antibody_attention_mask=batch["antibody_attention_mask"],
+                    antigen_input_ids=batch["antigen_input_ids"],
+                    antigen_attention_mask=batch["antigen_attention_mask"],
+                    return_strength=True,
+                )
+            else:
+                strength_predictions = None
+                logits, compatibility_logits = model(
+                    antibody_input_ids=batch["antibody_input_ids"],
+                    antibody_attention_mask=batch["antibody_attention_mask"],
+                    antigen_input_ids=batch["antigen_input_ids"],
+                    antigen_attention_mask=batch["antigen_attention_mask"],
+                )
+            length_logits = None
+            if want_length:
+                # Separate forward: the length query uses the COLLAPSED-span antibody
+                # stream, which is different tensors from the MLM forward above.
+                length_logits = model.forward_length_query(
+                    antibody_input_ids=batch["length_query_input_ids"],
+                    antibody_attention_mask=batch["length_query_attention_mask"],
+                    antigen_input_ids=batch["antigen_input_ids"],
+                    antigen_attention_mask=batch["antigen_attention_mask"],
+                )
             losses = model.compute_losses(
                 mlm_logits=logits,
                 labels=batch["antibody_labels"],
                 compatibility_logits=compatibility_logits,
                 compatibility_labels=batch["compatibility_labels"],
                 compatibility_mask=batch["compatibility_mask"],
+                strength_predictions=strength_predictions if want_strength else None,
+                strength_targets=batch.get("strength_targets") if want_strength else None,
+                strength_mask=batch.get("strength_mask") if want_strength else None,
+                length_logits=length_logits,
+                length_labels=batch["length_labels"] if want_length else None,
+                length_mask=batch["length_label_mask"] if want_length else None,
+                mlm_loss_weight=cfg.mlm_loss_weight,
                 compatibility_loss_weight=cfg.compatibility_loss_weight,
+                strength_loss_weight=cfg.strength_loss_weight,
+                length_loss_weight=cfg.length_loss_weight,
             )
+            if want_length and length_logits is not None:
+                _lm = batch["length_label_mask"]
+                if bool(_lm.any()):
+                    _labels = batch["length_labels"][_lm]
+                    _lq = length_logits[_lm]
+                    length_correct += int((_lq.argmax(dim=-1) == _labels).sum().item())
+                    length_total += int(_lm.sum().item())
+                    length_nll_sum += float(
+                        F.cross_entropy(_lq, _labels, reduction="sum").item()
+                    )
+            if want_strength and strength_predictions is not None:
+                _sm = batch["strength_mask"]
+                if bool(_sm.any()):
+                    strength_pred_all.extend(
+                        strength_predictions.detach()[_sm].float().cpu().tolist()
+                    )
+                    strength_target_all.extend(
+                        batch["strength_targets"][_sm].float().cpu().tolist()
+                    )
             loss = losses["loss"]
             mlm_loss = losses["mlm_loss"]
             aux_loss = losses["compatibility_loss"]
             mlm_correct, mlm_tokens = masked_accuracy_counts(logits, batch["antibody_labels"])
+            if want_fraction_bins:
+                for _key, (_c, _t) in masked_fraction_bin_counts(
+                    logits, batch["antibody_labels"], batch["antibody_input_ids"],
+                    tokenizer.special_ids,
+                ).items():
+                    _entry = fraction_bin_counts.setdefault(_key, [0, 0])
+                    _entry[0] += _c
+                    _entry[1] += _t
             aux_acc = compatibility_classification_accuracy(
                 compatibility_logits,
                 batch["compatibility_labels"],
@@ -2084,6 +2513,14 @@ def evaluate(
             mlm_loss = losses["mlm_loss"]
             aux_loss = losses["pair_loss"]
             mlm_correct, mlm_tokens = masked_accuracy_counts(logits, batch["labels"])
+            if want_fraction_bins:
+                for _key, (_c, _t) in masked_fraction_bin_counts(
+                    logits, batch["labels"], batch["input_ids"],
+                    tokenizer.special_ids,
+                ).items():
+                    _entry = fraction_bin_counts.setdefault(_key, [0, 0])
+                    _entry[0] += _c
+                    _entry[1] += _t
             aux_acc = pair_classification_accuracy(pair_logits, batch["pair_labels"], batch["pair_mask"])
             aux_correct, aux_labeled = masked_classification_counts(
                 pair_logits,
@@ -2116,7 +2553,7 @@ def evaluate(
         running_aux_loss = (total_aux_loss_weighted / total_aux_labeled) if total_aux_labeled > 0 else 0.0
         running_hcdr3 = finalize_hcdr3_metrics(hcdr3_counts)
         progress.set_postfix(
-            loss=f"{running_mlm_loss + _aux_weight * running_aux_loss:.4f}",
+            loss=f"{_mlm_weight * running_mlm_loss + _aux_weight * running_aux_loss:.4f}",
             mlm_loss=f"{running_mlm_loss:.4f}",
             **{aux_loss_name: f"{running_aux_loss:.4f}"},
             mlm_acc=f"{running_mlm_acc:.4f}",
@@ -2146,10 +2583,31 @@ def evaluate(
     mlm_acc = (total_mlm_correct / total_mlm_tokens) if total_mlm_tokens > 0 else float("nan")
     aux_loss = (total_aux_loss_weighted / total_aux_labeled) if total_aux_labeled > 0 else 0.0
     metrics = {
-        "loss": mlm_loss + _aux_weight * aux_loss,
+        "loss": _mlm_weight * mlm_loss + _aux_weight * aux_loss,
         "mlm_loss": mlm_loss,
         "mlm_acc": mlm_acc,
     }
+    if want_fraction_bins:
+        metrics.update(finalize_masked_fraction_bins(fraction_bin_counts))
+    if want_length:
+        # Accuracy AND NLL: a categorical length head can look accurate while
+        # being badly calibrated, and the proposal path SAMPLES from the posterior
+        # rather than taking its argmax.
+        metrics["length_eligible_rows"] = float(length_total)
+        metrics["length_acc"] = (
+            (length_correct / length_total) if length_total > 0 else float("nan")
+        )
+        metrics["length_nll"] = (
+            (length_nll_sum / length_total) if length_total > 0 else float("nan")
+        )
+    if want_strength:
+        # Reported next to compatibility_auroc so the graded head is judged on
+        # ORDERING (what a ranking objective is for), not on MSE, whose scale is
+        # not comparable across quantile populations. NaN with <2 eligible rows.
+        metrics["strength_eligible_rows"] = float(len(strength_target_all))
+        metrics["val_strength_spearman"] = float(
+            tie_aware_spearman(strength_pred_all, strength_target_all)
+        )
     metrics.update(finalize_hcdr3_metrics(hcdr3_counts))
     if is_antigen_stage(cfg.training_stage):
         metrics["compatibility_loss"] = aux_loss
@@ -2233,6 +2691,9 @@ def train_one_epoch(
         if is_antigen_stage(cfg.training_stage)
         else cfg.pair_loss_weight
     )
+    # 1.0 on every non-antigen stage (validate() forbids anything else there), so
+    # the reported/selection loss is unchanged unless the knob is set.
+    _mlm_weight = cfg.mlm_loss_weight if is_antigen_stage(cfg.training_stage) else 1.0
     compatibility_labels_all: list[int] = []
     compatibility_scores_all: list[float] = []
     compatibility_preds_all: list[int] = []
@@ -2242,6 +2703,21 @@ def train_one_epoch(
         "hcdr3_exact_matches": 0,
         "hcdr3_valid_spans": 0,
     }
+    # Corruption-coverage curve (opt-in; default False emits nothing, so
+    # metrics.jsonl stays byte-identical for existing runs).
+    want_fraction_bins = cfg.report_masked_fraction_bins
+    fraction_bin_counts: dict[str, list[int]] = {}
+    # Graded-strength supervision (opt-in). Off by default, in which case the
+    # forward keeps its historical 2-tuple shape and no metric key is emitted.
+    want_strength = cfg.strength_loss_weight > 0 and is_antigen_stage(cfg.training_stage)
+    strength_pred_all: list[float] = []
+    strength_target_all: list[float] = []
+    # Learned length posterior (opt-in). The length query is a SEPARATE forward
+    # on the collapsed-span encoding, so it runs only when the loss is active.
+    want_length = cfg.length_loss_weight > 0 and is_antigen_stage(cfg.training_stage)
+    length_correct = 0
+    length_total = 0
+    length_nll_sum = 0.0
 
     progress = _make_progress_bar(
         train_loader,
@@ -2255,19 +2731,48 @@ def train_one_epoch(
 
         with torch.autocast(device_type=device.type, enabled=(cfg.use_amp and device.type == "cuda")):
             if is_antigen_stage(cfg.training_stage):
-                logits, compatibility_logits = model(
-                    antibody_input_ids=batch["antibody_input_ids"],
-                    antibody_attention_mask=batch["antibody_attention_mask"],
-                    antigen_input_ids=batch["antigen_input_ids"],
-                    antigen_attention_mask=batch["antigen_attention_mask"],
-                )
+                if want_strength:
+                    logits, compatibility_logits, strength_predictions = model(
+                        antibody_input_ids=batch["antibody_input_ids"],
+                        antibody_attention_mask=batch["antibody_attention_mask"],
+                        antigen_input_ids=batch["antigen_input_ids"],
+                        antigen_attention_mask=batch["antigen_attention_mask"],
+                        return_strength=True,
+                    )
+                else:
+                    strength_predictions = None
+                    logits, compatibility_logits = model(
+                        antibody_input_ids=batch["antibody_input_ids"],
+                        antibody_attention_mask=batch["antibody_attention_mask"],
+                        antigen_input_ids=batch["antigen_input_ids"],
+                        antigen_attention_mask=batch["antigen_attention_mask"],
+                    )
+                length_logits = None
+                if want_length:
+                    # Separate forward: the length query uses the COLLAPSED-span antibody
+                    # stream, which is different tensors from the MLM forward above.
+                    length_logits = model.forward_length_query(
+                        antibody_input_ids=batch["length_query_input_ids"],
+                        antibody_attention_mask=batch["length_query_attention_mask"],
+                        antigen_input_ids=batch["antigen_input_ids"],
+                        antigen_attention_mask=batch["antigen_attention_mask"],
+                    )
                 losses = model.compute_losses(
                     mlm_logits=logits,
                     labels=batch["antibody_labels"],
                     compatibility_logits=compatibility_logits,
                     compatibility_labels=batch["compatibility_labels"],
                     compatibility_mask=batch["compatibility_mask"],
+                    strength_predictions=strength_predictions if want_strength else None,
+                    strength_targets=batch.get("strength_targets") if want_strength else None,
+                    strength_mask=batch.get("strength_mask") if want_strength else None,
+                    length_logits=length_logits,
+                    length_labels=batch["length_labels"] if want_length else None,
+                    length_mask=batch["length_label_mask"] if want_length else None,
+                    mlm_loss_weight=cfg.mlm_loss_weight,
                     compatibility_loss_weight=cfg.compatibility_loss_weight,
+                    strength_loss_weight=cfg.strength_loss_weight,
+                    length_loss_weight=cfg.length_loss_weight,
                 )
                 loss = losses["loss"]
                 mlm_loss = losses["mlm_loss"]
@@ -2325,6 +2830,14 @@ def train_one_epoch(
 
         if is_antigen_stage(cfg.training_stage):
             mlm_correct, mlm_tokens = masked_accuracy_counts(logits.detach(), batch["antibody_labels"])
+            if want_fraction_bins:
+                for _key, (_c, _t) in masked_fraction_bin_counts(
+                    logits.detach(), batch["antibody_labels"], batch["antibody_input_ids"],
+                    tokenizer.special_ids,
+                ).items():
+                    _entry = fraction_bin_counts.setdefault(_key, [0, 0])
+                    _entry[0] += _c
+                    _entry[1] += _t
             aux_acc = compatibility_classification_accuracy(
                 compatibility_logits.detach(),
                 batch["compatibility_labels"],
@@ -2358,6 +2871,14 @@ def train_one_epoch(
             aux_acc_name = "compatibility_acc"
         else:
             mlm_correct, mlm_tokens = masked_accuracy_counts(logits.detach(), batch["labels"])
+            if want_fraction_bins:
+                for _key, (_c, _t) in masked_fraction_bin_counts(
+                    logits.detach(), batch["labels"], batch["input_ids"],
+                    tokenizer.special_ids,
+                ).items():
+                    _entry = fraction_bin_counts.setdefault(_key, [0, 0])
+                    _entry[0] += _c
+                    _entry[1] += _t
             aux_acc = pair_classification_accuracy(
                 pair_logits.detach(),
                 batch["pair_labels"],
@@ -2394,7 +2915,7 @@ def train_one_epoch(
         running_aux_loss = (total_aux_loss_weighted / total_aux_labeled) if total_aux_labeled > 0 else 0.0
         running_hcdr3 = finalize_hcdr3_metrics(hcdr3_counts)
         progress.set_postfix(
-            loss=f"{running_mlm_loss + _aux_weight * running_aux_loss:.4f}",
+            loss=f"{_mlm_weight * running_mlm_loss + _aux_weight * running_aux_loss:.4f}",
             mlm_loss=f"{running_mlm_loss:.4f}",
             **{aux_loss_name: f"{running_aux_loss:.4f}"},
             mlm_acc=f"{running_mlm_acc:.4f}",
@@ -2424,10 +2945,31 @@ def train_one_epoch(
     mlm_acc = (total_mlm_correct / total_mlm_tokens) if total_mlm_tokens > 0 else float("nan")
     aux_loss = (total_aux_loss_weighted / total_aux_labeled) if total_aux_labeled > 0 else 0.0
     metrics = {
-        "loss": mlm_loss + _aux_weight * aux_loss,
+        "loss": _mlm_weight * mlm_loss + _aux_weight * aux_loss,
         "mlm_loss": mlm_loss,
         "mlm_acc": mlm_acc,
     }
+    if want_fraction_bins:
+        metrics.update(finalize_masked_fraction_bins(fraction_bin_counts))
+    if want_length:
+        # Accuracy AND NLL: a categorical length head can look accurate while
+        # being badly calibrated, and the proposal path SAMPLES from the posterior
+        # rather than taking its argmax.
+        metrics["length_eligible_rows"] = float(length_total)
+        metrics["length_acc"] = (
+            (length_correct / length_total) if length_total > 0 else float("nan")
+        )
+        metrics["length_nll"] = (
+            (length_nll_sum / length_total) if length_total > 0 else float("nan")
+        )
+    if want_strength:
+        # Reported next to compatibility_auroc so the graded head is judged on
+        # ORDERING (what a ranking objective is for), not on MSE, whose scale is
+        # not comparable across quantile populations. NaN with <2 eligible rows.
+        metrics["strength_eligible_rows"] = float(len(strength_target_all))
+        metrics["val_strength_spearman"] = float(
+            tie_aware_spearman(strength_pred_all, strength_target_all)
+        )
     metrics.update(finalize_hcdr3_metrics(hcdr3_counts))
     if is_antigen_stage(cfg.training_stage):
         metrics["compatibility_loss"] = aux_loss
@@ -2745,12 +3287,47 @@ def validate_init_checkpoint_compatibility(
             "(pre-LN and post-LN weights are not interchangeable; retrain from scratch)"
         )
 
+    # `compat_readout` has exactly the same hazard as `norm_first`: the two modes
+    # share a parameter set byte-for-byte (only the pooling that feeds
+    # `fusion_mlp` differs), so `strict=True` cannot see the mismatch. Absent key
+    # means "cls" -- the historical readout -- not "unknown".
+    ckpt_compat_readout = str(train_cfg.get("compat_readout", "cls"))
+    if str(cfg.compat_readout) != ckpt_compat_readout:
+        mismatches.append(
+            f"compat_readout: checkpoint={ckpt_compat_readout}, run={cfg.compat_readout} "
+            "(the readouts share a parameter set, so a strict load cannot catch this; "
+            "the fusion_mlp input distribution differs and the compatibility head "
+            "would be read off-distribution)"
+        )
+
     if mismatches:
         details = "; ".join(mismatches)
         raise ValueError(
             "init_checkpoint architecture mismatch. Use the same base-model "
             f"hyperparameters for refinement. Mismatches: {details}"
         )
+
+
+def select_checkpoint_metric_value(cfg: TrainConfig, val_metrics: Dict[str, float]) -> float:
+    """
+    The scalar that drives best.pt selection, early stopping, and the
+    checkpoint's tracked ``val_loss`` payload.
+
+    Default ``"val_loss"`` returns the combined validation loss -- the historical
+    behavior, byte-identical. ``"val_compat_loss"`` returns the validation
+    compatibility term instead; the checkpoint's ``"val_loss"`` field then stores
+    that selection value, which is exactly what the resume path restores into
+    best-tracking (``main`` reads ``checkpoint["val_loss"]``), so resume stays
+    coherent under either metric.
+
+    Why the knob exists: on the antigen stages the combined loss is dominated by
+    the MLM term, so "best" can advance on an epoch where the compatibility head
+    got worse -- and the compatibility head is what downstream scoring and
+    guidance actually read.
+    """
+    if cfg.best_checkpoint_metric == "val_compat_loss":
+        return float(val_metrics["compatibility_loss"])
+    return float(val_metrics["loss"])
 
 
 def validate_checkpoint_plan(
@@ -3042,6 +3619,9 @@ def main() -> None:
 
         train_loss = train_metrics["loss"]
         val_loss = val_metrics["loss"]
+        # best.pt / early stopping / the checkpoint's tracked val_loss all key on
+        # this; it IS `val_loss` unless `best_checkpoint_metric` is set.
+        selection_value = select_checkpoint_metric_value(cfg, val_metrics)
         if is_antigen_stage(cfg.training_stage):
             aux_loss_name = "compatibility_loss"
             aux_acc_name = "compatibility_acc"
@@ -3083,7 +3663,7 @@ def main() -> None:
             optimizer=optimizer,
             cfg=cfg,
             epoch=epoch + 1,
-            val_loss=val_loss,
+            val_loss=selection_value,
             scaler=scaler,
             scheduler=scheduler,
         )
@@ -3094,23 +3674,26 @@ def main() -> None:
 
         # Guard against NaN/Inf: `NaN < best` is always False, so a non-finite
         # val_loss would silently neither win nor warn. Skip and report instead.
-        if math.isfinite(val_loss) and val_loss < best_val_loss:
-            best_val_loss = val_loss
+        if math.isfinite(selection_value) and selection_value < best_val_loss:
+            best_val_loss = selection_value
             save_checkpoint(
                 path=output_dir / "best.pt",
                 model=model,
                 optimizer=optimizer,
                 cfg=cfg,
                 epoch=epoch + 1,
-                val_loss=val_loss,
+                val_loss=selection_value,
                 scaler=scaler,
                 scheduler=scheduler,
             )
-        elif not math.isfinite(val_loss):
-            print(f"[warn] val_loss is non-finite ({val_loss}); best.pt not updated this epoch")
+        elif not math.isfinite(selection_value):
+            print(
+                f"[warn] {cfg.best_checkpoint_metric} is non-finite ({selection_value}); "
+                "best.pt not updated this epoch"
+            )
 
         epochs_without_improvement, should_stop = early_stopping_decision(
-            val_loss=val_loss,
+            val_loss=selection_value,
             best_val_loss=prev_best_val_loss,
             epochs_without_improvement=epochs_without_improvement,
             patience=cfg.early_stopping_patience,
@@ -3118,7 +3701,7 @@ def main() -> None:
         )
         if should_stop:
             print(
-                f"[early-stop] no val_loss improvement for {epochs_without_improvement} "
+                f"[early-stop] no {cfg.best_checkpoint_metric} improvement for {epochs_without_improvement} "
                 f"epoch(s) (patience={cfg.early_stopping_patience}); stopping at epoch "
                 f"{epoch + 1}, best val_loss={best_val_loss:.4f}"
             )

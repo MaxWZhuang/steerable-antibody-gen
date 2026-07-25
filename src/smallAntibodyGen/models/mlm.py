@@ -105,6 +105,36 @@ class MLMConfig:
     lora_alpha: int = 16
     lora_dropout: float = 0.05
 
+    # Readout feeding fusion_mlp for the compatibility head. "cls" (default)
+    # reproduces the historical CLS-concat byte-for-byte; "mean" mask-aware
+    # mean-pools each fused stream over its non-pad positions ([CLS] included)
+    # before concatenating. No parameters change in either mode, so a checkpoint
+    # trained under one readout loads under the other — which is exactly why this
+    # field is written into the checkpoint config and matched at warm-start.
+    #
+    # Why the knob exists: the CLS-concat readout collapses each stream to one
+    # position, so the compatibility logit is only weakly sensitive to a single
+    # residue substitution — and that logit is the guidance term
+    # ``guided_infill`` steers with. "mean" is the cheapest readout that lets
+    # every residue reach the head; it is a falsification arm, not a default.
+    compat_readout: str = "cls"
+
+    # Graded-affinity supervision. False (default) builds NO strength head, so a
+    # default model draws ZERO extra init-RNG and every existing checkpoint and
+    # run is byte-identical. When True a scalar regression head is added on top
+    # of `joint_hidden`, trained against per-(dataset, affinity_type) strength
+    # quantiles -- the corpus has far more graded measurements than clean
+    # booleans, and the binary head throws all of that ordering away.
+    use_strength_head: bool = False
+
+    # Learned HCDR3-length posterior. Same conditional-construction contract as
+    # the strength head: False (default) builds NO head and draws ZERO extra
+    # init-RNG. When True, a categorical head over `length_head_max` classes sits
+    # on `joint_hidden` and is queried on the COLLAPSED-SLOT encoding, so it can
+    # never read the answer off the number of mask tokens.
+    use_length_head: bool = False
+    length_head_max: int = 32
+
     def validate(self) -> None:
         """
         Validate that the configuration is internally consistent.
@@ -145,6 +175,45 @@ class MLMConfig:
             raise ValueError("lora_alpha must be > 0")
         if not (0.0 <= self.lora_dropout < 1.0):
             raise ValueError("lora_dropout must be in [0, 1)")
+        if self.compat_readout not in {"cls", "mean"}:
+            raise ValueError("compat_readout must be either 'cls' or 'mean'")
+        if not isinstance(self.use_strength_head, bool):
+            raise ValueError("use_strength_head must be a bool")
+        if not isinstance(self.use_length_head, bool):
+            raise ValueError("use_length_head must be a bool")
+        if self.length_head_max <= 0:
+            raise ValueError("length_head_max must be > 0")
+
+def length_to_class_index(length: int, length_head_max: int) -> int:
+    """
+    Map a 1-based HCDR3 length to a 0-based length-class index.
+
+    This is the SINGLE definition of the length<->class mapping: a length ``L`` in
+    ``1..length_head_max`` maps to class index ``L - 1``. It FAILS LOUD on an
+    out-of-range length rather than silently clamping -- a clamp would assign a
+    long HCDR3 the wrong class and corrupt the categorical head without any
+    symptom. Callers that must never crash on a stray long span (the training
+    collator) range-check first and mask the row out; callers that expect a valid
+    length use this helper and get a hard error if ``length_head_max`` was
+    mis-registered.
+    """
+    if not (1 <= length <= length_head_max):
+        raise ValueError(
+            f"HCDR3 length {length} is out of range for length_head_max="
+            f"{length_head_max}; valid lengths are 1..{length_head_max}. "
+            "Re-register length_head_max from scripts/length_census.py (no silent clamp)."
+        )
+    return length - 1
+
+
+def class_index_to_length(class_index: int, length_head_max: int) -> int:
+    """Inverse of ``length_to_class_index``: class index ``i`` -> length ``i + 1``."""
+    if not (0 <= class_index < length_head_max):
+        raise ValueError(
+            f"class index {class_index} is out of range for length_head_max={length_head_max}"
+        )
+    return class_index + 1
+
 
 class LearnedPositionalEmbedding(nn.Module):
     """
@@ -654,6 +723,15 @@ class AntibodyAntigenCrossAttention(nn.Module):
 
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
         self.compatibility_head = nn.Linear(config.d_model, 2)
+        # Conditional construction, not a zeroed head: building it unconditionally
+        # would consume init RNG and shift every subsequent parameter draw, so a
+        # "default-off" run would silently stop being byte-identical.
+        if config.use_strength_head:
+            self.strength_head = nn.Linear(config.d_model, 1)
+        # Same conditional-construction contract as the strength head: a default
+        # (and a strength-head-only) model draws ZERO length-head init-RNG.
+        if config.use_length_head:
+            self.length_head = nn.Linear(config.d_model, config.length_head_max)
 
         if config.tie_weights:
             self.lm_head.weight = self.antibody_encoder.token_embedding.weight
@@ -727,22 +805,87 @@ class AntibodyAntigenCrossAttention(nn.Module):
         self,
         antibody_hidden: torch.Tensor,
         antigen_hidden: torch.Tensor,
+        antibody_attention_mask: torch.Tensor | None = None,
+        antigen_attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
-        Build one fused example-level embedding from the two [CLS] states.
+        Build one fused example-level embedding feeding ``fusion_mlp``.
+
+        ``config.compat_readout == "cls"`` (default) concatenates the two [CLS]
+        states and ignores the masks — byte-for-byte the historical readout.
+        ``"mean"`` mask-aware mean-pools each fused stream over its non-pad
+        positions ([CLS] included) then concatenates; the masks are required only
+        for this readout, which is why they are optional arguments.
         """
-        joint = torch.cat([antibody_hidden[:, 0, :], antigen_hidden[:, 0, :]], dim=-1)
+        if self.config.compat_readout == "cls":
+            joint = torch.cat([antibody_hidden[:, 0, :], antigen_hidden[:, 0, :]], dim=-1)
+            return self.fusion_mlp(joint)
+        if antibody_attention_mask is None or antigen_attention_mask is None:
+            raise ValueError("compat_readout='mean' requires both attention masks")
+        pooled = []
+        for hidden, mask in (
+            (antibody_hidden, antibody_attention_mask),
+            (antigen_hidden, antigen_attention_mask),
+        ):
+            m = mask.to(hidden.dtype)  # [B, L], 1 = real position ([CLS] included)
+            # clamp is defensive only (the collators never emit an all-pad row).
+            pooled.append(
+                (hidden * m.unsqueeze(-1)).sum(dim=1)
+                / m.sum(dim=1).clamp(min=1.0).unsqueeze(-1)
+            )
+        joint = torch.cat([pooled[0], pooled[1]], dim=-1)
         return self.fusion_mlp(joint)
 
-    def forward(
+    def predict_strength(self, joint_hidden: torch.Tensor) -> torch.Tensor:
+        """
+        Read the graded-strength scalar off ``joint_hidden`` (shape [batch_size]).
+
+        Only valid when the model was built with ``use_strength_head=True``.
+        """
+        if getattr(self, "strength_head", None) is None:
+            raise RuntimeError(
+                "predict_strength requires use_strength_head=True; no strength_head "
+                "was constructed for this model."
+            )
+        return self.strength_head(joint_hidden).squeeze(-1)
+
+    def predict_length_logits(self, joint_hidden: torch.Tensor) -> torch.Tensor:
+        """
+        Read categorical length-class logits off ``joint_hidden``
+        (shape ``[batch_size, length_head_max]``).
+
+        Only valid when the model was built with ``use_length_head=True``. Class
+        index ``i`` corresponds to HCDR3 length ``i + 1`` (see
+        ``length_to_class_index``).
+        """
+        if getattr(self, "length_head", None) is None:
+            raise RuntimeError(
+                "predict_length_logits requires use_length_head=True; no length_head "
+                "was constructed for this model."
+            )
+        return self.length_head(joint_hidden)
+
+    def forward_length_query(
         self,
         antibody_input_ids: torch.Tensor,
         antibody_attention_mask: torch.Tensor | None,
         antigen_input_ids: torch.Tensor,
         antigen_attention_mask: torch.Tensor | None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor:
         """
-        Return antibody MLM logits plus antibody-antigen compatibility logits.
+        Run one dual-stream forward on the COLLAPSED-SPAN length query and return
+        length-class logits (shape ``[batch_size, length_head_max]``).
+
+        The antibody stream here is the collapsed-span encoding -- the whole HCDR3
+        interval replaced by exactly ONE ``[MASK]`` -- so the head can never read
+        the true length off the mask count. That is the entire reason this is a
+        separate forward rather than a second head on the ordinary one: on the
+        ordinary encoding the number of masks IS the answer.
+
+        The trainer only calls this when the length loss is active, so default
+        runs do zero extra work. It reuses the exact encode/fuse/joint sequence
+        ``forward`` uses, so the length query sees an identical fusion path to the
+        compatibility head.
         """
         antibody_hidden, antibody_attention_mask = self.encode_antibody(
             antibody_input_ids,
@@ -758,9 +901,83 @@ class AntibodyAntigenCrossAttention(nn.Module):
             antigen_hidden,
             antigen_attention_mask,
         )
+        joint_hidden = self.joint_representation(
+            fused_antibody,
+            fused_antigen,
+            antibody_attention_mask,
+            antigen_attention_mask,
+        )
+        return self.predict_length_logits(joint_hidden)
+
+    def forward(
+        self,
+        antibody_input_ids: torch.Tensor,
+        antibody_attention_mask: torch.Tensor | None,
+        antigen_input_ids: torch.Tensor,
+        antigen_attention_mask: torch.Tensor | None,
+        return_strength: bool = False,
+        *,
+        antigen_state: tuple[torch.Tensor, torch.Tensor] | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
+        """
+        Return antibody MLM logits plus antibody-antigen compatibility logits.
+
+        ``antigen_state`` is a keyword-only opt-in whose default keeps this
+        method byte-identical to the pre-change code and adds zero init RNG.
+        When ``None`` (default) the antigen stream is encoded here exactly as
+        before. When provided it must be the pre-fuse
+        ``(antigen_hidden, antigen_attention_mask)`` pair EXACTLY as returned by
+        ``encode_antigen`` on THIS SAME model -- the caller owns computing and
+        caching it. ``encode_antigen`` is the antigen-only prefix that ends
+        precisely where ``fuse`` (the first cross-stream contact) begins, so
+        supplying its output pre-computed is exactly equivalent to recomputing it
+        here (deterministic eval-mode encoder, no RNG). When given,
+        ``antigen_input_ids`` / ``antigen_attention_mask`` are ignored for the
+        antigen stream, and the cached pair's batch dim MUST match the antibody
+        stream's.
+
+        This matters because the antigen is CONSTANT across every step of guided
+        decoding, and on the ESM path re-encoding it per step is the dominant
+        cost of generation.
+        """
+        antibody_hidden, antibody_attention_mask = self.encode_antibody(
+            antibody_input_ids,
+            antibody_attention_mask,
+        )
+        if antigen_state is None:
+            antigen_hidden, antigen_attention_mask = self.encode_antigen(
+                antigen_input_ids,
+                antigen_attention_mask,
+            )
+        else:
+            # Caller-supplied pre-fuse encoding (see docstring): skip
+            # encode_antigen and use the cached pair. Byte-identical to the None
+            # path because the eval-mode encoder is a deterministic, RNG-free
+            # function of its inputs.
+            antigen_hidden, antigen_attention_mask = antigen_state
+        fused_antibody, fused_antigen = self.fuse(
+            antibody_hidden,
+            antibody_attention_mask,
+            antigen_hidden,
+            antigen_attention_mask,
+        )
         mlm_logits = self.lm_head(fused_antibody)
-        joint_hidden = self.joint_representation(fused_antibody, fused_antigen)
+        joint_hidden = self.joint_representation(
+            fused_antibody,
+            fused_antigen,
+            antibody_attention_mask,
+            antigen_attention_mask,
+        )
         compatibility_logits = self.compatibility_head(joint_hidden)
+        if return_strength:
+            # 3-tuple ONLY on explicit opt-in, so every historical caller keeps
+            # unpacking exactly two values.
+            strength_predictions = (
+                self.predict_strength(joint_hidden)
+                if getattr(self, "strength_head", None) is not None
+                else None
+            )
+            return mlm_logits, compatibility_logits, strength_predictions
         return mlm_logits, compatibility_logits
 
     def compute_mlm_loss(
@@ -811,6 +1028,78 @@ class AntibodyAntigenCrossAttention(nn.Module):
             compatibility_labels[compatibility_mask],
         )
 
+    def compute_strength_loss(
+        self,
+        strength_predictions: torch.Tensor,
+        strength_targets: torch.Tensor,
+        strength_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """
+        Masked MSE between predicted and target graded-strength quantiles.
+
+        Mirrors ``compute_compatibility_loss``: an all-masked-out batch returns a
+        *differentiable* zero (``strength_predictions.sum() * 0.0``) so the empty
+        case does not produce 0/0 = NaN and does not detach the graph.
+        """
+        if strength_predictions.dim() != 1:
+            raise ValueError("strength_predictions must have shape [batch_size]")
+        if strength_targets.dim() != 1:
+            raise ValueError("strength_targets must have shape [batch_size]")
+        if strength_predictions.size(0) != strength_targets.size(0):
+            raise ValueError(
+                "strength_predictions and strength_targets must agree on batch size"
+            )
+
+        if strength_mask is None:
+            strength_mask = torch.ones_like(strength_targets, dtype=torch.bool)
+        if strength_mask.dim() != 1 or strength_mask.size(0) != strength_targets.size(0):
+            raise ValueError("strength_mask must have shape [batch_size]")
+        if strength_mask.sum().item() == 0:
+            return strength_predictions.sum() * 0.0
+
+        return F.mse_loss(
+            strength_predictions[strength_mask],
+            strength_targets[strength_mask],
+        )
+
+    def compute_length_loss(
+        self,
+        length_logits: torch.Tensor,
+        length_labels: torch.Tensor,
+        length_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """
+        Masked cross-entropy over length classes for the learned length head.
+
+        ``length_logits`` are ``[batch_size, length_head_max]`` categorical logits
+        from ``forward_length_query``; ``length_labels`` are ``[batch_size]``
+        0-based class indices (length L -> index L-1, see
+        ``length_to_class_index``); ``length_mask`` is ``[batch_size]`` marking the
+        rows with a usable (valid-span, in-range, non-shuffled) length label.
+
+        Mirrors ``compute_compatibility_loss``: an all-masked-out batch returns a
+        *differentiable* zero so the empty case does not produce 0/0 = NaN and does
+        not detach the graph.
+        """
+        if length_logits.dim() != 2:
+            raise ValueError("length_logits must have shape [batch_size, num_length_classes]")
+        if length_labels.dim() != 1:
+            raise ValueError("length_labels must have shape [batch_size]")
+        if length_logits.size(0) != length_labels.size(0):
+            raise ValueError("length_logits and length_labels must agree on batch size")
+
+        if length_mask is None:
+            length_mask = torch.ones_like(length_labels, dtype=torch.bool)
+        if length_mask.dim() != 1 or length_mask.size(0) != length_labels.size(0):
+            raise ValueError("length_mask must have shape [batch_size]")
+        if length_mask.sum().item() == 0:
+            return length_logits.sum() * 0.0
+
+        return F.cross_entropy(
+            length_logits[length_mask],
+            length_labels[length_mask],
+        )
+
     def compute_losses(
         self,
         mlm_logits: torch.Tensor,
@@ -818,11 +1107,25 @@ class AntibodyAntigenCrossAttention(nn.Module):
         compatibility_logits: torch.Tensor | None = None,
         compatibility_labels: torch.Tensor | None = None,
         compatibility_mask: torch.Tensor | None = None,
+        strength_predictions: torch.Tensor | None = None,
+        strength_targets: torch.Tensor | None = None,
+        strength_mask: torch.Tensor | None = None,
+        length_logits: torch.Tensor | None = None,
+        length_labels: torch.Tensor | None = None,
+        length_mask: torch.Tensor | None = None,
         ignore_index: int = -100,
+        mlm_loss_weight: float = 1.0,
         compatibility_loss_weight: float = 1.0,
+        strength_loss_weight: float = 0.0,
+        length_loss_weight: float = 0.0,
     ) -> dict[str, torch.Tensor]:
         """
         Compute the antibody MLM loss plus optional compatibility loss.
+
+        ``mlm_loss_weight`` defaults to 1.0 (multiplication by exactly 1.0 is
+        bit-exact, so the historical total is unchanged); the returned
+        ``"mlm_loss"`` entry is always the unweighted value so reported curves
+        stay comparable across weights.
         """
         mlm_loss = self.compute_mlm_loss(mlm_logits, labels, ignore_index=ignore_index)
         if compatibility_logits is None or compatibility_labels is None:
@@ -834,9 +1137,35 @@ class AntibodyAntigenCrossAttention(nn.Module):
                 compatibility_mask,
             )
 
-        total_loss = mlm_loss + (compatibility_loss_weight * compatibility_loss)
+        if strength_predictions is None or strength_targets is None:
+            # Differentiable zero, so the weighted term never detaches the graph.
+            strength_loss = mlm_loss.detach() * 0.0
+        else:
+            strength_loss = self.compute_strength_loss(
+                strength_predictions,
+                strength_targets,
+                strength_mask,
+            )
+
+        if length_logits is None or length_labels is None:
+            length_loss = mlm_loss.detach() * 0.0
+        else:
+            length_loss = self.compute_length_loss(
+                length_logits,
+                length_labels,
+                length_mask,
+            )
+
+        total_loss = (
+            (mlm_loss_weight * mlm_loss)
+            + (compatibility_loss_weight * compatibility_loss)
+            + (strength_loss_weight * strength_loss)
+            + (length_loss_weight * length_loss)
+        )
         return {
             "loss": total_loss,
             "mlm_loss": mlm_loss,
             "compatibility_loss": compatibility_loss,
+            "strength_loss": strength_loss,
+            "length_loss": length_loss,
         }
