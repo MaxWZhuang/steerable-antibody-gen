@@ -112,3 +112,74 @@ def test_esm_dual_stream_forward_produces_expected_shapes():
     assert compatibility_logits.shape == (1, 2)
     assert torch.isfinite(mlm_logits).all()
     assert torch.isfinite(compatibility_logits).all()
+
+
+def test_frozen_backbone_stays_in_eval_mode_under_model_train():
+    """`model.train()` recurses into every submodule, including a FROZEN backbone.
+
+    Without the `train()` override the ESM stack would run its dropout and
+    train-mode normalization during training, making the "frozen features" arm's
+    features stochastic. The Stage A ablation's entire claim is "pretrained ESM
+    features vs from-scratch features"; a feature extractor whose output changes
+    run-to-run is not a fixed feature extractor.
+    """
+    encoder = _build_encoder(antigen_encoder_finetune="frozen")
+
+    encoder.train()
+    assert not encoder.esm.training, "frozen ESM backbone must stay in eval mode"
+    # The modules this class owns still follow the requested mode.
+    assert encoder.projection_dropout.training
+    assert encoder.training
+
+    encoder.eval()
+    assert not encoder.esm.training
+
+
+def test_frozen_backbone_is_deterministic_while_the_parent_trains():
+    encoder = _build_encoder(antigen_encoder_finetune="frozen", dropout=0.0)
+    encoder.train()
+    input_ids = _antigen_ids(16)
+    with torch.no_grad():
+        first, _ = encoder(input_ids)
+        second, _ = encoder(input_ids)
+    assert torch.allclose(first, second)
+
+
+def test_dual_stream_train_call_keeps_the_frozen_antigen_stream_in_eval():
+    """The path that actually matters: the trainer calls `model.train()` on the
+    whole dual-stream model, not on the antigen encoder directly."""
+    try:
+        model = AntibodyAntigenCrossAttention(
+            _esm_config(antigen_encoder_finetune="frozen")
+        )
+    except OSError:
+        pytest.skip("ESM weights unavailable (offline)")
+
+    model.train()
+    assert model.antibody_encoder.training
+    assert not model.antigen_encoder.esm.training
+
+
+def test_dual_stream_init_does_not_clobber_pretrained_esm_weights():
+    """The dual-stream __init__ initializes the fusion block and heads it owns.
+
+    If it did that with a blanket `self.apply(...)`, the pass would recurse into
+    `antigen_encoder.esm` and overwrite every pretrained ESM weight with
+    N(0, 0.02) noise -- turning the "pretrained antigen encoder" arm into a
+    randomly-initialized one that still trains, still converges, and still reports
+    plausible metrics. That is why the init list is explicit and per-module.
+    """
+    from smallAntibodyGen.models.esm_antigen_encoder import ESMAntigenEncoder
+
+    config = _esm_config()
+    try:
+        standalone = ESMAntigenEncoder(config)
+        fused = AntibodyAntigenCrossAttention(config)
+    except OSError:
+        pytest.skip("ESM weights unavailable (offline)")
+
+    reference = dict(standalone.esm.state_dict())
+    embedded = dict(fused.antigen_encoder.esm.state_dict())
+    assert reference.keys() == embedded.keys()
+    for key, value in reference.items():
+        assert torch.equal(value, embedded[key]), f"pretrained ESM weight overwritten: {key}"

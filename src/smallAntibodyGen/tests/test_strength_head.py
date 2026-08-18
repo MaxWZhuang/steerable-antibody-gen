@@ -305,11 +305,18 @@ def _read_corpus(path: Path) -> list[dict]:
         return [json.loads(line) for line in handle if line.strip()]
 
 
-def _kd_row(split: str, kd: float, idx: int) -> dict:
+def _kd_row(split: str, kd: float, idx: int, dataset: str = "ds") -> dict:
+    # NOTE: the on-disk key is "dataset" -- that is what
+    # scripts/prepare_antibody_antigen.py writes and what OASSequenceDataset._load
+    # reads (into the differently-named in-memory field OASRecord.dataset_name).
+    # This fixture previously wrote "dataset_name", a key no producer emits, which
+    # is why the annotator's grouping bug survived: every row grouped as "unknown"
+    # in production while the test's own rows also grouped as "unknown", so the
+    # test passed on a corpus shape that never occurs.
     return {
         "record_id": f"{split}{idx}",
         "split": split,
-        "dataset_name": "ds",
+        "dataset": dataset,
         "affinity_type": "kd",
         "processed_measurement_float": kd,
         "sequence_heavy": "EVQLVESGGG",
@@ -442,3 +449,84 @@ def test_tie_aware_spearman_is_hand_verified(project_root: Path):
     b = mlm_train.tie_aware_spearman([1, 1, 3], [6, 5, 7])
     assert a == pytest.approx(b)
     assert mlm_train.tie_aware_spearman([1.0], [2.0]) != mlm_train.tie_aware_spearman([1.0], [2.0])
+
+
+def test_annotator_groups_on_the_producer_dataset_key(tmp_path: Path, project_root: Path):
+    """Quantiles must be per-(dataset, affinity_type), keyed on the REAL on-disk field.
+
+    The annotator read `record["dataset_name"]` while
+    scripts/prepare_antibody_antigen.py writes `"dataset"`, so every row grouped as
+    "unknown" and all datasets were pooled into one CDF. The quantile then encoded
+    WHICH DATASET a row came from rather than its within-assay rank -- precisely the
+    cross-scale pooling quantiles exist to prevent -- and `--min-group-size` was
+    bypassed because one giant group always clears the floor.
+    """
+    annotate = _load_script(project_root, "annotate_affinity_targets")
+    # Two datasets whose KD ranges do not overlap. Pooled, each would occupy only
+    # half the quantile range; grouped correctly, each spans its own full range.
+    rows = [_kd_row("train", 1e-10 * (i + 1), i, dataset="dsA") for i in range(25)]
+    rows += [_kd_row("train", 1e-7 * (i + 1), 100 + i, dataset="dsB") for i in range(25)]
+    src = tmp_path / "in.jsonl.gz"
+    dst = tmp_path / "out.jsonl.gz"
+    _write_corpus(src, rows)
+
+    stats = annotate.annotate(src, dst, min_group_size=20)
+    assert stats["groups_seen"] == 2, "the two datasets must be distinct groups"
+    assert stats["groups_fitted"] == 2
+    assert stats["rows_unknown_dataset"] == 0
+
+    out = _read_corpus(dst)
+    for dataset in ("dsA", "dsB"):
+        quantiles = [
+            r["affinity_strength_quantile"] for r in out
+            if r["dataset"] == dataset and "affinity_strength_quantile" in r
+        ]
+        assert len(quantiles) == 25
+        # Each group is ranked within itself, so each spans (nearly) the full range.
+        assert max(quantiles) == pytest.approx(1.0)
+        assert min(quantiles) < 0.1, (
+            f"{dataset} spans only {min(quantiles):.2f}..{max(quantiles):.2f}; "
+            "the groups are being pooled"
+        )
+
+
+def test_annotator_min_group_size_excludes_small_datasets(
+    tmp_path: Path, project_root: Path
+):
+    """A below-floor dataset must get NO quantile, not one read off another dataset."""
+    annotate = _load_script(project_root, "annotate_affinity_targets")
+    rows = [_kd_row("train", 1e-9 * (i + 1), i, dataset="big") for i in range(25)]
+    rows += [_kd_row("train", 1e-9 * (i + 1), 100 + i, dataset="tiny3") for i in range(3)]
+    src = tmp_path / "in.jsonl.gz"
+    dst = tmp_path / "out.jsonl.gz"
+    _write_corpus(src, rows)
+
+    annotate.annotate(src, dst, min_group_size=20)
+    out = _read_corpus(dst)
+    tiny = [r for r in out if r["dataset"] == "tiny3"]
+    assert len(tiny) == 3
+    assert all("affinity_strength_quantile" not in r for r in tiny)
+
+
+def test_annotator_refuses_a_corpus_with_no_dataset_field(
+    tmp_path: Path, project_root: Path
+):
+    """All-unknown means the grouping key is absent, so nothing usable can be produced.
+
+    It must refuse BEFORE writing: every other stat still reads as healthy
+    (`groups_fitted=1/1` looks like success), so a warning after the fact would
+    leave a corrupt corpus on disk.
+    """
+    annotate = _load_script(project_root, "annotate_affinity_targets")
+    rows = []
+    for i in range(25):
+        row = _kd_row("train", 1e-9 * (i + 1), i)
+        row.pop("dataset")
+        rows.append(row)
+    src = tmp_path / "in.jsonl.gz"
+    dst = tmp_path / "out.jsonl.gz"
+    _write_corpus(src, rows)
+
+    with pytest.raises(ValueError, match="unknown"):
+        annotate.annotate(src, dst, min_group_size=20)
+    assert not dst.exists(), "no output may be written when the grouping key is absent"

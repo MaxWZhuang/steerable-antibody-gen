@@ -443,6 +443,18 @@ def main(argv: Sequence[str] | None = None) -> None:
             mode=args.learned_length_mode,
         )
 
+    # RE-SEED immediately before generation, after every model has been built.
+    # `build_model` random-initializes a whole network, which advances the GLOBAL
+    # torch RNG -- so attaching --score-checkpoint or --guidance-checkpoint shifted
+    # the sampling stream and changed the generated sequences at a fixed --seed.
+    # That directly contradicted this CLI's documented promise that
+    # --score-checkpoint "never influences sampling", and made the paired
+    # comparison "these exact candidates, now with a judge score" impossible.
+    # Re-seeding here makes the draws a function of --seed alone.
+    random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    rng = random.Random(args.seed)
+
     rows: list[dict[str, Any]] = []
     skipped_count = 0
     for record in target_records:
@@ -451,7 +463,23 @@ def main(argv: Sequence[str] | None = None) -> None:
             lengths = [true_span.length] * args.num_samples
         else:
             assert length_prior is not None
-            lengths = length_prior.propose_lengths(record, num_lengths=args.num_samples, rng=rng)
+            # Guarded like the per-length body below. The learned proposal runs a
+            # model forward, so it can raise for the same record-level reasons a
+            # per-length generate can (a missing antigen sequence being the common
+            # one). Unguarded, ONE such record aborted the whole run and wrote no
+            # output, while --length-mode fixed/empirical skipped it with a warning
+            # and still produced results for every usable record.
+            try:
+                lengths = length_prior.propose_lengths(
+                    record, num_lengths=args.num_samples, rng=rng
+                )
+            except ValueError as exc:
+                skipped_count += 1
+                print(
+                    f"[warn] skipping length proposal for {record.record_id}: {exc}",
+                    file=sys.stderr,
+                )
+                continue
             if not lengths:
                 # A learned proposal can legitimately return nothing when no
                 # length fits max_length for this scaffold. Count it as a skip so

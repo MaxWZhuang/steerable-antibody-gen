@@ -591,10 +591,19 @@ def iter_kept_paired_records_for_file(
                 stats["drop_reasons"][f"paired_light_{light_reason}"] += 1
             continue
 
-        pair_key = (
-            f"{heavy_record['locus']}:{heavy_record['sequence']}"
-            f"|{light_record['locus']}:{light_record['sequence']}"
-        )
+        # The SPLIT key is the HEAVY chain alone, matching the unpaired path's
+        # `f"{locus}:{variable_aa}"`. Keying it on the full (heavy, light) pair
+        # scattered one heavy chain across both splits whenever it was observed
+        # with several cognate lights -- and the heavy chain (specifically HCDR3)
+        # is the modeling target of both the MLM objective and downstream HCDR3
+        # infilling, so that leaked the exact target into validation. On the
+        # shipped corpus 1,406 heavy sequences occurred in both splits and 6.3% of
+        # val rows had a byte-identical heavy chain in train, so stage-2 val loss
+        # (which selects best.pt) was partly measuring memorization.
+        #
+        # Dedup is unaffected: it keys on the full pair (see write_record), which
+        # is correct there -- a distinct (heavy, light) pair IS a distinct example.
+        split_key = f"{heavy_record['locus']}:{heavy_record['sequence']}"
 
         yield {
             "pair_id": f"{path.name}:{row_idx}",
@@ -610,7 +619,7 @@ def iter_kept_paired_records_for_file(
             "token_length": int(heavy_record["length"]) + int(light_record["length"]) + 5,
             "locus": "PAIRED",
             "chain_group": "paired",
-            "split": deterministic_split(pair_key, val_percent=args.val_percent),
+            "split": deterministic_split(split_key, val_percent=args.val_percent),
             "productive": flag_and(heavy_record["productive"], light_record["productive"]),
             "vj_in_frame": flag_and(heavy_record["vj_in_frame"], light_record["vj_in_frame"]),
             "stop_codon": flag_or(heavy_record["stop_codon"], light_record["stop_codon"]),
@@ -1371,7 +1380,12 @@ def sample_with_file_quotas(
         if quota <= 0:
             continue
 
-        stats["files_seen"] += 1
+        # NOTE: `files_seen` is NOT incremented here. `reservoir_sample_file`
+        # delegates to `iter_kept_records_for_file`, which already counts every
+        # file on every path (unreadable, paired-dispatch, and unpaired), so
+        # counting again made the reported total exactly 2x the truth in the
+        # default round_robin mode -- and any records-per-file or coverage figure
+        # derived from the stats manifest was wrong by the same factor.
         file_seed = stable_seed_from_path(path, base_seed=base_seed)
         quotas_by_locus = quotas_by_file_locus.get(path, counts_by_file_locus.get(path, {}))
         sampled_records = reservoir_sample_file(

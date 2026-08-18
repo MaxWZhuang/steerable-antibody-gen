@@ -1,7 +1,9 @@
 """Tests for the `norm_first` (pre-LN vs post-LN) knob.
 
-The knob is default-off: `norm_first=False` reproduces the historical post-LN
-stack exactly, so every pre-existing config and checkpoint is unaffected.
+The knob defaults to pre-LN (`norm_first=True`), matching every checked-in
+config. `norm_first=False` still selects the historical post-LN stack, and the
+init-compat check still reads a MISSING `norm_first` key in an old checkpoint as
+post-LN, so pre-v4 checkpoints remain fatal to warm-start into a v4 run.
 
 The load-bearing test here is
 `test_norm_first_mismatch_is_rejected_by_init_compat_check`. Post-LN and pre-LN
@@ -53,20 +55,47 @@ def _model_config(**overrides) -> MLMConfig:
 
 
 # --------------------------------------------------------------------------- #
-# Default-off discipline.
+# The two config surfaces agree on the default, and it is pre-LN.
 # --------------------------------------------------------------------------- #
-def test_norm_first_defaults_to_post_norm_on_model_config():
-    assert MLMConfig(vocab_size=30, pad_token_id=0, max_length=32).norm_first is False
+def test_norm_first_defaults_to_pre_norm_on_model_config():
+    assert MLMConfig(vocab_size=30, pad_token_id=0, max_length=32).norm_first is True
 
 
-def test_norm_first_defaults_to_post_norm_on_train_config(tmp_path: Path, project_root: Path):
+def test_norm_first_defaults_to_pre_norm_on_train_config(tmp_path: Path, project_root: Path):
     mlm_train = load_mlm_train_module(project_root)
     data_path = tmp_path / "tiny.jsonl.gz"
     data_path.write_text("", encoding="utf-8")
 
     cfg = mlm_train.parse_args(["--data-path", str(data_path)])
 
-    assert cfg.norm_first is False
+    assert cfg.norm_first is True
+
+
+def test_missing_checkpoint_norm_first_key_still_means_post_norm(
+    tmp_path: Path, project_root: Path
+):
+    """The default flip must NOT weaken the cross-generation guard.
+
+    A pre-v4 checkpoint predates the knob and carries no `norm_first` key. The
+    compat check has to keep reading that absence as post-LN, or a default (now
+    pre-LN) run would warm-start straight off a post-LN checkpoint -- exactly the
+    silent mismatch `strict=True` cannot see.
+    """
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = tmp_path / "tiny.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+    ckpt_path = tmp_path / "legacy.pt"
+    torch.save(
+        {"model_state_dict": {}, "train_config": {"d_model": 256}},  # no norm_first key
+        ckpt_path,
+    )
+
+    cfg = mlm_train.parse_args(
+        ["--data-path", str(data_path), "--init-checkpoint", str(ckpt_path)]
+    )
+    assert cfg.norm_first is True
+    with pytest.raises(ValueError, match="norm_first"):
+        mlm_train.validate_init_checkpoint_compatibility(cfg, ckpt_path)
 
 
 # --------------------------------------------------------------------------- #
@@ -144,6 +173,41 @@ def test_prenorm_fusion_moves_the_norm_off_the_residual_path():
         post_ab, _ = post.fuse(antibody, ab_mask, antigen, ag_mask)
 
     assert not torch.allclose(pre_ab, post_ab, atol=1e-4)
+
+
+@pytest.mark.parametrize("norm_first", [True, False])
+def test_fusion_applies_dropout_to_the_cross_attention_branch(norm_first: bool):
+    """The fusion block was the ONLY sublayer in the model with no output dropout.
+
+    `nn.TransformerEncoderLayer` drops its attention and FFN outputs before the
+    residual add; the hand-written fusion block added `ctx` straight into the
+    stream. That left the one place where the antibody and antigen streams
+    actually mix as the one place with no regularization.
+    """
+    config = _model_config(norm_first=norm_first, dropout=0.5)
+    model = AntibodyAntigenCrossAttention(config).train()
+    antibody = torch.randn(1, 4, 16)
+    antigen = torch.randn(1, 5, 16)
+    ab_mask = torch.ones(1, 4, dtype=torch.long)
+    ag_mask = torch.ones(1, 5, dtype=torch.long)
+
+    torch.manual_seed(0)
+    with torch.no_grad():
+        first_ab, _ = model.fuse(antibody, ab_mask, antigen, ag_mask)
+        second_ab, _ = model.fuse(antibody, ab_mask, antigen, ag_mask)
+    assert not torch.allclose(first_ab, second_ab), "fusion output is not stochastic in train mode"
+
+    model.eval()
+    with torch.no_grad():
+        eval_a, _ = model.fuse(antibody, ab_mask, antigen, ag_mask)
+        eval_b, _ = model.fuse(antibody, ab_mask, antigen, ag_mask)
+    assert torch.allclose(eval_a, eval_b), "fusion output must be deterministic in eval mode"
+
+
+def test_fusion_dropout_adds_no_state_dict_keys():
+    """nn.Dropout is parameterless, so adding it must not change the checkpoint."""
+    model = AntibodyAntigenCrossAttention(_model_config(norm_first=True))
+    assert not any("fusion_dropout" in key for key in model.state_dict())
 
 
 def test_dual_stream_checkpoints_do_not_load_across_norm_modes():

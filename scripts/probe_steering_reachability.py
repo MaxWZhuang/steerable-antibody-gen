@@ -112,6 +112,19 @@ def reachability_at_position(
         )
     position = mask_positions[position_index]
     antigen_ids, antigen_attn = infiller._encode_antigen(record)
+    # The binder term is scored by the GUIDANCE model when one is attached, and
+    # `_binder_logprobs_by_candidate` requires the antigen tensors to already be
+    # encoded for whichever model scores. The guidance checkpoint owns its own
+    # antigen tokenizer and max_length, so reusing the GENERATION encoding fed the
+    # guidance model an off-distribution antigen -- and when the two max_lengths
+    # differ it raised inside the positional-embedding validator, which `main`
+    # caught per position and reported as "probe produced no measurements; check
+    # --data-path and --split", blaming the data for a wiring bug. This mirrors
+    # `guided_infill`, which pairs the guidance antigen with the guidance model.
+    if infiller.guidance_model is not None:
+        binder_antigen_ids, binder_antigen_attn = infiller._encode_guidance_antigen(record)
+    else:
+        binder_antigen_ids, binder_antigen_attn = antigen_ids, antigen_attn
     infiller.model.eval()
 
     with torch.no_grad():
@@ -126,8 +139,8 @@ def reachability_at_position(
         binder = infiller._binder_logprobs_by_candidate(
             base_ids,
             base_attn,
-            antigen_ids,
-            antigen_attn,
+            binder_antigen_ids,
+            binder_antigen_attn,
             position,
             guidance_target=guidance_target,
         ).double()
