@@ -205,14 +205,18 @@ flag that overrides the config value.
   ```
 
   Flag: `--tensorboard`.
-- **Norm placement** — `norm_first: false` (default) is post-LN,
-  `LayerNorm(x + sublayer(x))`: the original Transformer arrangement and the
-  PyTorch default. `norm_first: true` is pre-LN, `x + sublayer(LayerNorm(x))`,
-  which keeps an unnormalized identity path from input to output so gradients
-  reach early layers without being rescaled at each depth. It governs both
+- **Norm placement** — `norm_first: true` (default) is pre-LN,
+  `x + sublayer(LayerNorm(x))`, which keeps an unnormalized identity path from
+  input to output so gradients reach early layers without being rescaled at each
+  depth. `norm_first: false` is post-LN, `LayerNorm(x + sublayer(x))`: the
+  original Transformer arrangement and the PyTorch default. It governs both
   encoder stacks **and** the cross-attention fusion block, so the two cannot
   drift apart. Accepted at the top level or inside the nested `model:` section.
   Flags: `--norm-first`, `--no-norm-first`.
+
+  > The default is pre-LN because every checked-in config sets it. A `false`
+  > default only ever fired for a hand-written config that omitted the key, and it
+  > handed that run the post-LN stack silently.
 
   > **Changing this is a from-scratch retrain of the whole chain, not a
   > migration.** Post-LN and pre-LN produce *identical* parameter names and
@@ -232,6 +236,27 @@ flag that overrides the config value.
   change in either mode, so a checkpoint loads under both; the init-compat check
   therefore validates `compat_readout` the way it validates `norm_first`.
   Flag: `--compat-readout {cls,mean}`.
+- **Weight initialization** — `initializer_range: 0.02` (default) applies
+  `N(0, 0.02)` to every embedding table, `Linear` weight, and cross-attention
+  projection, zeroes biases, sets `LayerNorm` to `(1, 0)`, and re-zeroes
+  `padding_idx` rows. `scale_residual_init: true` (default) additionally scales the
+  residual-branch *output* projections (`attn.out_proj`, `ffn.linear2`) by
+  `1/sqrt(2 * n_layers)`.
+
+  > Before this existed the models used PyTorch's per-module defaults, which put
+  > `nn.Embedding` at `N(0, 1)`. With `tie_weights: true` that unit-variance table
+  > **is** the output projection, so a fresh `d_model: 256` model produced logits
+  > of std ~29 and an untrained MLM loss of **~149 nats** on the real OAS corpus
+  > against an ideal `ln(vocab) ≈ 3.56`. The opening phase of every from-scratch
+  > run went into shrinking the embedding norm, and `grad_clip_norm: 1.0` clipped
+  > exactly the gradients that would have done it. Now a fresh model starts at
+  > ~3.5.
+  >
+  > Unlike `norm_first`, this is **not** a cross-generation boundary: names,
+  > shapes, and the forward are unchanged, so warm-starting and resuming from any
+  > existing checkpoint still work (the loaded weights overwrite the init). Only
+  > the from-scratch stage is affected, and it is deliberately not an init-compat
+  > key.
 - **Loss weights** — `mlm_loss_weight` (default `1.0`) scales the MLM term on the
   antigen stages; `0.0` lets the compatibility term alone drive training. The
   reported `mlm_loss` stays unweighted so curves remain comparable. Flag:
@@ -560,6 +585,49 @@ The ASD preprocessing path therefore uses target-aware split assignment, preferr
 - and finally an antigen-sequence hash as a fallback.
 
 This is not a perfect solution, but it is a much better default than row-wise random splitting and helps keep future validation results more honest.
+
+### Paired OAS: split key and length budget
+
+Two corpus-level defects were found and fixed in `scripts/prepare_oas.py`. **Both
+require regenerating the paired corpus** — the fixes are in the producer, so any
+already-written `oas_paired.jsonl.gz` still has them baked in.
+
+**1. The paired split is now keyed on the HEAVY chain.** It used to be keyed on the
+full `(heavy, light)` pair, so one heavy chain observed with several cognate light
+chains was scattered across both splits. On the shipped corpus, 1,406 heavy
+sequences appeared in both splits and 6.3% of val rows had a byte-identical heavy
+chain in train — so stage-2 val loss, which selects `best.pt`, was partly measuring
+memorization of the exact HCDR3 target. The unpaired path never had this defect (it
+keys on `f"{locus}:{variable_aa}"`); the paired path now matches it. Dedup is
+unchanged and still keys on the full pair, which is correct there — a distinct
+`(heavy, light)` pair is a distinct example.
+
+**2. `max_length` silently truncates almost the whole paired corpus.** `prepare_oas.py`
+bounds heavy and light independently (`--max-heavy` 180 + `--max-light` 160 + 5
+specials = up to 345 tokens) and writes `token_length` unclamped; nothing ties the
+corpus to any encoder budget. At the shipped `max_length: 192`:
+
+| | paired corpus |
+|---|---|
+| rows | 306,760 |
+| exceed `max_length=192` | 306,666 (**99.97%**) |
+| lose their **light CDR3 entirely** | 306,057 (**99.77%**) |
+
+The paired stage exists to learn heavy/light compatibility, and CDR-L3 is the region
+that most determines pairing — so the shuffled-negative task was asking the model to
+tell cognate from non-cognate light chains with CDR-L3 deleted from both. This was
+invisible because Python deduplicates the tokenizer's truncation `UserWarning`.
+
+`scripts/mlm_train.py` now runs a **preflight** at startup that reports, per split,
+how many rows overflow and how many lose their heavy or light CDR3. It warns rather
+than refuses, because the remedy is a research decision:
+
+- raise `max_length` (a retrain, and more compute per step — attention is quadratic),
+- tighten `--max-heavy` / `--max-light` in `prepare_oas.py`, or
+- filter rows whose `token_length` exceeds `max_length`.
+
+Note that `ChainLengthBucketBatchSampler` buckets on the stored `token_length`, so
+while the corpus overflows, it is bucketing on a length no row actually encodes to.
 
 ---
 

@@ -74,6 +74,26 @@ class ESMAntigenEncoder(nn.Module):
         self.projection_norm = nn.LayerNorm(config.d_model)
         self.projection_dropout = nn.Dropout(config.dropout)
 
+    def train(self, mode: bool = True) -> "ESMAntigenEncoder":
+        """
+        Put the module in train/eval mode, keeping a FROZEN backbone in eval.
+
+        ``model.train()`` from the trainer recurses into every submodule, so
+        without this override a "frozen" ESM backbone would still run its dropout
+        and any train-mode normalization during training. That makes the frozen
+        arm's features stochastic, which defeats the point of the Stage A
+        ablation: the whole claim being tested is "pretrained ESM features vs
+        from-scratch features", and a frozen feature extractor that changes its
+        output run-to-run is not a fixed feature extractor.
+
+        The projection / norm / dropout this class owns still follow ``mode``.
+        Under ``"lora"`` the backbone is being adapted, so it follows ``mode`` too.
+        """
+        super().train(mode)
+        if self.finetune == "frozen":
+            self.esm.eval()
+        return self
+
     def _run_esm(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         """Return ESM per-residue hidden states ``[B, L, esm_hidden]``."""
         return self.esm(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state

@@ -72,8 +72,22 @@ def iter_jsonl(path: Path) -> Iterator[Dict[str, Any]]:
 
 
 def group_key(record: Dict[str, Any]) -> tuple[str, str]:
-    """The population a row's quantile is computed within."""
-    dataset = str(record.get("dataset_name") or "unknown")
+    """
+    The population a row's quantile is computed within.
+
+    The on-disk key is ``"dataset"`` -- that is what
+    ``scripts/prepare_antibody_antigen.py`` writes and what
+    ``OASSequenceDataset._load`` reads (into the differently-named in-memory field
+    ``OASRecord.dataset_name``). Reading ``"dataset_name"`` here resolved EVERY row
+    to "unknown", collapsing all datasets into one pooled CDF: the quantile then
+    encoded which dataset a row came from rather than its within-assay rank, which
+    is exactly the cross-scale pooling quantiles exist to prevent. It also silently
+    bypassed ``--min-group-size``, since one giant group always clears the floor.
+
+    ``"dataset_name"`` is kept as a fallback because some hand-built fixtures use
+    the in-memory name, but ``"dataset"`` wins.
+    """
+    dataset = str(record.get("dataset") or record.get("dataset_name") or "unknown")
     affinity_type = affinity_rules.normalize_affinity_type(record.get("affinity_type"))
     return dataset, affinity_type
 
@@ -197,7 +211,28 @@ def annotate(
         "rows_annotated": 0,
         "groups_fitted": len(lookups),
         "groups_seen": len({group_key(r) for r in records}),
+        # How many rows could not be attributed to a dataset. A grouping bug (a
+        # renamed or missing key) shows up here as a large count while every other
+        # stat still looks healthy -- `groups_fitted=1/1` reads like success. This
+        # counter is what makes that collapse visible.
+        "rows_unknown_dataset": sum(
+            1 for r in records if group_key(r)[0] == "unknown"
+        ),
     }
+
+    if records and stats["rows_unknown_dataset"] == len(records):
+        # Every row unattributed means the grouping key is absent from this corpus
+        # entirely, so all datasets would be pooled into one CDF and the quantile
+        # would rank a KD against a ddG. Refuse BEFORE writing: every other stat
+        # still reads as healthy (`groups_fitted=1/1` looks like success), so a
+        # warning after the fact would leave a corrupt corpus in place.
+        raise ValueError(
+            "every row resolved to dataset='unknown', so all datasets would be "
+            "pooled into a single quantile group -- the quantile would then encode "
+            "which dataset a row came from, not its within-assay rank. Expected a "
+            "'dataset' field on each row (written by "
+            "scripts/prepare_antibody_antigen.py). No output was written."
+        )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open_maybe_gzip(output_path, "wt") as handle:
@@ -240,8 +275,18 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     print(
         f"[annotate] rows={stats['rows_total']} annotated={stats['rows_annotated']} "
-        f"groups_fitted={stats['groups_fitted']}/{stats['groups_seen']}"
+        f"groups_fitted={stats['groups_fitted']}/{stats['groups_seen']} "
+        f"unknown_dataset={stats['rows_unknown_dataset']}"
     )
+    if stats["rows_unknown_dataset"]:
+        # A partial count is not fatal (a real corpus can legitimately carry a few
+        # rows with no dataset attribution), but it does mean those rows share one
+        # pooled group, so say so.
+        print(
+            f"[warn] {stats['rows_unknown_dataset']} row(s) had no 'dataset' field "
+            "and were pooled into a single dataset='unknown' quantile group.",
+            file=sys.stderr,
+        )
     if stats["rows_annotated"] == 0:
         # A run that annotates nothing looks like success but leaves the strength
         # head with no supervision at all; say so rather than exiting quietly.

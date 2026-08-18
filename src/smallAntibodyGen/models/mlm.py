@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import torch
-import torch.nn.functional as F 
-from torch import nn 
+import torch.nn.functional as F
+from torch import nn
 
 @dataclass
 class MLMConfig: 
@@ -89,10 +90,17 @@ class MLMConfig:
     dropout: float = 0.1
     activation: str = "gelu"
     tie_weights: bool = True
-    # Post-LN by default so every pre-existing config and checkpoint is
-    # unchanged. See the attribute docs above: flipping this is a retrain, not a
-    # migration, because the state dict is silently compatible either way.
-    norm_first: bool = False
+    # Pre-LN by default (v4 onward). Every checked-in config already sets
+    # `norm_first: true`, so a False default only ever fired for a hand-written
+    # config that forgot the key -- and it handed that run the post-LN stack
+    # silently, since the two are name- and shape-identical. Defaulting to the
+    # arrangement the project actually uses removes that failure mode.
+    #
+    # This does NOT weaken the checkpoint guard: `validate_init_checkpoint_
+    # compatibility` still reads a MISSING `norm_first` key in an old checkpoint
+    # as post-LN (correct -- pre-v4 checkpoints predate the knob), so a v3
+    # checkpoint remains fatal to warm-start into a v4 run.
+    norm_first: bool = True
 
     # Antigen-stream encoder selection (Direction 1: hybrid PLM antigen encoder).
     # Defaults preserve the original from-scratch dual-stream behavior, so these
@@ -134,6 +142,31 @@ class MLMConfig:
     # never read the answer off the number of mask tokens.
     use_length_head: bool = False
     length_head_max: int = 32
+
+    # Standard deviation of the normal init applied to every embedding table and
+    # Linear weight (the HuggingFace BERT/GPT/ESM convention). This is NOT cosmetic:
+    # PyTorch's `nn.Embedding` default is N(0, 1), and with `tie_weights=True`
+    # that same unit-variance table IS the output projection, so a d_model=256
+    # model starts with logits of std ~29 and an MLM loss of ~136 nats against an
+    # ideal ln(vocab) ~ 3.6. The first thousands of steps are then spent shrinking
+    # the embedding norm rather than learning -- and with grad_clip_norm=1.0 those
+    # opening gradients are all clipped, so the shrink is slow. See
+    # `scale_residual_init` for the companion depth fix.
+    #
+    # Changing this changes only how a FROM-SCRATCH model is initialized. It does
+    # not alter parameter names, shapes, or the forward, so warm-starting or
+    # resuming from an existing checkpoint is unaffected (the loaded weights
+    # overwrite the init) and it is deliberately NOT an init-compat key.
+    initializer_range: float = 0.02
+
+    # Scale the residual-branch output projections (`self_attn.out_proj` and the
+    # FFN's second Linear) of layer stacks by 1/sqrt(2 * n_layers), the GPT-2 /
+    # Megatron convention. In a pre-LN stack every layer writes into an
+    # un-normalized residual stream, so the stream's variance grows with depth and
+    # each additional layer's relative contribution shrinks -- the "deeper layers
+    # stop mattering" failure mode. Scaling the residual writes down by depth
+    # keeps the stream's variance roughly constant from layer 0 to layer N.
+    scale_residual_init: bool = True
 
     def validate(self) -> None:
         """
@@ -183,6 +216,10 @@ class MLMConfig:
             raise ValueError("use_length_head must be a bool")
         if self.length_head_max <= 0:
             raise ValueError("length_head_max must be > 0")
+        if self.initializer_range <= 0:
+            raise ValueError("initializer_range must be > 0")
+        if not isinstance(self.scale_residual_init, bool):
+            raise ValueError("scale_residual_init must be a bool")
 
 def length_to_class_index(length: int, length_head_max: int) -> int:
     """
@@ -213,6 +250,80 @@ def class_index_to_length(class_index: int, length_head_max: int) -> int:
             f"class index {class_index} is out of range for length_head_max={length_head_max}"
         )
     return class_index + 1
+
+
+def init_module_weights(module: nn.Module, config: MLMConfig) -> None:
+    """
+    Apply the standard transformer init to one module (used with ``.apply()``).
+
+    - ``nn.Linear`` / ``nn.Embedding`` weights: ``N(0, initializer_range)``
+    - ``nn.Linear`` biases: zero
+    - ``nn.LayerNorm``: weight 1, bias 0
+    - ``nn.MultiheadAttention`` (the fusion cross-attention, which is NOT inside a
+      ``TransformerEncoderLayer``): ``in_proj_weight`` and ``out_proj.weight`` get
+      the same normal init, biases zero.
+    - ``padding_idx`` rows are re-zeroed last, because ``normal_`` overwrites the
+      zero row PyTorch installs at construction. A non-zero pad embedding is a
+      real defect: pad positions are masked out of attention but their embedding
+      still enters the residual stream at the pad position, and the MLM head reads
+      every position.
+
+    This is deliberately a free function taking the config rather than a method,
+    so ``AntibodyMLM``, ``AntibodyAntigenCrossAttention``, and the ESM adapter's
+    projection can all share exactly one definition.
+    """
+    std = config.initializer_range
+    if isinstance(module, nn.Linear):
+        nn.init.normal_(module.weight, mean=0.0, std=std)
+        if module.bias is not None:
+            nn.init.zeros_(module.bias)
+    elif isinstance(module, nn.Embedding):
+        nn.init.normal_(module.weight, mean=0.0, std=std)
+        if module.padding_idx is not None:
+            with torch.no_grad():
+                module.weight[module.padding_idx].fill_(0.0)
+    elif isinstance(module, nn.LayerNorm):
+        nn.init.ones_(module.weight)
+        nn.init.zeros_(module.bias)
+    elif isinstance(module, nn.MultiheadAttention):
+        # Reached both for the standalone fusion attention and for the attention
+        # inside nn.TransformerEncoderLayer, which is intended: it puts both on one
+        # scheme. `out_proj` is handled HERE rather than left to the nn.Linear
+        # branch because the fusion block calls this function DIRECTLY on the
+        # MultiheadAttention (no `.apply()`, so no child traversal) -- without this
+        # the fusion's output projection would silently keep PyTorch's default.
+        # Under `.apply()` that means out_proj is drawn twice (child, then parent);
+        # both draws are N(0, std), so the distribution is unaffected and the
+        # consumption is deterministic.
+        if module.in_proj_weight is not None:
+            nn.init.normal_(module.in_proj_weight, mean=0.0, std=std)
+        if module.in_proj_bias is not None:
+            nn.init.zeros_(module.in_proj_bias)
+        nn.init.normal_(module.out_proj.weight, mean=0.0, std=std)
+        if module.out_proj.bias is not None:
+            nn.init.zeros_(module.out_proj.bias)
+
+
+def apply_residual_depth_scaling(encoder: nn.TransformerEncoder, config: MLMConfig) -> None:
+    """
+    Scale each layer's residual-branch output projections by ``1/sqrt(2 * n_layers)``.
+
+    The two projections that WRITE into the residual stream are the attention's
+    ``out_proj`` and the FFN's ``linear2``; every other weight in the block feeds
+    a branch that is itself consumed by one of those two. Scaling exactly those
+    down by depth keeps the residual stream's variance from growing linearly with
+    ``n_layers``, which in a pre-LN stack is what makes late layers contribute a
+    vanishing fraction of the signal the head finally reads.
+
+    No-op when ``config.scale_residual_init`` is False.
+    """
+    if not config.scale_residual_init:
+        return
+    scale = 1.0 / math.sqrt(2.0 * max(1, config.n_layers))
+    with torch.no_grad():
+        for layer in encoder.layers:
+            layer.self_attn.out_proj.weight.mul_(scale)
+            layer.linear2.weight.mul_(scale)
 
 
 class LearnedPositionalEmbedding(nn.Module):
@@ -313,6 +424,13 @@ class TransformerSequenceEncoder(nn.Module):
         # does not depend on norm_first.
         self.final_norm = nn.LayerNorm(config.d_model)
 
+        # Replace PyTorch's per-module defaults (N(0, 1) embeddings, xavier
+        # attention, kaiming FFN) with one coherent scheme, then damp the residual
+        # writes by depth. Owning init here means every consumer of this encoder
+        # -- antibody stream, scratch antigen stream, both models -- gets it.
+        self.apply(lambda module: init_module_weights(module, config))
+        apply_residual_depth_scaling(self.encoder, config)
+
     def _validate_inputs(
         self,
         input_ids: torch.Tensor,
@@ -395,7 +513,14 @@ class AntibodyMLM(nn.Module):
         self.sequence_encoder = TransformerSequenceEncoder(config)
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias = False)
         self.pair_head = nn.Linear(config.d_model, 2)
-        
+
+        # Heads are initialized BEFORE tying, and only the heads. Re-running the
+        # initializer over the whole model after tying would overwrite the encoder
+        # (harmless but wasteful) and, worse, re-draw the tied embedding through
+        # the nn.Linear branch, which does not re-zero the padding row.
+        init_module_weights(self.lm_head, config)
+        init_module_weights(self.pair_head, config)
+
         if config.tie_weights:
             self.lm_head.weight = self.sequence_encoder.token_embedding.weight
     
@@ -715,6 +840,13 @@ class AntibodyAntigenCrossAttention(nn.Module):
         if config.norm_first:
             self.fusion_out_norm_antibody = nn.LayerNorm(config.d_model)
             self.fusion_out_norm_antigen = nn.LayerNorm(config.d_model)
+        # Dropout on the cross-attention branch OUTPUT, applied before the residual
+        # add. Every other sublayer in this model has one (nn.TransformerEncoderLayer
+        # puts dropout on both its attention and FFN outputs); the fusion block was
+        # the single sublayer without any, so the one place where the two streams
+        # actually mix was also the only place with no regularization. nn.Dropout
+        # holds no parameters, so this does not change the state dict.
+        self.fusion_dropout = nn.Dropout(config.dropout)
         self.fusion_mlp = nn.Sequential(
             nn.Linear(config.d_model * 2, config.d_model),
             nn.GELU() if config.activation == "gelu" else nn.ReLU(),
@@ -723,15 +855,44 @@ class AntibodyAntigenCrossAttention(nn.Module):
 
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
         self.compatibility_head = nn.Linear(config.d_model, 2)
+
+        # Init the modules THIS class owns (fusion + unconditional heads). The two
+        # encoders already initialized themselves in their own __init__, and
+        # re-applying here would redraw them -- which for the ESM antigen stream
+        # would overwrite pretrained weights with N(0, 0.02) noise. Hence the
+        # explicit per-module list rather than a blanket self.apply().
+        #
+        # This block MUST sit before the conditional heads below. Constructing an
+        # nn.Linear consumes RNG, so a re-init pass placed after them would have
+        # its own draws shifted by whether the optional heads exist -- silently
+        # breaking the "default-off is byte-identical" contract those heads are
+        # built around (pinned by test_{strength,length}_head_off_draws_zero_extra_init_rng).
+        for fusion_module in (
+            self.antibody_to_antigen,
+            self.antigen_to_antibody,
+            self.fusion_norm_antibody,
+            self.fusion_norm_antigen,
+            self.compatibility_head,
+        ):
+            init_module_weights(fusion_module, config)
+        if config.norm_first:
+            init_module_weights(self.fusion_out_norm_antibody, config)
+            init_module_weights(self.fusion_out_norm_antigen, config)
+        self.fusion_mlp.apply(lambda module: init_module_weights(module, config))
+        init_module_weights(self.lm_head, config)
+
         # Conditional construction, not a zeroed head: building it unconditionally
         # would consume init RNG and shift every subsequent parameter draw, so a
-        # "default-off" run would silently stop being byte-identical.
+        # "default-off" run would silently stop being byte-identical. Each head is
+        # constructed AND initialized here, after every shared draw is complete.
         if config.use_strength_head:
             self.strength_head = nn.Linear(config.d_model, 1)
+            init_module_weights(self.strength_head, config)
         # Same conditional-construction contract as the strength head: a default
         # (and a strength-head-only) model draws ZERO length-head init-RNG.
         if config.use_length_head:
             self.length_head = nn.Linear(config.d_model, config.length_head_max)
+            init_module_weights(self.length_head, config)
 
         if config.tie_weights:
             self.lm_head.weight = self.antibody_encoder.token_embedding.weight
@@ -792,6 +953,11 @@ class AntibodyAntigenCrossAttention(nn.Module):
             key_padding_mask=(antibody_attention_mask == 0),
             need_weights=False,
         )
+
+        # Sublayer-output dropout before the residual add, matching what
+        # nn.TransformerEncoderLayer does for its own attention and FFN branches.
+        antibody_ctx = self.fusion_dropout(antibody_ctx)
+        antigen_ctx = self.fusion_dropout(antigen_ctx)
 
         if self.config.norm_first:
             antibody_hidden = self.fusion_out_norm_antibody(antibody_hidden + antibody_ctx)

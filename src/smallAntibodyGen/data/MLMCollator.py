@@ -368,6 +368,29 @@ class MLMCollator:
         self.rng = random.Random(self._base_rng_seed + 1000 * (worker_info.id + 1))
         self._worker_seeded_id = worker_info.id
 
+    @staticmethod
+    def _record_carries_a_heavy_chain(record) -> bool:
+        """
+        Whether this record's leading chain is a HEAVY chain.
+
+        This gates the GENERIC-CDR3 fallback in ``_heavy_hcdr3_aa_span``. It is the
+        same predicate the ``sampled_span`` masking branch already applies; the
+        fallback and the metadata builder were missing it, which is the whole bug
+        (see that method's docstring).
+
+        A single-chain light record (``chain_group == "light"``, locus IGK/IGL)
+        carries its LIGHT CDR3 in the generic fields, so it must not be treated as
+        heavy.
+        """
+        chain_group = getattr(record, "chain_group", None)
+        if chain_group in {"heavy", "paired", "paired_antigen"}:
+            return True
+        if getattr(record, "is_paired", False):
+            return True
+        # Fall back to the locus for records whose chain_group is unset/unknown.
+        locus = str(getattr(record, "locus", "") or "").upper().strip()
+        return locus == "IGH"
+
     def _heavy_hcdr3_aa_span(self, record) -> tuple[int | None, int | None, str | None]:
         """
         Return the heavy-chain HCDR3 amino-acid span stored on one record.
@@ -378,6 +401,17 @@ class MLMCollator:
         fields are preferred because the fixed-length infilling task is
         explicitly about HCDR3. The generic fields are retained as a fallback so
         classic heavy-chain OAS records keep working with the same collator.
+
+        The generic fallback is gated on the record actually carrying a heavy
+        chain. ``prepare_oas.py`` writes ``cdr3_start_aa`` / ``cdr3_end_aa`` for
+        IGK/IGL records too, so an ungated fallback reported a LIGHT CDR3 as the
+        HCDR3: in ``full_span`` / ``partial_span`` mode it became the infilling
+        TARGET, and in every mode it was counted in ``hcdr3_valid_mask`` /
+        ``hcdr3_target_mask`` / ``hcdr3_original`` and therefore folded into the
+        reported ``hcdr3_token_acc``, ``hcdr3_span_exact_match`` and
+        ``hcdr3_valid_spans``. Any run over ``oas_igk``/``oas_igl`` or a
+        locus-balanced ``oas_all`` corpus reported an "HCDR3" number that was
+        partly or wholly light CDR3.
 
         Coordinates are zero-based and end-exclusive in amino-acid space. They
         do not include tokenizer special tokens. A valid span is therefore
@@ -390,6 +424,10 @@ class MLMCollator:
         end = getattr(record, "cdr3_end_aa_heavy", None)
         cdr3 = getattr(record, "cdr3_aa_heavy", None)
         if start is None or end is None:
+            if not self._record_carries_a_heavy_chain(record):
+                # A light-chain record has no HCDR3. Return nothing rather than its
+                # light CDR3 -- `cdr3` is also what `hcdr3_original` reports.
+                return None, None, None
             start = getattr(record, "cdr3_start_aa", None)
             end = getattr(record, "cdr3_end_aa", None)
             cdr3 = getattr(record, "cdr3_aa", None)

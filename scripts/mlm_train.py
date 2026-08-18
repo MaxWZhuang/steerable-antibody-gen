@@ -173,13 +173,15 @@ class TrainConfig:
     n_layers: int = 6
     d_ff: int = 1024
     dropout: float = 0.1
-    # Pre-LN (True) vs post-LN (False) residual arrangement. Default False keeps
-    # the historical post-LN stack, so an unmodified config is unchanged.
-    # Flipping this is a from-scratch retrain of the whole chain, not a
+    # Pre-LN (True) vs post-LN (False) residual arrangement. Defaults to pre-LN,
+    # matching every checked-in config and MLMConfig.norm_first; see the note
+    # there for why the old False default was a footgun rather than a safeguard.
+    # Changing this on an EXISTING chain is a from-scratch retrain, not a
     # migration: post-LN and pre-LN single-stream state dicts are
     # name/shape-identical, so strict loading cannot catch the mismatch. The
-    # init-compat check below treats it as an architecture key for that reason.
-    norm_first: bool = False
+    # init-compat check below treats it as an architecture key for that reason,
+    # and still reads a missing checkpoint key as post-LN.
+    norm_first: bool = True
 
     # Antigen-stream encoder selection (Direction 1: hybrid PLM antigen encoder).
     # Defaults reproduce the original from-scratch dual-stream model, so setting
@@ -789,6 +791,19 @@ def configure_cpu_runtime(device: torch.device) -> None:
     This is a practical stability measure for some environments where large
     thread counts can make transformer training noisy or hard to debug.
 
+    ``torch.set_num_interop_threads`` is settable only ONCE per process, and only
+    before any parallel work has started. That makes it fatal in exactly the
+    situations where a thread hint matters least:
+
+    - a notebook re-running the training cell (the second run dies before it
+      builds anything),
+    - a driver script that chains two stages in one process,
+    - any interactive session that touched a torch op before training.
+
+    So the call is best-effort. The failure means the interop pool is already
+    sized -- which is the state we wanted anyway -- so aborting a training run
+    over it would trade a whole run for a hint.
+
     Args:
         device:
             The chosen training device.
@@ -799,8 +814,13 @@ def configure_cpu_runtime(device: torch.device) -> None:
     if device.type == "cpu":
         os.environ.setdefault("OMP_NUM_THREADS", "1")
         os.environ.setdefault("MKL_NUM_THREADS", "1")
+        # Repeatable; safe to call unconditionally.
         torch.set_num_threads(1)
-        torch.set_num_interop_threads(1)
+        try:
+            torch.set_num_interop_threads(1)
+        except RuntimeError:
+            # Already set, or parallel work has begun. Both are benign here.
+            pass
 
 
 def seed_worker(worker_id: int) -> None:
@@ -1032,6 +1052,119 @@ def summarize_target_overlap(
         "val_targets": len(val_targets),
         "overlap": len(train_targets & val_targets),
     }
+
+
+def summarize_length_truncation(
+    dataset: OASSequenceDataset | RecordSubsetDataset,
+    max_length: int,
+) -> dict[str, int]:
+    """
+    How much of this corpus the encoder's ``max_length`` silently deletes.
+
+    ``prepare_oas.py`` bounds the heavy and light chains independently
+    (``--max-heavy`` / ``--max-light``, up to 180 + 160 + 5 = 345 tokens) and
+    writes ``token_length`` unclamped. Nothing ties the corpus to any encoder
+    budget, so the collator hard-truncates to ``max_length`` and forces a trailing
+    ``[EOS]``. The tokenizer's UserWarning is deduplicated by Python's default
+    filter, so at corpus scale this is effectively silent.
+
+    It is not a rounding error. On the shipped paired corpus at ``max_length: 192``,
+    99.97% of rows overflow and 99.77% lose their LIGHT CDR3 entirely -- and the
+    paired stage's whole purpose is heavy/light compatibility, for which CDR-L3 is
+    the most informative region. The shuffled-negative task then asks the model to
+    tell native from non-cognate light chains with CDR-L3 deleted from both.
+
+    Counts are computed arithmetically from stored coordinates (cheap, exact for
+    the layouts the collator produces) rather than by encoding every row:
+
+    - single-chain / antigen: ``[CLS] [chain] residues... [EOS]``, heavy CDR3 at
+      token offset ``2 + aa_index``
+    - paired: ``[CLS] [IGH] heavy... [SEP] [IGK] light... [EOS]``, light CDR3 at
+      token offset ``2 + len(heavy) + 2 + aa_index``
+
+    Returns counts only; the caller decides whether to warn or stop. Raising here
+    would be wrong -- whether to raise ``max_length`` (more compute, a retrain),
+    filter the corpus, or accept the truncation is a research decision.
+    """
+    total = 0
+    overflow = 0
+    lost_heavy_cdr3 = 0
+    lost_light_cdr3 = 0
+    worst_overflow = 0
+    for record in dataset.records:
+        total += 1
+        token_length = record.token_length or 0
+        if token_length > max_length:
+            overflow += 1
+            worst_overflow = max(worst_overflow, token_length - max_length)
+
+        heavy_seq = record.sequence_heavy or record.sequence or ""
+        light_seq = record.sequence_light or ""
+        is_paired = bool(heavy_seq and light_seq)
+
+        heavy_end = record.cdr3_end_aa_heavy
+        if heavy_end is None and not is_paired:
+            heavy_end = record.cdr3_end_aa
+        if isinstance(heavy_end, int) and (2 + heavy_end) > max_length:
+            lost_heavy_cdr3 += 1
+
+        if is_paired:
+            light_end = record.cdr3_end_aa_light
+            if isinstance(light_end, int):
+                # 2 leading specials + heavy residues + [SEP] + [light chain token]
+                if (2 + len(heavy_seq) + 2 + light_end) > max_length:
+                    lost_light_cdr3 += 1
+
+    return {
+        "total": total,
+        "overflow": overflow,
+        "worst_overflow": worst_overflow,
+        "lost_heavy_cdr3": lost_heavy_cdr3,
+        "lost_light_cdr3": lost_light_cdr3,
+    }
+
+
+def format_length_truncation_warning(
+    counts: dict[str, int],
+    max_length: int,
+    split_name: str,
+) -> str | None:
+    """
+    Render the truncation report, or ``None`` when nothing overflows.
+
+    Always names the CDR3 losses explicitly. A bare "N rows truncated" reads as
+    trimming a few framework residues at the C-terminus; losing the CDR3 is a
+    different claim entirely, and it is the one that invalidates the objective.
+    """
+    total = counts["total"]
+    if total == 0 or counts["overflow"] == 0:
+        return None
+    pct = 100.0 * counts["overflow"] / total
+    lines = [
+        f"[warn] {split_name}: {counts['overflow']}/{total} rows ({pct:.2f}%) exceed "
+        f"max_length={max_length} and are TRUNCATED by the collator "
+        f"(worst overflow: {counts['worst_overflow']} tokens)."
+    ]
+    if counts["lost_light_cdr3"]:
+        pct_l = 100.0 * counts["lost_light_cdr3"] / total
+        lines.append(
+            f"[warn]   {counts['lost_light_cdr3']} ({pct_l:.2f}%) lose their LIGHT CDR3 "
+            "entirely -- the heavy/light pairing objective is being trained without "
+            "CDR-L3, the region that most determines pairing."
+        )
+    if counts["lost_heavy_cdr3"]:
+        pct_h = 100.0 * counts["lost_heavy_cdr3"] / total
+        lines.append(
+            f"[warn]   {counts['lost_heavy_cdr3']} ({pct_h:.2f}%) lose their HEAVY CDR3 "
+            "entirely -- these rows cannot train the HCDR3 objective at all."
+        )
+    lines.append(
+        "[warn]   Fix by raising max_length (a retrain, and more compute per step), "
+        "tightening prepare_oas.py's --max-heavy/--max-light, or filtering rows "
+        "whose token_length exceeds max_length. Truncation is silent otherwise: "
+        "Python dedupes the tokenizer's UserWarning."
+    )
+    return "\n".join(lines)
 
 
 def format_metric_summary(
@@ -2211,6 +2344,8 @@ def _make_progress_bar(
     return tqdm(iterable, total=total, desc=desc, leave=False, dynamic_ncols=True, disable=disable)
 
 
+
+
 def run_smoke_test(
     model: torch.nn.Module,
     train_loader: DataLoader,
@@ -2456,7 +2591,12 @@ def evaluate(
                     strength_target_all.extend(
                         batch["strength_targets"][_sm].float().cpu().tolist()
                     )
-            loss = losses["loss"]
+            # NOTE: losses["loss"] (the optimized total, which DOES include the
+            # weighted strength/length terms) is intentionally not used here. The
+            # reported/selection loss is rebuilt below from the token- and
+            # row-pooled MLM and aux terms so it stays comparable across batches
+            # of unequal supervision counts -- which is also why it omits the
+            # strength/length terms. See select_checkpoint_metric_value.
             mlm_loss = losses["mlm_loss"]
             aux_loss = losses["compatibility_loss"]
             mlm_correct, mlm_tokens = masked_accuracy_counts(logits, batch["antibody_labels"])
@@ -2468,11 +2608,6 @@ def evaluate(
                     _entry = fraction_bin_counts.setdefault(_key, [0, 0])
                     _entry[0] += _c
                     _entry[1] += _t
-            aux_acc = compatibility_classification_accuracy(
-                compatibility_logits,
-                batch["compatibility_labels"],
-                batch["compatibility_mask"],
-            )
             aux_correct, aux_labeled = masked_classification_counts(
                 compatibility_logits,
                 batch["compatibility_labels"],
@@ -2509,7 +2644,6 @@ def evaluate(
                 pair_mask=batch["pair_mask"],
                 pair_loss_weight=cfg.pair_loss_weight,
             )
-            loss = losses["loss"]
             mlm_loss = losses["mlm_loss"]
             aux_loss = losses["pair_loss"]
             mlm_correct, mlm_tokens = masked_accuracy_counts(logits, batch["labels"])
@@ -2521,7 +2655,6 @@ def evaluate(
                     _entry = fraction_bin_counts.setdefault(_key, [0, 0])
                     _entry[0] += _c
                     _entry[1] += _t
-            aux_acc = pair_classification_accuracy(pair_logits, batch["pair_labels"], batch["pair_mask"])
             aux_correct, aux_labeled = masked_classification_counts(
                 pair_logits,
                 batch["pair_labels"],
@@ -2823,9 +2956,12 @@ def train_one_epoch(
                 optimizer=optimizer,
                 cfg=cfg,
                 epoch=epoch,
+                # This epoch is still in progress, so it has no score of its own;
+                # the running best is the only meaningful value for both fields.
                 val_loss=best_val_loss,
                 scaler=scaler,
                 scheduler=scheduler,
+                best_val_loss=best_val_loss,
             )
 
         if is_antigen_stage(cfg.training_stage):
@@ -2838,11 +2974,6 @@ def train_one_epoch(
                     _entry = fraction_bin_counts.setdefault(_key, [0, 0])
                     _entry[0] += _c
                     _entry[1] += _t
-            aux_acc = compatibility_classification_accuracy(
-                compatibility_logits.detach(),
-                batch["compatibility_labels"],
-                batch["compatibility_mask"],
-            )
             aux_correct, aux_labeled = masked_classification_counts(
                 compatibility_logits.detach(),
                 batch["compatibility_labels"],
@@ -2867,6 +2998,30 @@ def train_one_epoch(
                 compatibility_preds_all.extend(
                     compatibility_logits.detach().argmax(dim=-1)[mask].cpu().tolist()
                 )
+            # Length / strength accumulation, mirroring `evaluate`. Without this
+            # the accumulators declared above stayed at their initial values and
+            # `train_length_acc` / `train_val_strength_spearman` were reported as
+            # NaN over 0 rows on EVERY run with those heads enabled -- which reads
+            # as "measured, no signal" rather than "never measured".
+            if want_length and length_logits is not None:
+                _lm = batch["length_label_mask"]
+                if bool(_lm.any()):
+                    _labels = batch["length_labels"][_lm]
+                    _lq = length_logits.detach()[_lm]
+                    length_correct += int((_lq.argmax(dim=-1) == _labels).sum().item())
+                    length_total += int(_lm.sum().item())
+                    length_nll_sum += float(
+                        F.cross_entropy(_lq.float(), _labels, reduction="sum").item()
+                    )
+            if want_strength and strength_predictions is not None:
+                _sm = batch["strength_mask"]
+                if bool(_sm.any()):
+                    strength_pred_all.extend(
+                        strength_predictions.detach()[_sm].float().cpu().tolist()
+                    )
+                    strength_target_all.extend(
+                        batch["strength_targets"][_sm].float().cpu().tolist()
+                    )
             aux_loss_name = "compatibility_loss"
             aux_acc_name = "compatibility_acc"
         else:
@@ -2879,11 +3034,6 @@ def train_one_epoch(
                     _entry = fraction_bin_counts.setdefault(_key, [0, 0])
                     _entry[0] += _c
                     _entry[1] += _t
-            aux_acc = pair_classification_accuracy(
-                pair_logits.detach(),
-                batch["pair_labels"],
-                batch["pair_mask"],
-            )
             aux_correct, aux_labeled = masked_classification_counts(
                 pair_logits.detach(),
                 batch["pair_labels"],
@@ -3000,6 +3150,7 @@ def save_checkpoint(
     val_loss: float,
     scaler: torch.amp.GradScaler | None = None,
     scheduler: torch.optim.lr_scheduler.LambdaLR | None = None,
+    best_val_loss: float | None = None,
 ) -> None:
     """
     Save a training checkpoint to disk.
@@ -3016,7 +3167,22 @@ def save_checkpoint(
         epoch:
             Epoch number being saved.
         val_loss:
-            Validation loss associated with this checkpoint.
+            The selection metric for THIS checkpoint's weights.
+        best_val_loss:
+            The best selection value seen so far in the run, which is what a
+            resume must restore into best-tracking. It is stored separately from
+            ``val_loss`` because the two are different quantities and conflating
+            them destroys ``best.pt``:
+
+            ``last.pt``'s ``val_loss`` is the LAST epoch's score, not the best.
+            A resume that seeded best-tracking from it would start with an
+            inflated threshold, so the first mediocre post-resume epoch beats it
+            and overwrites ``best.pt`` with weights worse than the pre-interrupt
+            best -- silently, and with every shipped config setting
+            ``resume_from_last: true``.
+
+            Defaults to ``val_loss`` so the two intra-epoch/legacy callers that
+            already pass the running best in ``val_loss`` keep working.
 
     Returns:
         None.
@@ -3046,6 +3212,9 @@ def save_checkpoint(
         "scheduler_state_dict": scheduler.state_dict() if scheduler is not None else None,
         "rng_state": rng_state,
         "val_loss": val_loss,
+        # The running best, kept separate from this checkpoint's own val_loss so a
+        # resume restores best-tracking rather than the last epoch's score.
+        "best_val_loss": (val_loss if best_val_loss is None else best_val_loss),
         "train_config": asdict(cfg),
     }
     # Atomic write: serialize to a temp file on the same filesystem, then
@@ -3085,7 +3254,14 @@ def load_checkpoint(
 
     if optimizer is not None and "optimizer_state_dict" in checkpoint:
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-    if scaler is not None and checkpoint.get("scaler_state_dict") is not None:
+    # A DISABLED GradScaler serializes to `{}`, not to None, and
+    # GradScaler.load_state_dict raises "The source state dict is empty" on it
+    # (its `if not self._enabled: return` early-out keys off the LOADING scaler,
+    # which is enabled here). So a run started with use_amp=false and resumed with
+    # use_amp=true on CUDA aborted -- and refine_oas_paired.yaml literally invites
+    # that flip ("Flip to true for speed if stable"). An empty dict carries no
+    # scale to restore, so skipping it and starting at the default scale is correct.
+    if scaler is not None and checkpoint.get("scaler_state_dict"):
         scaler.load_state_dict(checkpoint["scaler_state_dict"])
     if scheduler is not None and checkpoint.get("scheduler_state_dict") is not None:
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
@@ -3413,6 +3589,19 @@ def main() -> None:
         print(f"train_known_target_probe examples: {len(train_known_target_probe)}")
     if row_random_probe is not None:
         print(f"row_random_probe examples:         {len(row_random_probe)}")
+    # Preflight: how much of the corpus max_length silently deletes. Reported
+    # before training starts, because the answer can invalidate the objective (see
+    # summarize_length_truncation) and the tokenizer's own warning is deduplicated
+    # away at corpus scale.
+    for split_name, split_dataset in (("train", train_dataset), ("val", val_dataset)):
+        truncation_warning = format_length_truncation_warning(
+            summarize_length_truncation(split_dataset, cfg.max_length),
+            cfg.max_length,
+            split_name,
+        )
+        if truncation_warning:
+            print(truncation_warning)
+
     val_overlap = summarize_target_overlap(train_dataset, val_dataset)
     print(
         "[split] known_target_train_vs_val: "
@@ -3497,7 +3686,46 @@ def main() -> None:
             map_location=device,
         )
         start_epoch = checkpoint["epoch"]
-        best_val_loss = checkpoint.get("val_loss", float("inf"))
+        # Prefer the explicitly-tracked running best. `val_loss` is THIS
+        # checkpoint's own score, and for `last.pt` that is the LAST epoch's, not
+        # the best -- seeding best-tracking from it inflates the threshold so the
+        # first mediocre post-resume epoch overwrites `best.pt` with weights worse
+        # than the pre-interrupt best. The `val_loss` fallback exists only for
+        # checkpoints written before `best_val_loss` was stored; those carry no
+        # better information, so a legacy resume keeps the old behavior and says so.
+        if "best_val_loss" in checkpoint:
+            best_val_loss = checkpoint["best_val_loss"]
+        else:
+            best_val_loss = checkpoint.get("val_loss", float("inf"))
+            print(
+                "[warn] last.pt predates best_val_loss tracking; seeding best-tracking "
+                f"from its val_loss ({best_val_loss}). If best.pt currently holds a "
+                "better model, this resume may overwrite it -- back best.pt up first."
+            )
+        # Resume is EPOCH-granular: `start_epoch` is re-entered from batch 0, so an
+        # intra-epoch `last.pt` (written by checkpoint_every_steps, which stores the
+        # 0-based in-progress epoch) has a scheduler step count ahead of the epoch
+        # boundary we are restarting from. Left alone, those steps are taken twice
+        # and the LR curve runs ahead of real training progress -- with cosine that
+        # pins the tail of the run at min_lr_ratio (0.0 by default) while training
+        # continues, and every further interrupt shifts it more. Rewind to the
+        # boundary so scheduler position and data position agree.
+        if scheduler is not None:
+            boundary_step = start_epoch * steps_per_epoch
+            if scheduler.last_epoch > boundary_step:
+                print(
+                    f"[checkpoint] rewinding LR scheduler {scheduler.last_epoch} -> "
+                    f"{boundary_step} to match the epoch-granular resume "
+                    f"(epoch {start_epoch} restarts from batch 0)"
+                )
+                scheduler.last_epoch = boundary_step
+                # Recompute each group's LR from its OWN base_lr and lambda:
+                # new_module_lr_multiplier gives the fusion/head groups a different
+                # base LR, so a single shared lambda/base would corrupt them.
+                for group, base_lr, lr_lambda in zip(
+                    optimizer.param_groups, scheduler.base_lrs, scheduler.lr_lambdas
+                ):
+                    group["lr"] = base_lr * lr_lambda(boundary_step)
         # Restore RNG last so the resumed run reproduces the interrupted run's
         # dropout/sampling stream instead of the fresh set_seed(cfg.seed) stream.
         restore_rng_state(checkpoint.get("rng_state"))
@@ -3617,17 +3845,9 @@ def main() -> None:
             device=device,
         )
 
-        train_loss = train_metrics["loss"]
-        val_loss = val_metrics["loss"]
         # best.pt / early stopping / the checkpoint's tracked val_loss all key on
-        # this; it IS `val_loss` unless `best_checkpoint_metric` is set.
+        # this; it IS `val_metrics["loss"]` unless `best_checkpoint_metric` is set.
         selection_value = select_checkpoint_metric_value(cfg, val_metrics)
-        if is_antigen_stage(cfg.training_stage):
-            aux_loss_name = "compatibility_loss"
-            aux_acc_name = "compatibility_acc"
-        else:
-            aux_loss_name = "pair_loss"
-            aux_acc_name = "pair_acc"
 
         summary_parts = [format_metric_summary(train_metrics, cfg, "train")]
         if train_known_target_metrics is not None:
@@ -3657,25 +3877,32 @@ def main() -> None:
             optimizer.param_groups[0]["lr"],
         )
 
-        save_checkpoint(
-            path=output_dir / "last.pt",
-            model=model,
-            optimizer=optimizer,
-            cfg=cfg,
-            epoch=epoch + 1,
-            val_loss=selection_value,
-            scaler=scaler,
-            scheduler=scheduler,
-        )
-
         # Early stopping keys off the best *before* this epoch's update, so
         # capture it before best_val_loss potentially advances below.
         prev_best_val_loss = best_val_loss
 
         # Guard against NaN/Inf: `NaN < best` is always False, so a non-finite
         # val_loss would silently neither win nor warn. Skip and report instead.
-        if math.isfinite(selection_value) and selection_value < best_val_loss:
+        improved = math.isfinite(selection_value) and selection_value < best_val_loss
+        if improved:
             best_val_loss = selection_value
+        elif not math.isfinite(selection_value):
+            print(
+                f"[warn] {cfg.best_checkpoint_metric} is non-finite ({selection_value}); "
+                "best.pt not updated this epoch"
+            )
+
+        # best.pt is written BEFORE last.pt, and `best_val_loss` is advanced before
+        # either. Both orderings matter for crash safety:
+        #
+        # - Advancing first means last.pt records the CURRENT running best, so a
+        #   resume restores the right threshold instead of the last epoch's score.
+        # - Writing best.pt first means a crash between the two leaves best.pt
+        #   holding the better weights while last.pt still points at the previous
+        #   epoch. The resume then re-runs that epoch and re-establishes the same
+        #   best. The reverse order would leave last.pt CLAIMING a best that
+        #   best.pt does not hold, stranding the good weights.
+        if improved:
             save_checkpoint(
                 path=output_dir / "best.pt",
                 model=model,
@@ -3685,12 +3912,20 @@ def main() -> None:
                 val_loss=selection_value,
                 scaler=scaler,
                 scheduler=scheduler,
+                best_val_loss=best_val_loss,
             )
-        elif not math.isfinite(selection_value):
-            print(
-                f"[warn] {cfg.best_checkpoint_metric} is non-finite ({selection_value}); "
-                "best.pt not updated this epoch"
-            )
+
+        save_checkpoint(
+            path=output_dir / "last.pt",
+            model=model,
+            optimizer=optimizer,
+            cfg=cfg,
+            epoch=epoch + 1,
+            val_loss=selection_value,
+            scaler=scaler,
+            scheduler=scheduler,
+            best_val_loss=best_val_loss,
+        )
 
         epochs_without_improvement, should_stop = early_stopping_decision(
             val_loss=selection_value,

@@ -18,6 +18,7 @@ SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+import numpy as np
 import pandas as pd
 
 from smallAntibodyGen.data import affinity as affinity_rules
@@ -71,6 +72,36 @@ def clean_aa_sequence(seq: object) -> str:
     seq = str(seq).upper().replace(" ", "")
     seq = AA_ONLY.sub("", seq)
     return "".join(ch for ch in seq if ch in VALID_AA)
+
+
+def _json_default(value: object) -> object:
+    """
+    Coerce the non-JSON-native types ``pd.read_parquet`` produces.
+
+    The nested ``metadata`` struct is passed through into the record verbatim, and
+    parquet list fields (e.g. ``target_chains``) arrive as ``numpy.ndarray`` while
+    numeric scalars arrive as ``numpy`` scalar types. ``json.dumps`` raises
+    ``TypeError: Object of type ndarray is not JSON serializable`` on those, and
+    the serialization happens in ``JsonlWriter.write`` -- OUTSIDE the per-row
+    guard -- so a single such row aborted the whole run, discarded every shard
+    already processed, and left an orphan ``.tmp``. That is exactly the failure
+    the per-row guard's own comment claims to prevent.
+
+    Anything still unrecognized falls back to ``str`` rather than raising: this is
+    passthrough provenance metadata, so preserving an approximate rendering is
+    strictly better than losing the corpus.
+    """
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, (np.integer,)):
+        return int(value)
+    if isinstance(value, (np.floating,)):
+        return float(value)
+    if isinstance(value, (np.bool_,)):
+        return bool(value)
+    if isinstance(value, (set, frozenset, tuple)):
+        return list(value)
+    return str(value)
 
 
 def clean_text(value: object) -> str:
@@ -650,7 +681,7 @@ class JsonlGzWriter:
         self.committed = False
 
     def write(self, record: Dict[str, object]) -> None:
-        self.handle.write(json.dumps(record) + "\n")
+        self.handle.write(json.dumps(record, default=_json_default) + "\n")
 
     def close(self) -> None:
         self.handle.close()
@@ -904,7 +935,19 @@ def main() -> None:
                     stats["drop_reasons"][reason] += 1
                     continue
 
-                write_record(record, writer, seen, stats)
+                # Inside the guard: serialization is part of "the per-row body",
+                # and it was the step that actually escaped. `_json_default` now
+                # handles the known parquet types, but a genuinely unserializable
+                # row must still cost one row, not the whole run plus every shard
+                # already processed.
+                try:
+                    write_record(record, writer, seen, stats)
+                except Exception as exc:
+                    stats["row_errors"] += 1
+                    print(
+                        f"[warn] could not write row {parquet_path.name}:{row_idx}: {exc}"
+                    )
+                    continue
 
                 if args.max_records is not None and stats["records_kept"] >= args.max_records:
                     if hasattr(progress, "close"):
