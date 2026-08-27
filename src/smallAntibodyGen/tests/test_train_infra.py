@@ -576,3 +576,254 @@ def test_mechanism_search_knob_defaults_are_pinned(tmp_path: Path, project_root:
     assert cfg.compat_readout == "cls"
     assert cfg.new_module_lr_multiplier == 1.0
     assert cfg.best_checkpoint_metric == "val_loss"
+
+
+# --------------------------------------------------------------------------- #
+# J03: run fingerprints and checkpoint lineage, end to end through main().
+#
+# `test_experiment_fingerprints.py` pins the pure hashing contract. These pin
+# the WIRING: that every checkpoint carries a fingerprint, that a resume against
+# an edited config/corpus/architecture is refused BEFORE any state is loaded,
+# and that a legacy checkpoint is a hard error for resume but only a warning for
+# warm start.
+# --------------------------------------------------------------------------- #
+def _fp_dataset(write_processed_jsonl_gz, tmp_path: Path, *, salt: str = "a"):
+    import random as _random
+
+    rng = _random.Random(0)
+    aa = "ACDEFGHIKLMNPQRSTVWY"
+    records = []
+    for i in range(16):
+        seq = salt[0] + "".join(rng.choice(aa) for _ in range(29))
+        records.append({
+            "sequence": seq, "locus": "IGH", "chain_group": "heavy",
+            "split": "train" if i < 12 else "val", "length": 30,
+        })
+    return write_processed_jsonl_gz(tmp_path / "tiny.jsonl.gz", records)
+
+
+def _fp_cfg(mlm_train, data_path, out_dir, **overrides):
+    params = dict(
+        data_path=str(data_path), training_stage="base", output_dir=str(out_dir),
+        epochs=1, batch_size=4, eval_batch_size=4, max_length=64,
+        d_model=32, n_heads=4, n_layers=1, d_ff=64, dropout=0.0,
+        hcdr3_span_probability=0.0, shuffle_pair_probability=0.0,
+        pair_loss_weight=0.0, learning_rate=1e-3, device="cpu",
+        show_progress=False, resume_from_last=False,
+    )
+    params.update(overrides)
+    return mlm_train.TrainConfig(**params)
+
+
+def _drive_main(mlm_train, cfg):
+    """Run main() with `cfg` substituted for CLI parsing."""
+    original = mlm_train.parse_args
+    mlm_train.parse_args = lambda *a, **k: cfg
+    try:
+        mlm_train.main()
+    finally:
+        mlm_train.parse_args = original
+
+
+def test_save_checkpoint_records_the_run_fingerprint_when_given_one(
+    project_root: Path, tmp_path: Path
+):
+    mlm_train = load_mlm_train_module(project_root)
+    from smallAntibodyGen import experiment
+
+    cfg = mlm_train.TrainConfig(data_path="x")
+    model = torch.nn.Linear(4, 4)
+    opt = mlm_train.build_optimizer(model, cfg)
+    fingerprint = {"run_hash": "f" * 64, "components": {}, "manifests": {}}
+
+    ckpt = tmp_path / "last.pt"
+    mlm_train.save_checkpoint(ckpt, model, opt, cfg, epoch=1, val_loss=0.1,
+                              run_fingerprint=fingerprint)
+    payload = torch.load(ckpt, map_location="cpu")
+    assert payload[experiment.RUN_FINGERPRINT_KEY]["run_hash"] == "f" * 64
+
+    # No fingerprint supplied -> the legacy shape, which resume then refuses.
+    legacy = tmp_path / "legacy.pt"
+    mlm_train.save_checkpoint(legacy, model, opt, cfg, epoch=1, val_loss=0.1)
+    assert experiment.RUN_FINGERPRINT_KEY not in torch.load(legacy, map_location="cpu")
+
+
+def test_main_writes_the_fingerprint_into_checkpoints_and_beside_them(
+    project_root: Path, tmp_path: Path, write_processed_jsonl_gz
+):
+    import json
+
+    from smallAntibodyGen import experiment
+
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = _fp_dataset(write_processed_jsonl_gz, tmp_path)
+    out_dir = tmp_path / "run"
+    _drive_main(mlm_train, _fp_cfg(mlm_train, data_path, out_dir))
+
+    sidecar = json.loads((out_dir / "run_fingerprint.json").read_text(encoding="utf-8"))
+    assert set(sidecar["components"]) == {
+        "architecture", "objective", "tokenizer", "data", "contracts", "source"
+    }
+    for name in ("last.pt", "best.pt"):
+        payload = torch.load(out_dir / name, map_location="cpu")
+        stored = payload[experiment.RUN_FINGERPRINT_KEY]
+        assert stored["run_hash"] == sidecar["run_hash"]
+        assert stored["parent_checkpoint_hash"] is None  # from-scratch run
+        assert stored["worktree_dirty"] in (True, False)
+
+
+def test_run_architecture_manifest_covers_the_mlmconfig_only_fields(
+    project_root: Path, tmp_path: Path, write_processed_jsonl_gz
+):
+    """`asdict(TrainConfig)` cannot see these four; the fingerprint must."""
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = _fp_dataset(write_processed_jsonl_gz, tmp_path)
+    cfg = _fp_cfg(mlm_train, data_path, tmp_path / "run")
+    fingerprint = mlm_train.build_run_fingerprint(cfg, mlm_train.build_tokenizer(), None)
+
+    model_config = fingerprint["manifests"]["architecture"]["model_config"]
+    for field in ("activation", "tie_weights", "initializer_range", "scale_residual_init"):
+        assert field in model_config, field
+        assert field not in cfg.__dataclass_fields__, f"{field} unexpectedly on TrainConfig"
+    assert model_config["vocab_size"] == 35
+    assert fingerprint["manifests"]["architecture"]["model_class"] == "AntibodyMLM"
+
+
+@pytest.mark.parametrize("overrides, expected_field", [
+    ({"mask_probability": 0.4}, "mask_probability"),
+    ({"seed": 1234}, "seed"),
+    ({"d_model": 64}, "d_model"),
+    ({"use_amp": True}, "use_amp"),
+    ({"eval_batch_size": 8}, "eval_batch_size"),
+    ({"train_num_workers": 1}, "train_num_workers"),
+])
+def test_resume_is_refused_before_any_state_is_loaded_when_a_field_changed(
+    project_root: Path, tmp_path: Path, write_processed_jsonl_gz, capsys,
+    overrides, expected_field,
+):
+    from smallAntibodyGen import experiment
+
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = _fp_dataset(write_processed_jsonl_gz, tmp_path)
+    out_dir = tmp_path / "run"
+    _drive_main(mlm_train, _fp_cfg(mlm_train, data_path, out_dir))
+    capsys.readouterr()
+
+    edited = _fp_cfg(mlm_train, data_path, out_dir, epochs=2, resume_from_last=True,
+                     **overrides)
+    with pytest.raises(experiment.ResumeFingerprintMismatch) as excinfo:
+        _drive_main(mlm_train, edited)
+
+    message = str(excinfo.value)
+    assert expected_field in message
+    # Field names and both values, not two opaque hashes.
+    assert "checkpoint=" in message and "run=" in message
+    # And nothing was restored: load_checkpoint never ran.
+    assert "[checkpoint] loaded <-" not in capsys.readouterr().out
+
+
+def test_resume_is_refused_when_the_corpus_content_changed(
+    project_root: Path, tmp_path: Path, write_processed_jsonl_gz
+):
+    """Same filename, different bytes -- the dataset hash is what catches it."""
+    from smallAntibodyGen import experiment
+
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = _fp_dataset(write_processed_jsonl_gz, tmp_path, salt="a")
+    out_dir = tmp_path / "run"
+    _drive_main(mlm_train, _fp_cfg(mlm_train, data_path, out_dir))
+
+    _fp_dataset(write_processed_jsonl_gz, tmp_path, salt="c")  # regenerated in place
+    with pytest.raises(experiment.ResumeFingerprintMismatch, match="data"):
+        _drive_main(mlm_train, _fp_cfg(mlm_train, data_path, out_dir, epochs=2,
+                                       resume_from_last=True))
+
+
+def test_resume_against_a_legacy_checkpoint_is_a_hard_error(
+    project_root: Path, tmp_path: Path, write_processed_jsonl_gz, capsys
+):
+    """All six checkpoints on disk predate J03: 5 top-level keys, no fingerprint."""
+    from smallAntibodyGen import experiment
+
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = _fp_dataset(write_processed_jsonl_gz, tmp_path)
+    out_dir = tmp_path / "run"
+    _drive_main(mlm_train, _fp_cfg(mlm_train, data_path, out_dir))
+
+    payload = torch.load(out_dir / "last.pt", map_location="cpu")
+    payload.pop(experiment.RUN_FINGERPRINT_KEY)
+    torch.save(payload, out_dir / "last.pt")
+    capsys.readouterr()
+
+    with pytest.raises(experiment.LegacyCheckpointResumeError) as excinfo:
+        _drive_main(mlm_train, _fp_cfg(mlm_train, data_path, out_dir, epochs=2,
+                                       resume_from_last=True))
+    message = str(excinfo.value)
+    assert experiment.RUN_FINGERPRINT_KEY in message
+    assert "--init-checkpoint" in message  # points at the supported alternative
+    assert "[checkpoint] loaded <-" not in capsys.readouterr().out
+
+
+def test_operational_only_edits_still_permit_a_resume(
+    project_root: Path, tmp_path: Path, write_processed_jsonl_gz, capsys
+):
+    """The approved exclusion list must actually buy something."""
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = _fp_dataset(write_processed_jsonl_gz, tmp_path)
+    out_dir = tmp_path / "run"
+    _drive_main(mlm_train, _fp_cfg(mlm_train, data_path, out_dir, show_progress=False))
+    capsys.readouterr()
+
+    # show_progress, tensorboard and report_masked_fraction_bins are
+    # operational-only, and resume_from_last is the flag the check gates on.
+    _drive_main(mlm_train, _fp_cfg(
+        mlm_train, data_path, out_dir,
+        resume_from_last=True, show_progress=True, report_masked_fraction_bins=True,
+    ))
+    assert "[checkpoint] loaded <-" in capsys.readouterr().out
+
+
+def test_warm_start_from_a_legacy_checkpoint_warns_loudly_but_proceeds(
+    project_root: Path, tmp_path: Path, capsys
+):
+    """Owner decision: a legacy warm start is allowed, still validated, and loud."""
+    from smallAntibodyGen import experiment
+
+    mlm_train = load_mlm_train_module(project_root)
+    cfg = mlm_train.TrainConfig(
+        data_path="x", max_length=64, d_model=32, n_heads=4, n_layers=1, d_ff=64,
+        dropout=0.0,
+    )
+    model = mlm_train.build_model(mlm_train.build_tokenizer(), cfg, torch.device("cpu"))
+    ckpt = tmp_path / "legacy.pt"
+    mlm_train.save_checkpoint(ckpt, model, mlm_train.build_optimizer(model, cfg), cfg,
+                              epoch=1, val_loss=1.0)  # no run_fingerprint -> legacy
+    assert experiment.RUN_FINGERPRINT_KEY not in torch.load(ckpt, map_location="cpu")
+
+    mlm_train.validate_init_checkpoint_compatibility(cfg, ckpt)  # must not raise
+    out = capsys.readouterr().out
+    assert "UNVERIFIABLE" in out
+    assert experiment.RUN_FINGERPRINT_KEY in out
+
+    # The existing architecture validator still runs on the same legacy payload.
+    with pytest.raises(ValueError, match="d_model"):
+        mlm_train.validate_init_checkpoint_compatibility(
+            mlm_train.TrainConfig(data_path="x", max_length=64, d_model=64, n_heads=4,
+                                  n_layers=1, d_ff=64, dropout=0.0),
+            ckpt,
+        )
+
+
+def test_require_clean_worktree_defaults_off_and_is_parseable(
+    tmp_path: Path, project_root: Path
+):
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = tmp_path / "tiny.jsonl.gz"
+    data_path.write_text("", encoding="utf-8")
+
+    assert mlm_train.parse_args(["--data-path", str(data_path)]).require_clean_worktree is False
+    assert mlm_train.parse_args(
+        ["--data-path", str(data_path), "--require-clean-worktree"]
+    ).require_clean_worktree is True
+    with pytest.raises(ValueError, match="require_clean_worktree"):
+        mlm_train.TrainConfig(data_path="x", require_clean_worktree="yes").validate()

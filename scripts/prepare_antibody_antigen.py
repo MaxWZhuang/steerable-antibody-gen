@@ -11,7 +11,7 @@ import statistics
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Dict, Iterator, Optional, Tuple
+from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
@@ -349,6 +349,341 @@ def build_target_key(metadata: Dict[str, object], antigen_sequence: str) -> str:
     return f"antigen_sha1:{antigen_hash}"
 
 
+# --------------------------------------------------------------------------- #
+# Canonical target identity
+#
+# `build_target_key` above picks the FIRST available identifier out of four
+# mutually exclusive branches, with no reconciliation between them. One antigen
+# annotated once with a UniProt accession and once with only a PDB code
+# therefore produced two keys, and `deterministic_split` hashed each one
+# independently -- so the same biological target could land in train under one
+# alias and in val under another. That is exactly the leakage the
+# target-aware split exists to prevent.
+#
+# The replacement treats target identity as a graph. Every identifier a source
+# record carries becomes a namespaced node; identifiers seen together on ONE
+# record are joined; the antigen sequence hash is itself a node, so records
+# sharing a byte-identical antigen are joined through it. Connected components
+# are the biological targets, and each component's id is derived from its
+# SORTED nodes, never from the order records were read in.
+#
+# Deliberately NOT included: any fuzzy or approximate name matching. Merging
+# "spike protein" with "spike protein s1" requires a separately reviewed
+# biological-name policy; only exact normalized equality merges here.
+# --------------------------------------------------------------------------- #
+
+# Lower rank wins when choosing a component's representative node. UniProt is
+# the most stable cross-source identifier, a PDB code the next, a normalized
+# name the least, and a sequence hash is a fallback that names no database
+# entry at all. Ranking (rather than plain lexicographic sorting) is what keeps
+# a merged component labelled by its strongest identifier.
+TARGET_NAMESPACE_RANK = {"uniprot": 0, "pdb": 1, "name": 2, "seq": 3}
+
+
+def target_node_sort_key(node: str) -> Tuple[int, str]:
+    """
+    Order identity nodes by namespace strength, then lexicographically.
+
+    Args:
+        node:
+            Namespaced identity node, e.g. ``"uniprot:p12345"``.
+
+    Returns:
+        Sort key. Unknown namespaces sort after every known one.
+    """
+    namespace = node.split(":", 1)[0]
+    return (TARGET_NAMESPACE_RANK.get(namespace, len(TARGET_NAMESPACE_RANK)), node)
+
+
+def extract_target_nodes(metadata: Dict[str, object], antigen_sequence: str) -> List[str]:
+    """
+    Normalize one source record's target identifiers into namespaced nodes.
+
+    Only identity is read here. Labels, affinities and confidences are never
+    consulted, so supervision cannot influence which rows are grouped together
+    and therefore cannot influence the split.
+
+    Args:
+        metadata:
+            Nested metadata dict (or any mapping carrying the target fields).
+        antigen_sequence:
+            Cleaned antigen sequence. Contributes a ``seq:`` node when present,
+            which is what links two records annotated with different accessions
+            over a byte-identical antigen.
+
+    Returns:
+        Sorted, de-duplicated node list. Empty when the row carries no usable
+        target identity at all.
+    """
+    fields = extract_target_fields(metadata)
+    nodes = set()
+
+    uniprot = canonicalize_accession(fields["target_uniprot"])
+    if uniprot:
+        nodes.add(f"uniprot:{uniprot}")
+    pdb = canonicalize_accession(fields["target_pdb"])
+    if pdb:
+        nodes.add(f"pdb:{pdb}")
+    normalized_name = normalize_target_name(fields["target_name"])
+    if normalized_name:
+        nodes.add(f"name:{normalized_name}")
+    if antigen_sequence:
+        # SHA-256 rather than the legacy truncated SHA-1: this node participates
+        # in merging, so an accidental collision would fuse two real targets.
+        digest = hashlib.sha256(antigen_sequence.encode("utf-8")).hexdigest()[:32]
+        nodes.add(f"seq:{digest}")
+
+    return sorted(nodes, key=target_node_sort_key)
+
+
+def canonical_target_id_from_nodes(nodes: Sequence[str]) -> str:
+    """
+    Pick one component's id from its node set.
+
+    Derived purely from the sorted nodes, so it does not depend on the order
+    records were encountered. Nodes are never shared between components, so the
+    representative is unique to its component.
+
+    Args:
+        nodes:
+            All nodes belonging to one component.
+
+    Returns:
+        The strongest node, or "" when there are none.
+    """
+    if not nodes:
+        return ""
+    return min(nodes, key=target_node_sort_key)
+
+
+class TargetIdentityIndex:
+    """
+    Union-find over target identity nodes, built in a first pass over the input.
+
+    Usage is strictly two-phase: ``observe_row`` for every input row, then
+    ``finalize()``, then ``canonical_id`` / ``stats`` for the write pass. Edges
+    are collected as a set and only resolved in ``finalize``, so the resulting
+    partition -- and every id derived from it -- is independent of the order
+    rows arrived in.
+    """
+
+    def __init__(self) -> None:
+        self._nodes: set = set()
+        # Identifier-to-identifier links: two named identifiers co-occurring on
+        # one source record. These are the alias merges.
+        self._alias_edges: set = set()
+        # Links through an antigen sequence hash. Counted separately because
+        # "we merged these because a curator wrote both names on one row" and
+        # "we merged these because the antigen sequences are byte-identical"
+        # are different evidence and deserve separate reporting.
+        self._sequence_edges: set = set()
+        self._canonical: Dict[str, str] = {}
+        self._rows_without_identity = 0
+        self._rows_without_identifier = 0
+        self._component_count = 0
+        self._alias_merges = 0
+        self._sequence_merges = 0
+        self._finalized = False
+
+    def observe(self, nodes: Sequence[str]) -> None:
+        """
+        Record one source row's identity nodes and the edges between them.
+
+        Args:
+            nodes:
+                Nodes from `extract_target_nodes` for one row.
+        """
+        if self._finalized:
+            raise RuntimeError("TargetIdentityIndex.observe after finalize()")
+        if not nodes:
+            self._rows_without_identity += 1
+            self._rows_without_identifier += 1
+            return
+
+        identifiers = [node for node in nodes if not node.startswith("seq:")]
+        sequence_nodes = [node for node in nodes if node.startswith("seq:")]
+        if not identifiers:
+            self._rows_without_identifier += 1
+
+        self._nodes.update(nodes)
+        # Star edges from the first identifier are enough: union is transitive,
+        # so a star spans the same component as a clique at a fraction of the
+        # edge count.
+        for other in identifiers[1:]:
+            self._alias_edges.add((identifiers[0], other))
+        for sequence_node in sequence_nodes:
+            for identifier in identifiers:
+                self._sequence_edges.add((sequence_node, identifier))
+
+    def observe_row(self, row: Dict[str, object]) -> List[str]:
+        """
+        Convenience wrapper: derive nodes from a raw input row and observe them.
+
+        Args:
+            row:
+                One parquet row converted to a dict.
+
+        Returns:
+            The nodes that were observed.
+        """
+        nodes = extract_target_nodes(
+            normalize_metadata_dict(row.get("metadata")),
+            clean_aa_sequence(row.get("antigen_sequence")),
+        )
+        self.observe(nodes)
+        return nodes
+
+    @staticmethod
+    def _resolve(parent: Dict[str, str], node: str) -> str:
+        root = node
+        while parent[root] != root:
+            root = parent[root]
+        while parent[node] != root:
+            parent[node], node = root, parent[node]
+        return root
+
+    @classmethod
+    def _components(cls, nodes: set, edges: Sequence[Tuple[str, str]]) -> Dict[str, str]:
+        parent = {node: node for node in nodes}
+        for left, right in edges:
+            left_root = cls._resolve(parent, left)
+            right_root = cls._resolve(parent, right)
+            if left_root != right_root:
+                # Deterministic orientation. The partition does not depend on it,
+                # but a stable parent array keeps debugging output reproducible.
+                if target_node_sort_key(left_root) <= target_node_sort_key(right_root):
+                    parent[right_root] = left_root
+                else:
+                    parent[left_root] = right_root
+        return {node: cls._resolve(parent, node) for node in nodes}
+
+    def finalize(self) -> None:
+        """
+        Resolve every component and derive its canonical id.
+
+        Merge counts come from two staged resolutions of the same edge set:
+        alias edges alone, then alias plus sequence edges. Both are counted over
+        NAMED identifier nodes only. A row's own antigen-sequence node always
+        attaches to that row's identifiers, and counting those would report a
+        "merge" for every identified row while telling nobody anything; what the
+        sequence count is for is the case where two DIFFERENT named targets turn
+        out to carry a byte-identical antigen. Because the number of merges in a
+        stage is exactly ``nodes - components`` over the same node set, both
+        counts are order-independent like everything else here.
+        """
+        alias_edges = sorted(self._alias_edges)
+        sequence_edges = sorted(self._sequence_edges)
+        identifier_nodes = [node for node in self._nodes if not node.startswith("seq:")]
+
+        alias_roots = self._components(self._nodes, alias_edges)
+        identified_after_alias = len({alias_roots[node] for node in identifier_nodes})
+        self._alias_merges = len(identifier_nodes) - identified_after_alias
+
+        full_roots = self._components(self._nodes, alias_edges + sequence_edges)
+        members: Dict[str, list] = {}
+        for node, root in full_roots.items():
+            members.setdefault(root, []).append(node)
+        self._component_count = len(members)
+        identified_after_sequence = len({full_roots[node] for node in identifier_nodes})
+        self._sequence_merges = identified_after_alias - identified_after_sequence
+
+        for component_members in members.values():
+            canonical = canonical_target_id_from_nodes(component_members)
+            for node in component_members:
+                self._canonical[node] = canonical
+
+        self._finalized = True
+
+    def canonical_id(self, nodes: Sequence[str]) -> str:
+        """
+        Look up the canonical target id for one row's nodes.
+
+        Args:
+            nodes:
+                Nodes from `extract_target_nodes` for one row.
+
+        Returns:
+            The component id, or "" when the row has no usable identity. Nodes
+            never observed during the first pass fall back to a singleton id so
+            a caller that skipped the index still gets a stable answer.
+        """
+        if not self._finalized:
+            raise RuntimeError("TargetIdentityIndex.canonical_id before finalize()")
+        if not nodes:
+            return ""
+        for node in nodes:
+            canonical = self._canonical.get(node)
+            if canonical:
+                return canonical
+        return canonical_target_id_from_nodes(nodes)
+
+    def stats(self) -> Dict[str, int]:
+        """
+        Report what the identity pass did, for the run summary.
+        """
+        if not self._finalized:
+            raise RuntimeError("TargetIdentityIndex.stats before finalize()")
+        return {
+            "target_identity_node_count": len(self._nodes),
+            "target_components": self._component_count,
+            "target_alias_merges": self._alias_merges,
+            "target_sequence_merges": self._sequence_merges,
+            "target_rows_without_identifier": self._rows_without_identifier,
+            "target_rows_without_identity": self._rows_without_identity,
+        }
+
+
+def build_target_identity_index(
+    parquet_files: Sequence[Path],
+    stats: dict,
+) -> TargetIdentityIndex:
+    """
+    First pass: read every shard for target identity only.
+
+    This is what makes the script two-pass. The write pass needs each row's
+    component, and a component is only known once every row has been seen, so
+    identity cannot be resolved while streaming. Rather than holding every
+    processed record in memory, this pass keeps only the identity graph (a set
+    of short strings, bounded by the number of distinct identifiers) and the
+    input is read a second time to write.
+
+    Two consequences worth stating plainly:
+
+    - Rows later dropped by `keep_record` or by dedupe still contribute their
+      identifiers here. That is deliberate: a curator writing "P12345" and
+      "1ABC" on a row is evidence about the target regardless of whether that
+      particular antibody survives filtering, and dropping the evidence would
+      make identity depend on filter thresholds.
+    - `--max-records` truncates the write pass, not this one, so ids stay a
+      property of the input rather than of the cap.
+
+    Args:
+        parquet_files:
+            Shards to scan, in the same order the write pass will use.
+        stats:
+            Mutable stats dict; only error counters are touched.
+
+    Returns:
+        A finalized `TargetIdentityIndex`.
+    """
+    index = TargetIdentityIndex()
+    for parquet_path in tqdm(list(parquet_files), desc="identity_pass"):
+        try:
+            df = pd.read_parquet(parquet_path)
+        except Exception:
+            # The write pass reports and counts this shard; staying silent here
+            # avoids emitting the same warning twice per unreadable shard.
+            continue
+        for _, row in df.iterrows():
+            try:
+                index.observe_row(row.to_dict())
+            except Exception:
+                stats["identity_row_errors"] += 1
+                continue
+    index.finalize()
+    return index
+
+
 def build_chain_features(
     row: Dict[str, object],
     chain_name: str,
@@ -551,6 +886,7 @@ def build_processed_record(
     shard_name: str,
     row_idx: int,
     args: argparse.Namespace,
+    identity_index: Optional[TargetIdentityIndex] = None,
 ) -> tuple[Optional[Dict[str, object]], str]:
     """
     Normalize one parquet row into the processed schema used by later stages.
@@ -564,6 +900,10 @@ def build_processed_record(
             Zero-based row index inside this shard.
         args:
             Parsed CLI args.
+        identity_index:
+            Finalized index from the first pass. When omitted, the row is
+            treated as its own component -- correct for a single row, but it
+            cannot see aliases that only appear on other rows.
 
     Returns:
         Tuple `(record, reason)`. `record` is None when filtering drops the row.
@@ -596,8 +936,20 @@ def build_processed_record(
         return None, reason
 
     target_fields = extract_target_fields(metadata)
+    # Legacy/audit only. Kept so a corpus can be compared against one written
+    # before canonical identity existed; it is no longer what the split follows.
     target_key = build_target_key(metadata, antigen_sequence)
-    split = deterministic_split(target_key, val_percent=args.val_percent)
+    identity_nodes = extract_target_nodes(metadata, antigen_sequence)
+    if identity_index is not None:
+        canonical_target_id = identity_index.canonical_id(identity_nodes)
+    else:
+        canonical_target_id = canonical_target_id_from_nodes(identity_nodes)
+    # A row with no identifier and no antigen sequence has no identity to group
+    # on; fall back to the legacy key so it still gets a stable, if ungrouped,
+    # split rather than an empty hash input.
+    if not canonical_target_id:
+        canonical_target_id = target_key
+    split = deterministic_split(canonical_target_id, val_percent=args.val_percent)
 
     heavy_variable_aa = str(heavy["heavy_variable_aa"])
     light_variable_aa = str(light["light_variable_aa"])
@@ -611,6 +963,8 @@ def build_processed_record(
         "target_pdb": target_fields["target_pdb"],
         "target_uniprot": target_fields["target_uniprot"],
         "target_key": target_key,
+        "canonical_target_id": canonical_target_id,
+        "target_identity_nodes": identity_nodes,
         "split": split,
         "sequence": heavy_variable_aa,
         "locus": "PAIRED_ANTIGEN",
@@ -861,13 +1215,18 @@ def main() -> None:
 
     Workflow:
     1. discover parquet shards
-    2. read one shard at a time
-    3. convert rows into one normalized processed schema
-    4. apply conservative filtering
-    5. assign deterministic leakage-aware splits
-    6. deduplicate
-    7. write gzip JSONL
-    8. report stats
+    2. identity pass: resolve target aliases into connected components
+    3. write pass: read one shard at a time
+    4. convert rows into one normalized processed schema
+    5. apply conservative filtering
+    6. assign deterministic leakage-aware splits from the canonical target id
+    7. deduplicate
+    8. write gzip JSONL
+    9. report stats
+
+    Step 2 is why this is two-pass. A row's component is only known once every
+    row has been read, so identity cannot be resolved while streaming to the
+    writer. The first pass keeps only the identity graph, not the records.
     """
     args = parse_args()
     if not (0 <= args.val_percent <= 100):
@@ -895,6 +1254,7 @@ def main() -> None:
         "label_conflicts": 0,
         "file_errors": 0,
         "row_errors": 0,
+        "identity_row_errors": 0,
         "kd_values_by_dataset": {},
         "kd_strong_by_dataset": Counter(),
         "drop_reasons": Counter(),
@@ -904,6 +1264,9 @@ def main() -> None:
         "kept_by_affinity_type": Counter(),
         "kept_by_dataset_affinity_type": Counter(),
     }
+
+    identity_index = build_target_identity_index(parquet_files, stats)
+    identity_stats = identity_index.stats()
 
     try:
         progress = tqdm(parquet_files, desc="parquet_shards")
@@ -927,6 +1290,7 @@ def main() -> None:
                         shard_name=parquet_path.name,
                         row_idx=int(row_idx),
                         args=args,
+                        identity_index=identity_index,
                     )
                 except Exception as exc:
                     stats["row_errors"] += 1
@@ -976,6 +1340,17 @@ def main() -> None:
     print(f"label_conflicts:     {stats['label_conflicts']}")
     print(f"file_errors:         {stats['file_errors']}")
     print(f"row_errors:          {stats['row_errors']}")
+    print(f"identity_row_errors: {stats['identity_row_errors']}")
+    # Target identity (first pass). Printed rather than written to a sidecar
+    # because this script has never emitted a stats manifest -- every statistic
+    # above goes to stdout too. A manifest here would be the only structured
+    # output of the run and would belong in its own change.
+    print(f"target_identity_node_count: {identity_stats['target_identity_node_count']}")
+    print(f"target_components:   {identity_stats['target_components']}")
+    print(f"target_alias_merges: {identity_stats['target_alias_merges']}")
+    print(f"target_sequence_merges: {identity_stats['target_sequence_merges']}")
+    print(f"target_rows_without_identifier: {identity_stats['target_rows_without_identifier']}")
+    print(f"target_rows_without_identity: {identity_stats['target_rows_without_identity']}")
     print(f"kept_by_split:       {dict(stats['kept_by_split'])}")
     print(f"kept_by_confidence:  {dict(stats['kept_by_confidence'])}")
     print(f"kept_by_affinity_type: {dict(stats['kept_by_affinity_type'])}")

@@ -1,0 +1,91 @@
+{
+  "candidate_source_url": "https://huggingface.co/datasets/aalphabio/open-alphaseq",
+  "candidate_source_url_verified": false,
+  "dataset_name": "open_alphaseq",
+  "files": [],
+  "license": "TODO(owner)",
+  "notes": "J05a records format only. The direction claim above comes from the plan and is unverified here; the schema normalizes direction once via normalize_measurement, but the manifest value still awaits the owner.",
+  "owner_decisions": [
+    {
+      "key": "assay_direction_and_units",
+      "question": "What quantity, unit, and direction (higher_is_stronger / lower_is_stronger) does the released measurement column carry?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "campaign_filters",
+      "question": "Which campaigns and iterations are in scope (VHH72 Iter0/Iter1, trastuzumab CDR3, others)?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "candidate_pool_definition",
+      "question": "What defines a measured candidate pool, and what reporting must precede a split?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "confidence_and_replicate_thresholds",
+      "question": "What confidence-bound and sufficient_replicate_observations thresholds admit a measurement?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "dataset_revision",
+      "question": "Which Hugging Face dataset revision is pinned?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "file_hashes",
+      "question": "Supply the raw downloads so per-file byte sizes and SHA-256 hashes can be computed and recorded.",
+      "status": "unsupplied"
+    },
+    {
+      "key": "license",
+      "question": "What is the license of the retrieved artifacts, and does it permit redistribution of derived splits?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "release_version",
+      "question": "Which exact release/revision of this source is authoritative for the benchmark?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "retrieval_date",
+      "question": "On what date were the authoritative files retrieved?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "source_url",
+      "question": "Which download URL is authoritative? The candidate_source_url below is unverified.",
+      "status": "unsupplied"
+    },
+    {
+      "key": "split_seed",
+      "question": "Which approved seed produces the candidate-pool splits?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "unequal_length_eligibility_review",
+      "question": "Who reviews parent/target/context equivalence before an unequal-length pair is eligible?",
+      "status": "unsupplied"
+    }
+  ],
+  "plan_assertions": [
+    {
+      "claim": "Lower alphaseq_affinity values mean stronger binding.",
+      "source": "docs/PLAN-steering-prerequisites.md (J05)",
+      "verified": false
+    },
+    {
+      "claim": "The release carries alphaseq_affinity, confidence bounds, above_background, sufficient_replicate_observations, campaign ID, iteration, parent, and exact binder/target sequences.",
+      "source": "docs/PLAN-steering-prerequisites.md (J05)",
+      "verified": false
+    },
+    {
+      "claim": "An unequal-length preference pair is eligible only with the same reviewed parent, target, assay campaign, and fixed context outside an alignable editable window, plus an ordering established by confidence/censoring.",
+      "source": "docs/PLAN-steering-prerequisites.md (J05)",
+      "verified": false
+    }
+  ],
+  "release_version": "TODO(owner)",
+  "retrieval_date": "TODO(owner)",
+  "schema_version": "1",
+  "source_url": "TODO(owner)"
+}

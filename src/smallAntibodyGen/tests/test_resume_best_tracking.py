@@ -54,13 +54,25 @@ def _cfg(mlm_train, data_path, out_dir, *, epochs, resume):
     )
 
 
-def _run(mlm_train, cfg, val_losses):
+class _SimulatedInterrupt(Exception):
+    """Stands in for the crash/Ctrl-C that makes a resume necessary."""
+
+
+def _run(mlm_train, cfg, val_losses, *, interrupt_after=None):
     """Drive main() with a scripted validation-loss sequence.
 
     Only the calls on the REAL validation split are scripted. main() also
     evaluates the two diagnostic probes each epoch (`train_probe`,
     `row_random_probe`), so counting raw calls would misalign the sequence -- the
     split name is the reliable discriminator.
+
+    `interrupt_after=k` aborts the run once epoch k's checkpoints are on disk,
+    which is what an interrupted run actually looks like. The phases before and
+    after must therefore share ONE config -- including `epochs`. That is not
+    cosmetic: since J03, a resume requires an exact run-fingerprint match, and
+    `epochs` is result-affecting (it sets the cosine horizon through
+    `total_training_steps`). Bumping `epochs` between the two phases, as this
+    helper used to, is a config edit and the resume gate now rejects it.
     """
     calls = {"n": 0}
     real_evaluate = mlm_train.evaluate
@@ -74,6 +86,10 @@ def _run(mlm_train, cfg, val_losses):
         if calls["n"] == 0:
             metrics["loss"] = 99.0
         else:
+            if interrupt_after is not None and calls["n"] > interrupt_after:
+                # Epoch `interrupt_after` has already been scored and saved;
+                # die before this one is.
+                raise _SimulatedInterrupt
             idx = calls["n"] - 1
             metrics["loss"] = val_losses[idx] if idx < len(val_losses) else 99.0
         calls["n"] += 1
@@ -84,6 +100,8 @@ def _run(mlm_train, cfg, val_losses):
     mlm_train.evaluate = fake_evaluate
     try:
         mlm_train.main()
+    except _SimulatedInterrupt:
+        assert interrupt_after is not None, "unexpected simulated interrupt"
     finally:
         mlm_train.parse_args = original_parse
         mlm_train.evaluate = real_evaluate
@@ -96,10 +114,11 @@ def test_resume_does_not_clobber_best_with_a_worse_model(
     data_path = _tiny_dataset(write_processed_jsonl_gz, tmp_path)
     out_dir = tmp_path / "run"
 
-    # Epochs 1..4 score 1.0, 0.5, 0.9, 0.95 -> best.pt holds epoch 2 at 0.5,
-    # last.pt holds epoch 4 whose own val_loss is 0.95.
-    _run(mlm_train, _cfg(mlm_train, data_path, out_dir, epochs=4, resume=False),
-         [1.0, 0.5, 0.9, 0.95])
+    # A 5-epoch run interrupted after epoch 4. Epochs 1..4 score
+    # 1.0, 0.5, 0.9, 0.95 -> best.pt holds epoch 2 at 0.5, last.pt holds
+    # epoch 4 whose own val_loss is 0.95.
+    _run(mlm_train, _cfg(mlm_train, data_path, out_dir, epochs=5, resume=False),
+         [1.0, 0.5, 0.9, 0.95], interrupt_after=4)
     capsys.readouterr()
 
     best = torch.load(out_dir / "best.pt", map_location="cpu")
@@ -114,6 +133,7 @@ def test_resume_does_not_clobber_best_with_a_worse_model(
     _run(mlm_train, _cfg(mlm_train, data_path, out_dir, epochs=5, resume=True),
          [0.8])
     capsys.readouterr()
+
 
     best_after = torch.load(out_dir / "best.pt", map_location="cpu")
     assert best_after["epoch"] == 2, (
@@ -131,8 +151,8 @@ def test_resume_still_updates_best_on_a_genuine_improvement(
     data_path = _tiny_dataset(write_processed_jsonl_gz, tmp_path)
     out_dir = tmp_path / "run"
 
-    _run(mlm_train, _cfg(mlm_train, data_path, out_dir, epochs=2, resume=False),
-         [1.0, 0.5])
+    _run(mlm_train, _cfg(mlm_train, data_path, out_dir, epochs=3, resume=False),
+         [1.0, 0.5], interrupt_after=2)
     capsys.readouterr()
     _run(mlm_train, _cfg(mlm_train, data_path, out_dir, epochs=3, resume=True),
          [0.2])
@@ -150,11 +170,14 @@ def test_legacy_checkpoint_without_best_val_loss_warns(
     data_path = _tiny_dataset(write_processed_jsonl_gz, tmp_path)
     out_dir = tmp_path / "run"
 
-    _run(mlm_train, _cfg(mlm_train, data_path, out_dir, epochs=2, resume=False),
-         [1.0, 0.5])
+    _run(mlm_train, _cfg(mlm_train, data_path, out_dir, epochs=3, resume=False),
+         [1.0, 0.5], interrupt_after=2)
     capsys.readouterr()
 
     # Strip the new field to simulate a checkpoint written by the old code.
+    # The J03 run fingerprint is left in place on purpose: this test is about
+    # the missing `best_val_loss`, and dropping the fingerprint too would make
+    # the resume fail earlier for an unrelated reason.
     payload = torch.load(out_dir / "last.pt", map_location="cpu")
     payload.pop("best_val_loss")
     torch.save(payload, out_dir / "last.pt")

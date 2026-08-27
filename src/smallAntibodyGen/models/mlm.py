@@ -689,7 +689,14 @@ class AntibodyMLM(nn.Module):
         # every weight through backward(). Return a differentiable zero instead,
         # mirroring the zero-target guard in compute_pair_loss.
         if (labels != ignore_index).sum() == 0:
-            return logits.sum() * 0.0
+            # `.float()` before the sum is load-bearing under AMP. Inside an
+            # autocast block `logits` is fp16, and fp16 saturates at 65504: a
+            # Stage-3 batch is 16 x 192 x 35 = 107,520 logits, so a mean logit
+            # magnitude above ~0.61 overflows the sum to `inf`, and inf * 0.0 is
+            # NaN -- the exact poisoning this guard exists to prevent. Cross
+            # entropy itself is safe because autocast promotes it to fp32; this
+            # branch bypasses it and must promote explicitly. No-op in fp32.
+            return logits.float().sum() * 0.0
 
         loss = F.cross_entropy(
             logits.reshape(-1, logits.size(-1)),
@@ -1161,7 +1168,14 @@ class AntibodyAntigenCrossAttention(nn.Module):
 
         # Guard the all-ignored batch (0/0 = NaN); see AntibodyMLM.compute_loss.
         if (labels != ignore_index).sum() == 0:
-            return logits.sum() * 0.0
+            # `.float()` before the sum is load-bearing under AMP. Inside an
+            # autocast block `logits` is fp16, and fp16 saturates at 65504: a
+            # Stage-3 batch is 16 x 192 x 35 = 107,520 logits, so a mean logit
+            # magnitude above ~0.61 overflows the sum to `inf`, and inf * 0.0 is
+            # NaN -- the exact poisoning this guard exists to prevent. Cross
+            # entropy itself is safe because autocast promotes it to fp32; this
+            # branch bypasses it and must promote explicitly. No-op in fp32.
+            return logits.float().sum() * 0.0
 
         return F.cross_entropy(
             logits.reshape(-1, logits.size(-1)),
