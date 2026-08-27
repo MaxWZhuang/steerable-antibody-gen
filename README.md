@@ -1,8 +1,12 @@
-## Introducing Steerability to Antibody Generation via SAE-Derived Concept Labeling
+## Steerable Antibody Generation: Antigen Conditioning, Guidance, and Preference Post-Training
 
 This project explores how to make antibody generation more interpretable and more controllable, with an eventual focus on antigen-conditioned antibody design and targeted HCDR3 editing.
 
-The core idea is to first learn strong antibody sequence representations, then fuse those representations with antigen context, and finally use sparse feature methods such as SAEs to expose more interpretable internal concepts that could support steering.
+**The control claim:** inference-time guidance can only re-rank what the base model already puts mass on, and `scripts/probe_steering_reachability.py` measures that ceiling directly. Preference post-training may move that ceiling by changing the policy itself, but it is promoted only after the base policy is demonstrably antigen-conditioned and the objective has passed independent gates.
+
+Sparse feature methods such as SAEs remain a later interpretability direction. They may eventually help name or diagnose what moved, but they are not a prerequisite for guidance or preference optimization and are deferred until the antigen-conditioned policy is validated.
+
+The core modeling sequence is: learn strong antibody representations, fuse them with antigen context, verify that the antigen changes the policy in experimentally meaningful ways, and only then optimize or interpret that policy.
 
 Rather than jumping directly to a large autoregressive generator, the project starts with masked language modeling (MLM) on antibody sequences from OAS (Observed Antibody Space). That first stage is meant to teach antibody sequence grammar, chain-specific structure, and local residue constraints well enough to support later antigen-aware refinement.
 
@@ -15,8 +19,45 @@ The long-term goal is not just to generate antibody sequences, but to build a sy
 - learn antibody sequence biology and chain-specific grammar,
 - incorporate antigen and assay context,
 - predict useful downstream properties,
-- expose biologically meaningful latent concepts, and
+- expose biologically meaningful latent concepts,
+- steer generation toward independently validated properties or concepts, both at sampling time and by post-training on preference data, and
 - support controlled optimization of promising binders.
+
+---
+
+## Where Steering Lives
+
+Three different places in the stack can carry a steering intervention, and they
+fail in different ways. Keeping them distinct is the main architectural
+commitment of the project; conflating them is how a project ends up unable to
+say whether a result came from the model, the judge, or the sampler.
+
+| Surface | Where the intervention lives | Touches weights? | Status |
+|---|---|---|---|
+| **1. Inference-time guidance** | the per-position sampling distribution, one candidate at a time | no | **implemented** — `guided_infill`, see [Guided generation](#guided-generation-proteinguide-style-opt-in) |
+| **2. Preference post-training** | the generator's own parameters | yes | **planned** — Phase 5b |
+| **3. Concept discovery and activation steering** | the residual stream, through SAE features | no for discovery; optional at decode | **deferred** until the antigen-conditioned policy is validated |
+
+How they relate:
+
+- **Surface 1 is bounded by the base model.** Guidance reweights
+  `log p_MLM(a | x)` by `gamma * log p(binder | ...)`. If the base model assigns
+  a residue negligible mass, no finite `gamma` recovers it, and the binder term's
+  *spread* over candidate residues is a hard ceiling on what any `gamma` can do.
+  `scripts/probe_steering_reachability.py` exists specifically to measure that
+  ceiling before spending compute on a `gamma` sweep.
+- **Surface 2 moves the ceiling.** Preference post-training changes the base
+  distribution itself, so it can put mass where guidance had nothing to amplify.
+  The cost is that it is a permanent, global edit: it can degrade antibody
+  plausibility everywhere, whereas a bad `gamma` only ruins one sampling run.
+- **Surface 3 may later supply a vocabulary.** A validated SAE could help turn
+  "the score went up" into "these concepts moved" or offer an alternative target
+  to the compatibility head. Until its features have independent biological
+  validation, it is a diagnostic research direction rather than preference truth.
+
+A later composition may form a loop: discovery names a validated concept,
+post-training changes the weights, guidance tunes behavior per run, and discovery
+is rerun as a diagnostic. The current build does not depend on that loop.
 
 ---
 
@@ -116,9 +157,9 @@ The goal here is not only predictive performance, but also to encourage the shar
 
 ---
 
-### Phase 5 - SAE-Based Concept Discovery
+### Phase 5a - SAE-Based Concept Discovery
 
-Train an SAE on activations from the fused antibody-antigen model to identify sparse, reusable latent features.
+**Status: deferred.** Train an SAE only after the base policy has passed the antigen-conditioning gates. The purpose is to test whether sparse, reusable latent features provide useful diagnostics or independently validated control targets; preference post-training does not wait for this phase.
 
 #### Intended workflow
 
@@ -128,7 +169,82 @@ Train an SAE on activations from the fused antibody-antigen model to identify sp
 - annotate those features biologically where possible,
 - and use them to analyze and eventually steer model behavior.
 
+#### What discovery is for, concretely
+
+A named feature is useful in three distinct ways, and it is worth being explicit about which one a given experiment is claiming:
+
+1. **As a diagnostic.** Run the SAE before and after preference post-training and report which features moved. This can detect representational change, but it does not by itself establish that the change improved binding.
+2. **As a steering target.** A feature may become an alternative to the compatibility head only after an independent biological evaluation shows that it represents the intended property.
+3. **As a pair-proposal tool.** Feature-contrasting candidates may be useful examples for an assay or independent judge. An SAE score alone cannot create preference truth or evaluate training performed from its pairs.
+
 This stage is where representation learning and interpretability meet most directly in the project.
+
+---
+
+### Phase 5b - Preference Post-Training (DPO and Relatives)
+
+**Status: planned, not implemented.** No code in `src/` or `scripts/` trains on preferences today. This section exists because it constrains what the earlier phases must produce, not because it is close to running.
+
+This README explains the rationale, evidence hierarchy, and failure modes. It intentionally does not specify the stochastic estimator. Once scientifically approved, the sole implementation contract will be the tracked `specs/diffusion_dpo.md`; that file does not exist yet, so preference training is currently blocked by design.
+
+This phase asks whether the generator can be made to prefer independently validated outcomes by changing its weights rather than only reweighting samples at decode time. It is the second steering surface from [Where Steering Lives](#where-steering-lives) and does not depend on the deferred SAE work.
+
+#### Terms used below
+
+- **DPO** (Direct Preference Optimization) — training on pairs where one output is marked better than the other, without fitting a separate reward model.
+- **Preferred / dispreferred** — the two members of such a pair.
+- **Policy** — the model being trained. **Reference** — a frozen copy of it from before training started, which the loss compares against so the policy cannot drift arbitrarily.
+- **P0 contract** — the future reviewed `specs/diffusion_dpo.md` specification that fixes the objective, corruption coupling, Monte Carlo budget, reductions, reference behavior, and exact toy tests before implementation.
+
+#### Why consider this phase
+
+Guided generation cannot exceed what the base model already considers possible. Each sampled residue is scored as `unguided + gamma * binder`, where `gamma` is the guidance strength and `binder` is the compatibility signal. Both terms depend only on the current state, so the *spread* of the binder term across candidate residues is a hard ceiling on what any `gamma` can achieve — and `scripts/probe_steering_reachability.py` measures that ceiling directly. Once the probe reports a decision as unreachable, no sweep recovers it. Changing the base distribution is the remaining class of intervention; simpler supervised continuation and rejection methods must be compared before DPO.
+
+#### Where preference pairs come from
+
+Three candidate sources, listed from most trustworthy and scarcest to least trustworthy and most plentiful:
+
+- **Direct, co-measured experimental orderings.** Use pairs from the same antigen, assay context, and editable framework only when uncertainty or censoring leaves a clear order. `affinity_strength_quantile` can organize eligible measurements within an assay family, but it does not make heterogeneous assays comparable.
+- **Measured binary labels.** Binder versus non-binder rows can form a coarse ordering only when target and sequence context are matched and both labels are experimental.
+- **Model- or feature-ranked generations.** `decision_score`, guide scores, and SAE features can propose candidates for an assay or independent judge. They cannot supply canonical preference truth and then evaluate the policy trained from it.
+
+#### Objective authority
+
+DPO ordinarily consumes policy and reference sequence log-probabilities. A masked denoiser does not expose the same tractable left-to-right likelihood, so preference training requires a reviewed masked-diffusion surrogate. `E-hat` from `smallAntibodyGen.infill.evidence` remains an evaluation-time order-mixture lower bound; it is not the training objective, and `content_seed` is not a training coupling mechanism.
+
+The distinction remains load-bearing: a difference of lower bounds is not a bound on a likelihood difference, and passing Monte Carlo estimates through the nonlinear preference loss introduces bias. The P0 contract must therefore define and test the absorbing process, timestep weighting, preferred/dispreferred sampling relationship, policy/reference reuse, draw count, length reduction, and zero-mask behavior. This README deliberately chooses none of them.
+
+Before trainer code exists, an exactly enumerable toy must separate the variational-surrogate gap from finite-sample nonlinear bias. The implementation must reproduce that specification and its symmetry, frozen-reference, and variance tests.
+
+#### Prerequisites outside this phase
+
+Preference post-training begins only after all of the following are true:
+
+1. Data manifests, split firewalls, checkpoint lineage, numerical compute budgets, and blind evaluators are reproducible.
+2. The additive antibody/paired/antigen chain passes frozen retention budgets, including conditional denoising only on eligible binder rows.
+3. The antigen changes policy outputs in the correct direction on measured held-out antigen variants, beyond identity and source-study baselines.
+4. A named masked-diffusion loss and matching reverse sampler have beaten or justified replacing the partial-state MLM control without erasing antigen dependence.
+5. Preference pairs have auditable experimental or independent-judge provenance; the guide that proposes a pair is not its final judge.
+6. `specs/masked_diffusion.md` and `specs/diffusion_dpo.md` are approved, tracked, fingerprinted, and covered by enumerable toy tests.
+
+#### Remaining engineering costs
+
+- **A frozen reference model doubles resident parameters**, on top of an antigen encoder that may already be ESM-2.
+- **Scores cover the HCDR3 span only.** The preference gradient shapes what goes inside the edited region and says nothing about the rest of the antibody. That is mostly the intended scope, but it means degradation elsewhere needs its own metric — the preference loss will not report it.
+
+#### Cheaper methods to try before DPO
+
+Preference optimization is a family, and DPO is its most expensive member. In increasing order of cost:
+
+1. **Rejection-sampling fine-tuning** (also called best-of-`n`, or RAFT). Generate candidates, keep the top-scoring ones, and continue ordinary MLM training on them. No reference model, no likelihood ratio, no new loss — it reuses the existing objective in `scripts/mlm_train.py`. This is the natural first experiment, because it establishes whether the scorer is even good enough to be worth optimizing against.
+2. **Reward-weighted MLM loss.** Weight the existing masked-token loss by `affinity_strength_quantile`. Uses real measurements only, and still needs no reference model.
+3. **Pairwise preference optimization**, using only the approved P0 estimator and frozen reference.
+
+#### The failure mode to design against
+
+If the compatibility head labels the pairs, and the same head also steers generation, then post-training optimizes one model's errors and guidance amplifies them. Prefer direct measurements over model-ranked pairs and keep an evaluation judge that never saw the pairs. `--guidance-checkpoint` separates the policy from an external guide, which is necessary but insufficient: it does not make that guide an independent final judge.
+
+The reachability probe remains a useful diagnostic: a score that moves while candidate-local reachability does not is evidence that the policy may have learned the judge. It is not the graduation criterion. Promotion requires improvement on evaluator-hidden experimental preferences or measurements over the base policy and cheaper baselines, while antigen dependence, sequence quality, and every frozen retention budget continue to pass.
 
 ---
 
@@ -462,6 +578,11 @@ lengths by `mean_log_probability`, not the raw sum.
 
 ### Guided generation (ProteinGuide-style, opt-in)
 
+This is **steering surface 1** of the three in
+[Where Steering Lives](#where-steering-lives): it changes what gets sampled and
+never changes a weight. Its limits are what motivate surface 2, preference
+post-training ([Phase 5b](#phase-5b---preference-post-training-dpo-and-relatives)).
+
 `guided_infill` turns the binder signal from a *post-hoc ranker* into an
 *in-sampling guide*. It follows ProteinGuide (Xiong et al., 2025,
 [arXiv:2505.04823](https://arxiv.org/abs/2505.04823)), whose key observation is
@@ -660,12 +781,34 @@ Antibody representation   Antigen encoder
         |                      |
         v                      v
   Supervised property heads    SAE on activations
+   (compat / strength /          |  (deferred until conditioning passes)
+    length)                      v
+        |              Independently validated features
         |                      |
         +----------+-----------+
                    |
                    v
       HCDR3 infilling and constrained lead optimization
+                   |
+                   |  <-- surface 1: guidance reweights sampling (no weight change)
+                   v
+      Candidates scored by compatibility + evidence (E-hat)
+                   |
+                   v
+      Preference pairs  (experimental | independently judged)
+                   |
+                   |  <-- surface 2: approved masked-diffusion post-training
+                   v
+          Updated generator weights
+                   |
+                   +----> back to HCDR3 infilling (control loop)
+                   |
+                   +----> optional later SAE diagnostic (did representations move?)
 ```
+
+The two `<--` annotations are the point of the diagram: surface 1 is a read-only
+detour around the generator, while surface 2 is a gated cycle back through its
+weights. The SAE branch is not on the critical path.
 
 ---
 
@@ -701,6 +844,29 @@ SAEs offer a path toward sparse, more interpretable internal features. The hope 
 - linked to meaningful biology,
 - and used to steer sequence optimization more deliberately.
 
+They are a deferred *discovery* method, not preference supervision or a graduation metric. An SAE by itself changes no behavior, and a sparse feature is not biologically meaningful until an independent evaluation establishes that relationship.
+
+### Why preference post-training as well, rather than guidance alone?
+
+Because guidance and post-training are limited by different things, and only one of those limits is fixable by turning a knob.
+
+Guidance is cheap, reversible, and tunable per run — `gamma` is a command-line flag and a bad value costs one sampling run. But it can only redistribute mass the base model already assigned, and `scripts/probe_steering_reachability.py` will tell you when there is nothing to redistribute. At that point the sweep is finished before it starts.
+
+Preference post-training attacks the other end: it changes what the base model puts mass on. It is expensive, it needs pairs, it is a global edit that can degrade antibody plausibility far from the region of interest, and it is the surface most vulnerable to optimizing a flawed judge. In exchange it is the only mechanism in the design that can raise the ceiling instead of pressing against it.
+
+The two also compose in the obvious direction: post-train to make a behavior reachable, then guide to dial it per target.
+
+### Why DPO is not a drop-in here
+
+DPO ordinarily needs each sequence's log-probability. A masked language model does not supply a tractable normalized joint by construction. Under this repository's implied any-order mixture, different reveal orders give different factorizations; `E-hat` from `smallAntibodyGen.infill.evidence` is a lower bound on that mixture likelihood, not the likelihood itself, as its module docstring is careful to state.
+
+That leaves two jobs for two different quantities, and conflating them is the mistake to avoid:
+
+- **Evaluation uses `E-hat`.** It was built to make candidate rankings independent of which sampler produced them, and that is what it should keep doing.
+- **Training must not.** Computing `E-hat` costs one forward pass per hidden position per order and does not define the approved masked-diffusion preference estimator.
+
+The future tracked `specs/diffusion_dpo.md` is the sole authority for corruption coupling, draw count, weighting, and reduction. Until that P0 contract and its enumerable toy tests exist, there is no canonical DPO implementation. See [Phase 5b](#phase-5b---preference-post-training-dpo-and-relatives) for the rationale and prerequisites.
+
 ---
 
 ## Long-Term Vision
@@ -708,8 +874,9 @@ SAEs offer a path toward sparse, more interpretable internal features. The hope 
 The broader aim is to develop a system that can move beyond black-box scoring and toward interpretable antibody design:
 
 - understand what the model has learned,
-- map internal features to biological concepts,
-- and use those concepts to steer generation in a controlled way.
+- validate antigen-conditioned behavior against independent measurements,
+- use validated signals to steer generation in a controlled way at decode time and in the weights, and
+- later test whether sparse internal features provide additional interpretable diagnostics.
 
 ---
 
