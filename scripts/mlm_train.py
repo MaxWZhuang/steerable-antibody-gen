@@ -41,14 +41,25 @@ SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from smallAntibodyGen import experiment
 from smallAntibodyGen.tokenizer import AminoAcidTokenizer
 from smallAntibodyGen.data.MLMCollator import (
     AntibodyAntigenCollator,
     AntibodyAntigenRealLabelCollator,
+    CONDITIONAL_DENOISING_ELIGIBILITY_POLICIES,
+    MLM_IGNORE_INDEX,
     OASSequenceDataset,
     MLMCollator
 )
 from smallAntibodyGen.data.MLMSampler import ChainLengthBucketBatchSampler
+# Re-exported, not re-implemented: the token-layout arithmetic now lives in
+# data/lengths.py so scripts/context_length_census.py can share it without
+# importing this training script. Callers that reach these through the
+# `mlm_train` namespace keep working unchanged.
+from smallAntibodyGen.data.lengths import (
+    format_length_truncation_warning,
+    summarize_length_truncation,
+)
 from smallAntibodyGen.models.mlm import AntibodyAntigenCrossAttention, AntibodyMLM, MLMConfig
 
 try:
@@ -240,6 +251,32 @@ class TrainConfig:
     # turning the head on and widening the training population at the same time
     # confounds "the head helps" with "more rows help".
     include_strength_rows: bool = False
+    # Which rows contribute ANTIGEN-CONDITIONED MLM targets. Independent of
+    # whether a row contributes compatibility or strength supervision, and it
+    # never changes the corrupted input. See
+    # specs/conditional_denoising_eligibility.md and
+    # specs/decisions/0001-conditional-denoising-eligibility.md.
+    #
+    #   binary_binders_only : binder_label == 1. The Stage-3 default, because a
+    #                         measured NONBINDER must not become a positive
+    #                         reconstruction target under the antigen it is
+    #                         labeled not to bind.
+    #   all_filtered_rows   : every row the stage's dataset filter admitted. The
+    #                         Stage-4 default, because that stage filters on
+    #                         `is_strong_binder`, which is deliberately broader
+    #                         than `binder_label`.
+    #
+    # WARNING: the two policies produce different training populations from
+    # otherwise identical-looking configs. Stage-3 MLM loss is NOT comparable
+    # across a change to this field -- re-baseline rather than compare.
+    #
+    # `None` means UNSET and is resolved per stage in `__post_init__`, so every
+    # construction path -- CLI, YAML, a direct `TrainConfig(...)` in a test or in
+    # `hcdr3_infill.config_from_checkpoint` -- gets the same answer. Resolving
+    # this in `parse_args` alone would let a Stage-3 config built anywhere else
+    # silently fall back to pre-fix behavior, and the contract is explicit that
+    # "a default reaching production through omission is a defect".
+    conditional_denoising_eligibility: str | None = None
     # Learned conditional length posterior. 0.0 (default) builds NO length head
     # and adds a 0-scaled differentiable-zero term, so existing runs are
     # byte-identical. `length_head_max` must cover the corpus's HCDR3 lengths;
@@ -253,7 +290,33 @@ class TrainConfig:
     use_amp: bool = False
     smoke_test_only: bool = False
     show_progress: bool = True
+    # Promotion gate (J03 step 8). False (the default) is a DEVELOPMENT run: it
+    # may run from a dirty worktree, but only because the complete source-content
+    # hash and the dirty path list are recorded in the run fingerprint. True marks
+    # a PROMOTED canonical run and refuses to start unless git reports a clean
+    # worktree -- and refuses just as hard when git cannot verify it at all,
+    # because "not known to be dirty" is not "known to be clean".
+    #
+    # This field is deliberately NOT on
+    # `experiment.OPERATIONAL_ONLY_CONFIG_FIELDS`: that list is the owner's exact
+    # approved set. Consequence: flipping the promotion gate mid-chain blocks a
+    # resume, which fails closed and costs nothing in practice since a canonical
+    # run keeps the flag set for its whole life.
+    require_clean_worktree: bool = False
     device: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.conditional_denoising_eligibility is None:
+            # Stage 3 restricts conditional denoising to measured binders. Every
+            # other stage keeps `all_filtered_rows`: Stage 4 filters on
+            # `is_strong_binder`, which is deliberately broader than
+            # `binder_label`, so `binder_label == 1` would silently drop the
+            # large majority of its strong binders.
+            self.conditional_denoising_eligibility = (
+                "binary_binders_only"
+                if self.training_stage == "antigen_real_label_refine"
+                else "all_filtered_rows"
+            )
 
     def validate(self) -> None:
         """
@@ -303,6 +366,8 @@ class TrainConfig:
             )
         if not isinstance(self.report_masked_fraction_bins, bool):
             raise ValueError("report_masked_fraction_bins must be a bool")
+        if not isinstance(self.require_clean_worktree, bool):
+            raise ValueError("require_clean_worktree must be a bool")
         if self.learning_rate <= 0:
             raise ValueError("learning_rate must be > 0")
         if self.weight_decay < 0:
@@ -352,6 +417,20 @@ class TrainConfig:
             )
         if not isinstance(self.include_strength_rows, bool):
             raise ValueError("include_strength_rows must be a bool")
+        if self.conditional_denoising_eligibility not in CONDITIONAL_DENOISING_ELIGIBILITY_POLICIES:
+            raise ValueError(
+                "conditional_denoising_eligibility must be one of: "
+                + ", ".join(CONDITIONAL_DENOISING_ELIGIBILITY_POLICIES)
+            )
+        if (
+            self.conditional_denoising_eligibility == "binary_binders_only"
+            and not is_antigen_stage(self.training_stage)
+        ):
+            raise ValueError(
+                "conditional_denoising_eligibility='binary_binders_only' is only "
+                "supported for antigen stages; a stage with no antigen has no "
+                "antigen-conditioned denoising to restrict"
+            )
         if self.length_loss_weight < 0:
             raise ValueError("length_loss_weight must be >= 0")
         if self.length_loss_weight > 0 and not is_antigen_stage(self.training_stage):
@@ -673,6 +752,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_false",
         default=argparse.SUPPRESS,
     )
+    parser.add_argument(
+        "--conditional-denoising-eligibility",
+        type=str,
+        choices=CONDITIONAL_DENOISING_ELIGIBILITY_POLICIES,
+    )
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--seed", type=int)
 
@@ -680,6 +764,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--smoke-test-only", action="store_true", default=argparse.SUPPRESS)
     parser.add_argument("--show-progress", action="store_true", default=argparse.SUPPRESS)
     parser.add_argument("--no-progress", dest="show_progress", action="store_false", default=argparse.SUPPRESS)
+    parser.add_argument(
+        "--require-clean-worktree", action="store_true", default=argparse.SUPPRESS
+    )
+    parser.add_argument(
+        "--no-require-clean-worktree",
+        dest="require_clean_worktree",
+        action="store_false",
+        default=argparse.SUPPRESS,
+    )
     parser.add_argument("--device", type=str)
     return parser
 
@@ -1043,10 +1136,24 @@ def summarize_target_overlap(
     val_dataset: OASSequenceDataset | RecordSubsetDataset,
 ) -> dict[str, int]:
     """
-    Summarize target-key overlap between two datasets.
+    Summarize target overlap between two datasets.
+
+    Grouped on `canonical_target_id`, not on the legacy `target_key`. `target_key`
+    picks the first of four mutually exclusive identifier branches with no
+    reconciliation, so one biological antigen seen once with a UniProt accession
+    and once with only a PDB code produces two different keys and draws two
+    independent split assignments. Grouping the leakage report on that field
+    would UNDER-REPORT exactly the alias overlap the report exists to catch.
+
+    Falls back to `target_key` so corpora written before J02 stay readable; those
+    corpora simply have no merges to recover and must be regenerated to get them.
     """
-    train_targets = {record.target_key for record in train_dataset.records if record.target_key}
-    val_targets = {record.target_key for record in val_dataset.records if record.target_key}
+
+    def target_of(record):
+        return getattr(record, "canonical_target_id", None) or record.target_key
+
+    train_targets = {target_of(r) for r in train_dataset.records if target_of(r)}
+    val_targets = {target_of(r) for r in val_dataset.records if target_of(r)}
     return {
         "train_targets": len(train_targets),
         "val_targets": len(val_targets),
@@ -1054,117 +1161,34 @@ def summarize_target_overlap(
     }
 
 
-def summarize_length_truncation(
-    dataset: OASSequenceDataset | RecordSubsetDataset,
-    max_length: int,
+def summarize_conditional_denoising_eligibility(
+    dataset,
+    conditional_denoising_eligibility: str,
 ) -> dict[str, int]:
     """
-    How much of this corpus the encoder's ``max_length`` silently deletes.
+    Count how many rows of one split contribute antigen-conditioned MLM targets.
 
-    ``prepare_oas.py`` bounds the heavy and light chains independently
-    (``--max-heavy`` / ``--max-light``, up to 180 + 160 + 5 = 345 tokens) and
-    writes ``token_length`` unclamped. Nothing ties the corpus to any encoder
-    budget, so the collator hard-truncates to ``max_length`` and forces a trailing
-    ``[EOS]``. The tokenizer's UserWarning is deduplicated by Python's default
-    filter, so at corpus scale this is effectively silent.
+    Mirrors `AntibodyAntigenCollator._is_conditional_denoising_eligible` at the
+    dataset level, before any model is built. The two must agree; a divergence
+    would mean preflight blesses a population the collator then discards.
 
-    It is not a rounding error. On the shipped paired corpus at ``max_length: 192``,
-    99.97% of rows overflow and 99.77% lose their LIGHT CDR3 entirely -- and the
-    paired stage's whole purpose is heavy/light compatibility, for which CDR-L3 is
-    the most informative region. The shuffled-negative task then asks the model to
-    tell native from non-cognate light chains with CDR-L3 deleted from both.
-
-    Counts are computed arithmetically from stored coordinates (cheap, exact for
-    the layouts the collator produces) rather than by encoding every row:
-
-    - single-chain / antigen: ``[CLS] [chain] residues... [EOS]``, heavy CDR3 at
-      token offset ``2 + aa_index``
-    - paired: ``[CLS] [IGH] heavy... [SEP] [IGK] light... [EOS]``, light CDR3 at
-      token offset ``2 + len(heavy) + 2 + aa_index``
-
-    Returns counts only; the caller decides whether to warn or stop. Raising here
-    would be wrong -- whether to raise ``max_length`` (more compute, a retrain),
-    filter the corpus, or accept the truncation is a research decision.
+    Returns `total` and `eligible`. A zero-eligible split is reported by the
+    caller, which owns the decision to fail -- an all-nonbinder *batch* is
+    legitimate under `binary_binders_only`, but an all-nonbinder *corpus* means
+    the stage would train its conditional policy on nothing while reporting a
+    plausible loss curve, because MLM loss over an all-ignored batch is a finite
+    differentiable zero rather than NaN.
     """
     total = 0
-    overflow = 0
-    lost_heavy_cdr3 = 0
-    lost_light_cdr3 = 0
-    worst_overflow = 0
+    eligible = 0
     for record in dataset.records:
         total += 1
-        token_length = record.token_length or 0
-        if token_length > max_length:
-            overflow += 1
-            worst_overflow = max(worst_overflow, token_length - max_length)
-
-        heavy_seq = record.sequence_heavy or record.sequence or ""
-        light_seq = record.sequence_light or ""
-        is_paired = bool(heavy_seq and light_seq)
-
-        heavy_end = record.cdr3_end_aa_heavy
-        if heavy_end is None and not is_paired:
-            heavy_end = record.cdr3_end_aa
-        if isinstance(heavy_end, int) and (2 + heavy_end) > max_length:
-            lost_heavy_cdr3 += 1
-
-        if is_paired:
-            light_end = record.cdr3_end_aa_light
-            if isinstance(light_end, int):
-                # 2 leading specials + heavy residues + [SEP] + [light chain token]
-                if (2 + len(heavy_seq) + 2 + light_end) > max_length:
-                    lost_light_cdr3 += 1
-
-    return {
-        "total": total,
-        "overflow": overflow,
-        "worst_overflow": worst_overflow,
-        "lost_heavy_cdr3": lost_heavy_cdr3,
-        "lost_light_cdr3": lost_light_cdr3,
-    }
-
-
-def format_length_truncation_warning(
-    counts: dict[str, int],
-    max_length: int,
-    split_name: str,
-) -> str | None:
-    """
-    Render the truncation report, or ``None`` when nothing overflows.
-
-    Always names the CDR3 losses explicitly. A bare "N rows truncated" reads as
-    trimming a few framework residues at the C-terminus; losing the CDR3 is a
-    different claim entirely, and it is the one that invalidates the objective.
-    """
-    total = counts["total"]
-    if total == 0 or counts["overflow"] == 0:
-        return None
-    pct = 100.0 * counts["overflow"] / total
-    lines = [
-        f"[warn] {split_name}: {counts['overflow']}/{total} rows ({pct:.2f}%) exceed "
-        f"max_length={max_length} and are TRUNCATED by the collator "
-        f"(worst overflow: {counts['worst_overflow']} tokens)."
-    ]
-    if counts["lost_light_cdr3"]:
-        pct_l = 100.0 * counts["lost_light_cdr3"] / total
-        lines.append(
-            f"[warn]   {counts['lost_light_cdr3']} ({pct_l:.2f}%) lose their LIGHT CDR3 "
-            "entirely -- the heavy/light pairing objective is being trained without "
-            "CDR-L3, the region that most determines pairing."
-        )
-    if counts["lost_heavy_cdr3"]:
-        pct_h = 100.0 * counts["lost_heavy_cdr3"] / total
-        lines.append(
-            f"[warn]   {counts['lost_heavy_cdr3']} ({pct_h:.2f}%) lose their HEAVY CDR3 "
-            "entirely -- these rows cannot train the HCDR3 objective at all."
-        )
-    lines.append(
-        "[warn]   Fix by raising max_length (a retrain, and more compute per step), "
-        "tightening prepare_oas.py's --max-heavy/--max-light, or filtering rows "
-        "whose token_length exceeds max_length. Truncation is silent otherwise: "
-        "Python dedupes the tokenizer's UserWarning."
-    )
-    return "\n".join(lines)
+        if conditional_denoising_eligibility == "binary_binders_only":
+            if getattr(record, "binder_label", None) == 1:
+                eligible += 1
+        else:
+            eligible += 1
+    return {"total": total, "eligible": eligible}
 
 
 def format_metric_summary(
@@ -1286,6 +1310,16 @@ def fit_group_majority_baselines(
     loader = build_eval_loader(fit_dataset, tokenizer, cfg)
 
     grouped_counts: dict[str, dict[str, Counter[int]]] = {
+        # Grouped on BOTH identities on purpose. `target_keys` is the legacy
+        # first-available-identifier key, which splits one biological target
+        # across several groups whenever it appears under different accessions.
+        # That makes the target-family shortcut baseline ARTIFICIALLY WEAK --
+        # fewer labeled rows per group, more fallback to the global majority --
+        # so a model beating it looks better than it is. Gate 2A requires beating
+        # the target-family baseline, so it must read the CANONICAL one.
+        # The gap between the two accuracies measures how much aliasing was
+        # inflating the old number.
+        "canonical_target_ids": defaultdict(Counter),
         "target_keys": defaultdict(Counter),
         "dataset_names": defaultdict(Counter),
         "antibody_format_groups": defaultdict(Counter),
@@ -1340,6 +1374,7 @@ def evaluate_group_majority_baselines(
     positive_examples = 0
     always_positive_correct = 0
     group_correct = {
+        "canonical_target_ids": 0,
         "target_keys": 0,
         "dataset_names": 0,
         "antibody_format_groups": 0,
@@ -1370,6 +1405,10 @@ def evaluate_group_majority_baselines(
         "labeled_examples": float(labeled_examples),
         "positive_rate": positive_examples / labeled_examples,
         "always_positive_acc": always_positive_correct / labeled_examples,
+        # The Gate-2A target-family baseline. Read this one, not the legacy key.
+        "canonical_target_majority_acc": (
+            group_correct["canonical_target_ids"] / labeled_examples
+        ),
         "target_key_majority_acc": group_correct["target_keys"] / labeled_examples,
         "dataset_majority_acc": group_correct["dataset_names"] / labeled_examples,
         "format_majority_acc": group_correct["antibody_format_groups"] / labeled_examples,
@@ -1388,6 +1427,8 @@ def format_baseline_summary(
         f"{prefix}_labeled={int(metrics['labeled_examples'])} "
         f"{prefix}_pos_rate={metrics['positive_rate']:.4f} "
         f"{prefix}_always_pos_acc={metrics['always_positive_acc']:.4f} "
+        f"{prefix}_canonical_target_majority_acc="
+        f"{metrics['canonical_target_majority_acc']:.4f} "
         f"{prefix}_target_majority_acc={metrics['target_key_majority_acc']:.4f} "
         f"{prefix}_dataset_majority_acc={metrics['dataset_majority_acc']:.4f} "
         f"{prefix}_format_majority_acc={metrics['format_majority_acc']:.4f} "
@@ -1451,6 +1492,7 @@ def build_train_loader(
             mask_rate_schedule=cfg.mask_rate_schedule,
             build_length_query=cfg.length_loss_weight > 0,
             length_head_max=cfg.length_head_max,
+            conditional_denoising_eligibility=cfg.conditional_denoising_eligibility,
         )
     elif cfg.training_stage == "antigen_refine":
         collator = AntibodyAntigenCollator(
@@ -1470,6 +1512,7 @@ def build_train_loader(
             mask_rate_schedule=cfg.mask_rate_schedule,
             build_length_query=cfg.length_loss_weight > 0,
             length_head_max=cfg.length_head_max,
+            conditional_denoising_eligibility=cfg.conditional_denoising_eligibility,
         )
     else:
         collator = MLMCollator(
@@ -1546,6 +1589,7 @@ def build_eval_loader(
             mask_rate_schedule=(cfg.eval_mask_rate_schedule or cfg.mask_rate_schedule),
             build_length_query=cfg.length_loss_weight > 0,
             length_head_max=cfg.length_head_max,
+            conditional_denoising_eligibility=cfg.conditional_denoising_eligibility,
         )
     elif cfg.training_stage == "antigen_real_label_refine" or is_hcdr3_infill_stage(cfg.training_stage):
         collator = AntibodyAntigenRealLabelCollator(
@@ -1565,6 +1609,7 @@ def build_eval_loader(
             mask_rate_schedule=(cfg.eval_mask_rate_schedule or cfg.mask_rate_schedule),
             build_length_query=cfg.length_loss_weight > 0,
             length_head_max=cfg.length_head_max,
+            conditional_denoising_eligibility=cfg.conditional_denoising_eligibility,
         )
     else:
         collator = MLMCollator(
@@ -1592,26 +1637,34 @@ def build_eval_loader(
     return loader
 
 
-def build_model(
-    tokenizer: AminoAcidTokenizer,
-    cfg: TrainConfig,
-    device: torch.device,
-) -> torch.nn.Module:
+def model_class_for_stage(training_stage: str) -> str:
     """
-    Build the MLM model and move it to the chosen device.
+    The model class a stage instantiates, by name.
 
-    Args:
-        tokenizer:
-            Tokenizer that defines vocabulary size and pad token ID.
-        cfg:
-            Training configuration.
-        device:
-            Target torch.device.
-
-    Returns:
-        An AntibodyMLM instance on the target device.
+    Two different architectures are built from one `TrainConfig`, so the class
+    is part of a run's architecture identity and is fingerprinted alongside
+    `MLMConfig`.
     """
-    model_cfg = MLMConfig(
+    return (
+        "AntibodyAntigenCrossAttention"
+        if is_antigen_stage(training_stage)
+        else "AntibodyMLM"
+    )
+
+
+def build_model_config(tokenizer: AminoAcidTokenizer, cfg: TrainConfig) -> MLMConfig:
+    """
+    Build the `MLMConfig` a run's model is constructed from.
+
+    Split out of `build_model` because `MLMConfig` is the ONLY complete
+    description of the architecture and was previously created inline and
+    discarded. Four of its fields -- `activation`, `tie_weights`,
+    `initializer_range`, `scale_residual_init` -- are hardcoded here and
+    unreachable from `TrainConfig`, and `vocab_size`/`pad_token_id` come from
+    the tokenizer. `asdict(cfg)` therefore cannot stand in for it when
+    fingerprinting the architecture (J03).
+    """
+    return MLMConfig(
         vocab_size=tokenizer.vocab_size,
         pad_token_id=tokenizer.pad_id,
         max_length=cfg.max_length,
@@ -1637,6 +1690,28 @@ def build_model(
         use_length_head=cfg.length_loss_weight > 0,
         length_head_max=cfg.length_head_max,
     )
+
+
+def build_model(
+    tokenizer: AminoAcidTokenizer,
+    cfg: TrainConfig,
+    device: torch.device,
+) -> torch.nn.Module:
+    """
+    Build the MLM model and move it to the chosen device.
+
+    Args:
+        tokenizer:
+            Tokenizer that defines vocabulary size and pad token ID.
+        cfg:
+            Training configuration.
+        device:
+            Target torch.device.
+
+    Returns:
+        An AntibodyMLM instance on the target device.
+    """
+    model_cfg = build_model_config(tokenizer, cfg)
     if is_antigen_stage(cfg.training_stage):
         model = AntibodyAntigenCrossAttention(model_cfg).to(device)
     else:
@@ -2354,6 +2429,7 @@ def run_smoke_test(
     use_amp: bool,
     training_stage: str,
     grad_clip_norm: float = 1.0,
+    conditional_denoising_eligibility: str = "all_filtered_rows",
 ) -> None:
     """
     Run a minimal forward/backward/step proof of implementation.
@@ -2416,6 +2492,19 @@ def run_smoke_test(
                 "smoke_test/compatibility_batch:"
                 f" labeled={compatibility_mask_count}/{batch['compatibility_mask'].numel()}"
                 f" positives={compatibility_positive_count}"
+            )
+            # Under `binary_binders_only` an all-nonbinder first batch produces a
+            # differentiable ZERO MLM loss and no MLM gradient, while the lines
+            # below still print "backward: ok". Print the census so the smoke test
+            # cannot silently stop proving the MLM path.
+            eligible = batch.get("conditional_denoising_eligible")
+            eligible_rows = "n/a" if eligible is None else int(eligible.sum())
+            policy_rows = "n/a" if eligible is None else int(eligible.numel())
+            print(
+                "smoke_test/conditional_denoising:"
+                f" policy={conditional_denoising_eligibility}"
+                f" eligible_rows={eligible_rows}/{policy_rows}"
+                f" mlm_target_tokens={int((batch['antibody_labels'] != MLM_IGNORE_INDEX).sum())}"
             )
             print(
                 "smoke_test/hcdr3_batch:"
@@ -2496,6 +2585,13 @@ def evaluate(
     compatibility_labels_all: list[int] = []
     compatibility_scores_all: list[float] = []
     compatibility_preds_all: list[int] = []
+    # Eligibility census, reported for the SAME reason as on the train side: under
+    # `binary_binders_only` validation MLM loss measures a different population
+    # than it did before, and nothing else in the val record would say so.
+    # Reported, never raised -- an all-nonbinder split is a legitimate probe.
+    conditional_eligible_rows: torch.Tensor | int = 0
+    conditional_total_rows = 0
+    conditional_eligible_tokens: torch.Tensor | int = 0
     hcdr3_counts = {
         "hcdr3_correct_tokens": 0,
         "hcdr3_target_tokens": 0,
@@ -2555,6 +2651,13 @@ def evaluate(
                     antigen_input_ids=batch["antigen_input_ids"],
                     antigen_attention_mask=batch["antigen_attention_mask"],
                 )
+            eligible_rows = batch.get("conditional_denoising_eligible")
+            if eligible_rows is not None:
+                conditional_eligible_rows += eligible_rows.sum()
+                conditional_total_rows += eligible_rows.numel()
+            conditional_eligible_tokens += (
+                batch["antibody_labels"] != MLM_IGNORE_INDEX
+            ).sum()
             losses = model.compute_losses(
                 mlm_logits=logits,
                 labels=batch["antibody_labels"],
@@ -2706,6 +2809,11 @@ def evaluate(
             metrics["compatibility_loss"] = float("nan")
             metrics["compatibility_acc"] = float("nan")
             metrics.update(compatibility_binary_metrics([], [], []))
+            # Emitted even on an empty epoch so the metrics.jsonl key set does not
+            # vary between epochs.
+            metrics["conditional_denoising_policy_rows"] = 0.0
+            metrics["conditional_denoising_eligible_rows"] = 0.0
+            metrics["conditional_denoising_eligible_tokens"] = 0.0
         else:
             metrics["pair_loss"] = float("nan")
             metrics["pair_acc"] = float("nan")
@@ -2733,6 +2841,12 @@ def evaluate(
         metrics["length_nll"] = (
             (length_nll_sum / length_total) if length_total > 0 else float("nan")
         )
+    if is_antigen_stage(cfg.training_stage):
+        conditional_eligible_rows = int(conditional_eligible_rows)
+        conditional_eligible_tokens = int(conditional_eligible_tokens)
+        metrics["conditional_denoising_policy_rows"] = float(conditional_total_rows)
+        metrics["conditional_denoising_eligible_rows"] = float(conditional_eligible_rows)
+        metrics["conditional_denoising_eligible_tokens"] = float(conditional_eligible_tokens)
     if want_strength:
         # Reported next to compatibility_auroc so the graded head is judged on
         # ORDERING (what a ranking objective is for), not on MSE, whose scale is
@@ -2774,6 +2888,7 @@ def train_one_epoch(
     epoch: int,
     output_dir: Optional[Path] = None,
     best_val_loss: float = float("inf"),
+    run_fingerprint: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, float]:
     """
     Train the model for one epoch.
@@ -2851,6 +2966,12 @@ def train_one_epoch(
     length_correct = 0
     length_total = 0
     length_nll_sum = 0.0
+    # Conditional-denoising eligibility census. Counted rather than asserted per
+    # batch: an all-nonbinder batch is legitimate under `binary_binders_only`.
+    # The whole-epoch total is what must not be zero.
+    conditional_eligible_rows: torch.Tensor | int = 0
+    conditional_total_rows = 0
+    conditional_eligible_tokens: torch.Tensor | int = 0
 
     progress = _make_progress_bar(
         train_loader,
@@ -2890,6 +3011,15 @@ def train_one_epoch(
                         antigen_input_ids=batch["antigen_input_ids"],
                         antigen_attention_mask=batch["antigen_attention_mask"],
                     )
+                # Accumulated as device tensors and synced ONCE after the loop.
+                # A `.item()` here would add two host syncs per step.
+                eligible_rows = batch.get("conditional_denoising_eligible")
+                if eligible_rows is not None:
+                    conditional_eligible_rows += eligible_rows.sum()
+                    conditional_total_rows += eligible_rows.numel()
+                conditional_eligible_tokens += (
+                    batch["antibody_labels"] != MLM_IGNORE_INDEX
+                ).sum()
                 losses = model.compute_losses(
                     mlm_logits=logits,
                     labels=batch["antibody_labels"],
@@ -2962,6 +3092,9 @@ def train_one_epoch(
                 scaler=scaler,
                 scheduler=scheduler,
                 best_val_loss=best_val_loss,
+                # An intra-epoch last.pt is the checkpoint most likely to be
+                # resumed from, so it needs the fingerprint most.
+                run_fingerprint=run_fingerprint,
             )
 
         if is_antigen_stage(cfg.training_stage):
@@ -3085,6 +3218,11 @@ def train_one_epoch(
             metrics["compatibility_loss"] = float("nan")
             metrics["compatibility_acc"] = float("nan")
             metrics.update(compatibility_binary_metrics([], [], []))
+            # Emitted even on an empty epoch so the metrics.jsonl key set does not
+            # vary between epochs.
+            metrics["conditional_denoising_policy_rows"] = 0.0
+            metrics["conditional_denoising_eligible_rows"] = 0.0
+            metrics["conditional_denoising_eligible_tokens"] = 0.0
         else:
             metrics["pair_loss"] = float("nan")
             metrics["pair_acc"] = float("nan")
@@ -3120,6 +3258,30 @@ def train_one_epoch(
         metrics["val_strength_spearman"] = float(
             tie_aware_spearman(strength_pred_all, strength_target_all)
         )
+    if is_antigen_stage(cfg.training_stage):
+        conditional_eligible_rows = int(conditional_eligible_rows)
+        conditional_eligible_tokens = int(conditional_eligible_tokens)
+        metrics["conditional_denoising_policy_rows"] = float(conditional_total_rows)
+        metrics["conditional_denoising_eligible_rows"] = float(conditional_eligible_rows)
+        metrics["conditional_denoising_eligible_tokens"] = float(conditional_eligible_tokens)
+        # A whole epoch with nothing to denoise is fatal under EITHER policy. Per
+        # batch this is legitimate under `binary_binders_only`; per epoch it means
+        # the conditional policy learned nothing, and MLM loss over an all-ignored
+        # batch is a finite differentiable zero, so the loss curve would not show
+        # it. See specs/conditional_denoising_eligibility.md.
+        if conditional_total_rows > 0 and conditional_eligible_rows == 0:
+            raise ValueError(
+                f"epoch {epoch + 1}: conditional_denoising_eligibility="
+                f"'{cfg.conditional_denoising_eligibility}' left 0 of "
+                f"{conditional_total_rows} training rows eligible for antigen-conditioned "
+                "MLM across the whole epoch."
+            )
+        if conditional_total_rows > 0 and conditional_eligible_tokens == 0:
+            raise ValueError(
+                f"epoch {epoch + 1}: {conditional_eligible_rows} rows were eligible for "
+                "antigen-conditioned MLM but they produced 0 target tokens across the "
+                "whole epoch, so the conditional policy received no gradient."
+            )
     metrics.update(finalize_hcdr3_metrics(hcdr3_counts))
     if is_antigen_stage(cfg.training_stage):
         metrics["compatibility_loss"] = aux_loss
@@ -3151,6 +3313,7 @@ def save_checkpoint(
     scaler: torch.amp.GradScaler | None = None,
     scheduler: torch.optim.lr_scheduler.LambdaLR | None = None,
     best_val_loss: float | None = None,
+    run_fingerprint: Dict[str, Any] | None = None,
 ) -> None:
     """
     Save a training checkpoint to disk.
@@ -3183,6 +3346,16 @@ def save_checkpoint(
 
             Defaults to ``val_loss`` so the two intra-epoch/legacy callers that
             already pass the running best in ``val_loss`` keep working.
+        run_fingerprint:
+            The run-provenance payload from
+            ``experiment.compute_run_fingerprint`` -- component hashes for
+            architecture / objective / tokenizer / data / contracts / source,
+            the combined run hash, the parent checkpoint hash, and the
+            dirty-worktree indicator. ``main`` computes it once per run (it
+            hashes the corpus and the whole source tree) and hands the same
+            object to every save. ``None`` writes a checkpoint with no
+            fingerprint, which ``resume_from_last`` then refuses; that is the
+            legacy shape and only direct callers (tests, tools) produce it.
 
     Returns:
         None.
@@ -3217,6 +3390,8 @@ def save_checkpoint(
         "best_val_loss": (val_loss if best_val_loss is None else best_val_loss),
         "train_config": asdict(cfg),
     }
+    if run_fingerprint is not None:
+        payload[experiment.RUN_FINGERPRINT_KEY] = run_fingerprint
     # Atomic write: serialize to a temp file on the same filesystem, then
     # os.replace() onto the final path. os.replace is atomic on both POSIX and
     # Windows, so a crash mid-write leaves the previous checkpoint intact rather
@@ -3418,15 +3593,29 @@ def initialize_antigen_refine_from_checkpoint(
 def validate_init_checkpoint_compatibility(
     cfg: TrainConfig,
     init_ckpt_path: Path | None,
+    tokenizer: AminoAcidTokenizer | None = None,
 ) -> None:
     """
     Validate architecture compatibility between run config and init checkpoint.
+
+    Warm-start rules are deliberately SEPARATE from the resume rules. A warm
+    start is meant to change the objective and the data -- that is what a stage
+    transition is -- so neither is checked here. What it may not change is the
+    architecture the weights were trained under or the tokenizer that assigned
+    their token ids.
+
+    Legacy parents (no ``run_fingerprint``) are ALLOWED through, still run every
+    check below, and get a loud warning that their lineage is unverifiable.
 
     Args:
         cfg:
             Current run config.
         init_ckpt_path:
             Optional initialization checkpoint path.
+        tokenizer:
+            Tokenizer this run will use. Defaults to `build_tokenizer()`; the
+            parameter exists so callers that already built one do not build a
+            second.
 
     Returns:
         None.
@@ -3435,6 +3624,31 @@ def validate_init_checkpoint_compatibility(
         return
 
     checkpoint = torch.load(init_ckpt_path, map_location="cpu")
+
+    # Lineage first, and non-fatally: a fingerprinted parent gets its
+    # architecture/tokenizer compared by content, a legacy parent gets a warning.
+    parent_fingerprint = experiment.read_fingerprint(checkpoint)
+    warning = experiment.warm_start_lineage_warning(parent_fingerprint, init_ckpt_path)
+    if warning is not None:
+        print(warning)
+    run_tokenizer = tokenizer if tokenizer is not None else build_tokenizer()
+    run_model_cfg = build_model_config(run_tokenizer, cfg)
+    if parent_fingerprint is not None:
+        current_fingerprint = experiment.compute_run_fingerprint(
+            config=asdict(cfg),
+            model_config=run_model_cfg,
+            tokenizer=run_tokenizer,
+            model_class=model_class_for_stage(cfg.training_stage),
+            # A warm start is allowed to change the corpus, so the data
+            # component is irrelevant here and is left uncomputed rather than
+            # paying a full corpus hash for a value nothing reads.
+            data_paths=(),
+            repo_root=PROJECT_ROOT,
+        )
+        experiment.check_warm_start_fingerprint(
+            parent_fingerprint, current_fingerprint, init_ckpt_path
+        )
+
     train_cfg = checkpoint.get("train_config")
     if not isinstance(train_cfg, dict):
         return
@@ -3476,12 +3690,90 @@ def validate_init_checkpoint_compatibility(
             "would be read off-distribution)"
         )
 
+    # `activation` and `tie_weights` live ONLY on `MLMConfig` -- they are
+    # hardcoded in `build_model_config` and unreachable from `TrainConfig`, so
+    # no checkpoint written before J03 records them at all. They get the same
+    # absent-means-a-specific-legacy-value treatment as `norm_first`: every
+    # checkpoint this repo has ever produced used "gelu" and tied weights.
+    #
+    # `activation` is the more dangerous of the two: swapping GELU for ReLU
+    # changes no parameter name and no shape, so `strict=True` loads the
+    # checkpoint happily and the model then computes something else. A
+    # `tie_weights` flip does change the parameter set, so this only turns a
+    # confusing strict-load error into a named one.
+    #
+    # `initializer_range` and `scale_residual_init` are deliberately NOT checked:
+    # they shape a FROM-SCRATCH init only, and the loaded weights overwrite it.
+    # They are still part of the architecture fingerprint, because a resume must
+    # reproduce the run that produced the weights.
+    ckpt_architecture = (
+        (experiment.read_fingerprint(checkpoint) or {}).get("manifests", {}).get("architecture", {})
+    )
+    ckpt_model_cfg = ckpt_architecture.get("model_config", {}) if ckpt_architecture else {}
+    for key, legacy_value in (("activation", "gelu"), ("tie_weights", True)):
+        ckpt_value = ckpt_model_cfg.get(key, legacy_value)
+        run_value = getattr(run_model_cfg, key)
+        if run_value != ckpt_value:
+            mismatches.append(
+                f"{key}: checkpoint={ckpt_value}, run={run_value} "
+                "(MLMConfig-only field; a legacy checkpoint with no recorded value is "
+                f"read as the historical {legacy_value!r})"
+            )
+
     if mismatches:
         details = "; ".join(mismatches)
         raise ValueError(
             "init_checkpoint architecture mismatch. Use the same base-model "
             f"hyperparameters for refinement. Mismatches: {details}"
         )
+
+
+def parent_checkpoint_descriptor(
+    init_ckpt_path: Path | None,
+) -> Dict[str, Any] | None:
+    """
+    Describe the checkpoint this run warm-starts from, for the lineage record.
+
+    Records the parent's own ``run_hash`` when it has one, and always its file
+    content hash, so a legacy parent (no fingerprint) still has a stable
+    content identity. ``None`` for a from-scratch run.
+    """
+    if init_ckpt_path is None:
+        return None
+    payload = torch.load(init_ckpt_path, map_location="cpu")
+    parent_fingerprint = experiment.read_fingerprint(payload)
+    return {
+        "path": experiment.normalize_path_value(init_ckpt_path, PROJECT_ROOT),
+        "run_hash": parent_fingerprint["run_hash"] if parent_fingerprint else None,
+        "file_sha256": experiment.hash_file(init_ckpt_path),
+    }
+
+
+def build_run_fingerprint(
+    cfg: TrainConfig,
+    tokenizer: AminoAcidTokenizer,
+    init_ckpt_path: Path | None,
+) -> Dict[str, Any]:
+    """
+    Compute this run's provenance fingerprint (J03).
+
+    Called ONCE per run: it hashes the corpus and every source file, so it is
+    not something to recompute per checkpoint save. The same payload is written
+    into every checkpoint and into ``output_dir/run_fingerprint.json``.
+
+    The architecture component is derived from the CONSTRUCTED `MLMConfig`
+    rather than from `asdict(cfg)`, because `activation`, `tie_weights`,
+    `initializer_range` and `scale_residual_init` exist only on `MLMConfig`.
+    """
+    return experiment.compute_run_fingerprint(
+        config=asdict(cfg),
+        model_config=build_model_config(tokenizer, cfg),
+        tokenizer=tokenizer,
+        model_class=model_class_for_stage(cfg.training_stage),
+        data_paths=[cfg.data_path],
+        repo_root=PROJECT_ROOT,
+        parent_checkpoint=parent_checkpoint_descriptor(init_ckpt_path),
+    )
 
 
 def select_checkpoint_metric_value(cfg: TrainConfig, val_metrics: Dict[str, float]) -> float:
@@ -3575,6 +3867,33 @@ def main() -> None:
         json.dump(asdict(cfg), f, indent=2)
 
     tokenizer = build_tokenizer()
+
+    # Run provenance (J03). Computed once, before any data is loaded, so a
+    # promotion refusal costs nothing; written next to the checkpoints and
+    # embedded in every one of them.
+    run_fingerprint = build_run_fingerprint(cfg, tokenizer, init_ckpt_path)
+    with open(output_dir / "run_fingerprint.json", "w", encoding="utf-8") as f:
+        json.dump(run_fingerprint, f, indent=2, sort_keys=True)
+    print(f"[fingerprint] run_hash={run_fingerprint['run_hash']}")
+    for _component, _digest in sorted(run_fingerprint["components"].items()):
+        print(f"[fingerprint]   {_component}={_digest}")
+    _source = run_fingerprint["manifests"]["source"]
+    print(
+        f"[fingerprint] source commit={_source['commit']} "
+        f"dirty={_source['dirty']} files={len(_source['files'])}"
+    )
+    if cfg.require_clean_worktree:
+        # Promoted canonical run: refuse a dirty OR unverifiable worktree.
+        experiment.require_clean_worktree(run_fingerprint)
+    elif _source["dirty"]:
+        print(
+            f"[warn] development run from a DIRTY worktree ({len(_source['dirty_paths'])} "
+            "path(s) modified or untracked). The complete source-content hash and the "
+            "dirty path list are recorded in run_fingerprint.json, so this run is "
+            "identifiable -- but it is not a promoted canonical run. Re-run with "
+            "--require-clean-worktree from a clean checkout to promote it."
+        )
+
     train_dataset, val_dataset = build_datasets(cfg)
     train_dataset, train_known_target_probe, row_random_probe = build_diagnostic_datasets(
         train_dataset,
@@ -3601,6 +3920,32 @@ def main() -> None:
         )
         if truncation_warning:
             print(truncation_warning)
+
+    # Preflight: does this stage actually have anything to denoise? Reported for
+    # every antigen stage and FATAL when a split is empty of eligible rows, because
+    # the failure is otherwise invisible -- an all-ignored MLM batch returns a
+    # finite zero, so the run would train on almost nothing behind a healthy loss
+    # curve. See specs/conditional_denoising_eligibility.md.
+    if is_antigen_stage(cfg.training_stage):
+        for split_name, split_dataset in (("train", train_dataset), ("val", val_dataset)):
+            counts = summarize_conditional_denoising_eligibility(
+                split_dataset, cfg.conditional_denoising_eligibility
+            )
+            share = (counts["eligible"] / counts["total"]) if counts["total"] else 0.0
+            print(
+                f"[conditional-denoising] {split_name}: "
+                f"policy={cfg.conditional_denoising_eligibility} "
+                f"eligible={counts['eligible']}/{counts['total']} ({share:.1%})"
+            )
+            if counts["total"] and counts["eligible"] == 0:
+                raise ValueError(
+                    f"conditional_denoising_eligibility="
+                    f"'{cfg.conditional_denoising_eligibility}' leaves 0 of "
+                    f"{counts['total']} {split_name} rows eligible for antigen-conditioned "
+                    "MLM. The stage would train its conditional policy on nothing while "
+                    "reporting a finite zero MLM loss. Check the stage's dataset filter "
+                    "and the eligibility policy."
+                )
 
     val_overlap = summarize_target_overlap(train_dataset, val_dataset)
     print(
@@ -3677,6 +4022,21 @@ def main() -> None:
     # Resume from last checkpoint if configured and available.
     last_ckpt_path = output_dir / "last.pt"
     if cfg.resume_from_last and last_ckpt_path.exists():
+        # PROVENANCE GATE (J03 step 4). This runs BEFORE `load_checkpoint`, so
+        # model/optimizer/scaler/scheduler are still pristine when it raises: a
+        # rejected resume leaves nothing half-restored. `torch.load` here reads
+        # only the fingerprint payload; no state is applied to anything.
+        #
+        # An exact run-fingerprint match is required. A checkpoint with no
+        # fingerprint at all (every checkpoint written before J03) is a hard
+        # error rather than a warning -- there is nothing to verify against, and
+        # every shipped config sets `resume_from_last: true`, so a silent
+        # legacy resume is exactly the accident this ticket exists to prevent.
+        experiment.check_resume_fingerprint(
+            experiment.read_fingerprint(torch.load(last_ckpt_path, map_location="cpu")),
+            run_fingerprint,
+            last_ckpt_path,
+        )
         checkpoint = load_checkpoint(
             path=last_ckpt_path,
             model=model,
@@ -3754,7 +4114,14 @@ def main() -> None:
     if cfg.smoke_test_only:
         smoke_loader = build_train_loader(train_dataset, tokenizer, cfg, epoch=0, device=device)
         run_smoke_test(
-            model, smoke_loader, optimizer, device, cfg.use_amp, cfg.training_stage, cfg.grad_clip_norm
+            model,
+            smoke_loader,
+            optimizer,
+            device,
+            cfg.use_amp,
+            cfg.training_stage,
+            cfg.grad_clip_norm,
+            cfg.conditional_denoising_eligibility,
         )
         return
 
@@ -3816,6 +4183,7 @@ def main() -> None:
             epoch=epoch,
             output_dir=output_dir,
             best_val_loss=best_val_loss,
+            run_fingerprint=run_fingerprint,
         )
 
         train_known_target_metrics = None
@@ -3913,6 +4281,7 @@ def main() -> None:
                 scaler=scaler,
                 scheduler=scheduler,
                 best_val_loss=best_val_loss,
+                run_fingerprint=run_fingerprint,
             )
 
         save_checkpoint(
@@ -3925,6 +4294,7 @@ def main() -> None:
             scaler=scaler,
             scheduler=scheduler,
             best_val_loss=best_val_loss,
+            run_fingerprint=run_fingerprint,
         )
 
         epochs_without_improvement, should_stop = early_stopping_decision(

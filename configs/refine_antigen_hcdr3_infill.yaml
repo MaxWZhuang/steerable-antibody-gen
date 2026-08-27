@@ -28,6 +28,19 @@ mask_probability: 0.10
 hcdr3_span_probability: 1.0
 hcdr3_span_min: 3
 hcdr3_span_max: 8
+# Which rows contribute ANTIGEN-CONDITIONED MLM targets. Stage 4 uses
+# `all_filtered_rows`: it filters on `is_strong_binder`, which is deliberately
+# broader than `binder_label` (populated only for `affinity_type == "bool"` rows),
+# so restricting to `binder_label == 1` here would silently drop the large
+# majority of strong binders while the loss curve stayed plausible.
+#
+# Stated explicitly rather than left to the default, so a reader of this config
+# can see which population the stage denoises.
+#
+# Contract:  specs/conditional_denoising_eligibility.md
+# Rationale: specs/decisions/0001-conditional-denoising-eligibility.md
+conditional_denoising_eligibility: all_filtered_rows
+
 hcdr3_mask_mode: full_span
 mask_replacement_strategy: always_mask
 shuffle_pair_probability: 0.0

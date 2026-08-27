@@ -18,6 +18,15 @@ from smallAntibodyGen.data.MLMSampler import ChainLengthBucketBatchSampler
 from smallAntibodyGen.data import affinity as affinity_rules
 from smallAntibodyGen.infill.hcdr3 import HCDR3Span, encode_masked_hcdr3_ids
 
+# The CrossEntropyLoss ignore index used for MLM labels.
+#
+# This value is currently hard-coded independently in `models/mlm.py` and in the
+# trainer's metric accumulators. Naming it here makes THIS file self-consistent;
+# unifying the other call sites is deliberately left out of scope so this change
+# stays a behavior fix rather than a cross-module refactor.
+MLM_IGNORE_INDEX = -100
+
+
 @dataclass
 class OASRecord:
     """In-memory representation of one processed OAS or antibody-antigen example."""
@@ -48,6 +57,15 @@ class OASRecord:
     cdr3_end_aa_light: int | None = None
     sequence_antigen: str | None = None
     target_key: str | None = None
+    # Alias-resolved target identity written by scripts/prepare_antibody_antigen.py.
+    # `target_key` is the legacy first-available-identifier key and can differ
+    # between two rows describing the SAME antigen (one annotated by UniProt, the
+    # other only by PDB code); `canonical_target_id` is the id of the connected
+    # component both belong to and is what the train/val split follows. Every
+    # runtime grouping decision -- leakage checks, negative-control matching --
+    # must use this field. Falls back to `target_key` for corpora written before
+    # the field existed.
+    canonical_target_id: str | None = None
     target_name: str | None = None
     target_pdb: str | None = None
     target_uniprot: str | None = None
@@ -186,6 +204,13 @@ class OASSequenceDataset(Dataset[OASRecord]):
                     cdr3_end_aa_light=record.get("cdr3_end_aa_light"),
                     sequence_antigen=record.get("sequence_antigen"),
                     target_key=record.get("target_key"),
+                    # Pre-J02 corpora have no canonical field. Falling back to
+                    # the legacy key keeps them loadable and keeps every
+                    # canonical-id consumer non-None on old data; it does not
+                    # recover the alias merges, which need a corpus rebuild.
+                    canonical_target_id=(
+                        record.get("canonical_target_id") or record.get("target_key")
+                    ),
                     target_name=record.get("target_name"),
                     target_pdb=record.get("target_pdb"),
                     target_uniprot=record.get("target_uniprot"),
@@ -720,7 +745,7 @@ class MLMCollator:
             
         """
         
-        labels = torch.full_like(input_ids, fill_value = -100)
+        labels = torch.full_like(input_ids, fill_value = MLM_IGNORE_INDEX)
         masked_input = input_ids.clone()
         target_mask = torch.zeros_like(input_ids, dtype=torch.bool)
         
@@ -909,6 +934,30 @@ class MLMCollator:
         }
 
 
+# Conditional-denoising eligibility policies.
+#
+# A row's eligibility decides whether it contributes antigen-conditioned MLM
+# targets. It is independent of whether that row contributes compatibility or
+# strength supervision, and it never changes the corrupted input.
+#
+# The policy is a NAMED, SERIALIZABLE value -- never a callable -- so it can be
+# recorded in a config, saved in a checkpoint, and hashed into a run
+# fingerprint. See specs/conditional_denoising_eligibility.md.
+#
+#   binary_binders_only : binder_label == 1. Stage 3 (antigen_real_label_refine).
+#   all_filtered_rows   : every row the stage's dataset filter admitted.
+#                         Stage 4 (is_hcdr3_infill_record).
+#
+# `all_filtered_rows` defers to the dataset filter rather than re-deriving a
+# predicate, because Stage 4 gates on `is_strong_binder` -- deliberately broader
+# than `binder_label`, which is populated only for `affinity_type == "bool"`
+# rows. Re-deriving `binder_label == 1` inside the collator would silently drop
+# the large majority of Stage-4 strong binders. No `is_strong_binder` check
+# belongs inside a collator either; that would change which population Stage 4
+# denoises, which is a scientific change rather than a defect fix.
+CONDITIONAL_DENOISING_ELIGIBILITY_POLICIES = ("all_filtered_rows", "binary_binders_only")
+
+
 class AntibodyAntigenCollator(MLMCollator):
     """
     Build dual-stream batches for the antibody-antigen cross-attention model.
@@ -938,6 +987,7 @@ class AntibodyAntigenCollator(MLMCollator):
         mask_rate_schedule: str = "fixed",
         build_length_query: bool = False,
         length_head_max: int | None = None,
+        conditional_denoising_eligibility: str = "all_filtered_rows",
     ) -> None:
         super().__init__(
             tokenizer=tokenizer,
@@ -952,6 +1002,16 @@ class AntibodyAntigenCollator(MLMCollator):
             rng_seed=rng_seed,
             mask_rate_schedule=mask_rate_schedule,
         )
+        if conditional_denoising_eligibility not in CONDITIONAL_DENOISING_ELIGIBILITY_POLICIES:
+            raise ValueError(
+                "conditional_denoising_eligibility must be one of: "
+                + ", ".join(CONDITIONAL_DENOISING_ELIGIBILITY_POLICIES)
+            )
+        # The default is `all_filtered_rows` for backward compatibility, but every
+        # production construction site passes this explicitly. A default reaching
+        # production through omission is a defect.
+        self.conditional_denoising_eligibility = conditional_denoising_eligibility
+
         self.shuffle_antigen_probability = shuffle_antigen_probability
         self.antigen_length_bucket_width = antigen_length_bucket_width
         # Length-query tensors are built ONLY on request: the extra keys are
@@ -1015,7 +1075,11 @@ class AntibodyAntigenCollator(MLMCollator):
         item = native_batch[idx]
         format_group = self._antibody_format_group(item)
         antigen_bucket = self._antigen_bucket(item)
-        same_target = item.target_key
+        # Alias-resolved, not the legacy key: two rows describing one antigen
+        # under different identifiers must not become each other's "non-cognate"
+        # negative. Their target_keys differ, so only the canonical id rules the
+        # swap out.
+        same_target = item.canonical_target_id or item.target_key
         same_antigen = (item.sequence_antigen or "").strip()
         same_record = item.record_id
 
@@ -1027,7 +1091,8 @@ class AntibodyAntigenCollator(MLMCollator):
                 return False
             if require_same_bucket and self._antigen_bucket(candidate) != antigen_bucket:
                 return False
-            if same_target and candidate.target_key == same_target:
+            candidate_target = candidate.canonical_target_id or candidate.target_key
+            if same_target and candidate_target == same_target:
                 return False
             if same_antigen and (candidate.sequence_antigen or "").strip() == same_antigen:
                 return False
@@ -1051,6 +1116,49 @@ class AntibodyAntigenCollator(MLMCollator):
         if relaxed_candidates:
             return self.rng.choice(relaxed_candidates)
         return None
+
+    def _is_conditional_denoising_eligible(self, item: OASRecord) -> bool:
+        """
+        Decide whether one row contributes antigen-conditioned MLM targets.
+
+        This is NOT the same question as `compatibility_mask`. Under
+        `binary_binders_only` a measured nonbinder has `compatibility_mask=True`
+        and `binder_label == 0`: eligible for compatibility supervision,
+        ineligible for conditional denoising. Do not conflate the two.
+        """
+        if self.conditional_denoising_eligibility == "binary_binders_only":
+            return item.binder_label == 1
+        # `all_filtered_rows` defers to the stage's dataset filter. Every row that
+        # reached this collator was already admitted by it.
+        return True
+
+    def _conditional_denoising_eligibility_mask(
+        self,
+        batch_records: Sequence[OASRecord],
+    ) -> list[bool]:
+        """
+        Resolve per-row conditional-denoising eligibility for one batch.
+
+        A zero-eligible batch means different things under the two policies. An
+        all-nonbinder batch is legitimate under `binary_binders_only` and must
+        still contribute compatibility supervision, so it is counted and logged
+        by the trainer rather than raised here. Under `all_filtered_rows` every
+        admitted row is eligible by construction, so zero eligible rows in a
+        nonempty batch can only mean incorrect wiring and raises immediately.
+        """
+        eligible = [self._is_conditional_denoising_eligible(item) for item in batch_records]
+        if (
+            batch_records
+            and not any(eligible)
+            and self.conditional_denoising_eligibility == "all_filtered_rows"
+        ):
+            raise ValueError(
+                "conditional_denoising_eligibility='all_filtered_rows' produced zero "
+                f"eligible rows in a nonempty batch of {len(batch_records)}. Under this "
+                "policy every row admitted by the stage's dataset filter is eligible, so "
+                "this can only mean incorrect wiring."
+            )
+        return eligible
 
     def _build_antibody_antigen_batch(
         self,
@@ -1108,6 +1216,7 @@ class AntibodyAntigenCollator(MLMCollator):
                 sequence_antigen=donor.sequence_antigen,
                 antigen_length=donor.antigen_length,
                 target_key=donor.target_key,
+                canonical_target_id=donor.canonical_target_id,
                 target_name=donor.target_name,
                 target_pdb=donor.target_pdb,
                 target_uniprot=donor.target_uniprot,
@@ -1300,6 +1409,32 @@ class AntibodyAntigenCollator(MLMCollator):
             antibody_input_ids,
             effective_batch,
         )
+
+        # Conditional-denoising eligibility is applied AFTER `_mask_tokens` and
+        # BEFORE `_build_hcdr3_metadata`. Both halves of that sandwich matter.
+        #
+        # RNG: `_mask_tokens` draws per selected position, in row order. Applying
+        # eligibility afterwards leaves the stream untouched, which is what makes
+        # eligible-row output byte-identical under a fixed seed. Filtering rows
+        # earlier would shift every subsequent draw.
+        #
+        # Metadata: `_build_hcdr3_metadata` derives `hcdr3_target_mask` from
+        # `antibody_target_mask`. Clearing labels without also clearing the target
+        # mask would leave HCDR3 target counts and mask-fraction bins reporting
+        # positions that contribute no loss, silently corrupting the calibration
+        # bins guide training depends on.
+        conditional_denoising_eligible = self._conditional_denoising_eligibility_mask(
+            effective_batch
+        )
+        for row_idx, is_eligible in enumerate(conditional_denoising_eligible):
+            if is_eligible:
+                continue
+            # The corrupted input is deliberately left unchanged, so compatibility
+            # still trains on noisy states. Compatibility and strength labels and
+            # masks are likewise untouched.
+            antibody_labels[row_idx, :] = MLM_IGNORE_INDEX
+            antibody_target_mask[row_idx, :] = False
+
         hcdr3_metadata = self._build_hcdr3_metadata(
             antibody_input_ids,
             effective_batch,
@@ -1315,6 +1450,9 @@ class AntibodyAntigenCollator(MLMCollator):
             "compatibility_labels": torch.tensor(compatibility_labels, dtype=torch.long),
             "compatibility_mask": torch.tensor(compatibility_mask, dtype=torch.bool),
             "is_shuffled_antigen": torch.tensor(is_shuffled_antigen, dtype=torch.bool),
+            "conditional_denoising_eligible": torch.tensor(
+                conditional_denoising_eligible, dtype=torch.bool
+            ),
             **self._build_strength_targets(effective_batch, is_shuffled_antigen),
             **(
                 self._build_length_query(effective_batch, is_shuffled_antigen)
@@ -1323,6 +1461,9 @@ class AntibodyAntigenCollator(MLMCollator):
             ),
             "record_ids": [item.record_id for item in effective_batch],
             "target_keys": [item.target_key for item in effective_batch],
+            # Grouping metadata for anything that must not split one biological
+            # target across groups. `target_keys` stays for existing consumers.
+            "canonical_target_ids": [item.canonical_target_id for item in effective_batch],
             "dataset_names": [item.dataset_name for item in effective_batch],
             "antibody_format_groups": [self._antibody_format_group(item) for item in effective_batch],
             "antigen_length_buckets": [self._antigen_bucket(item) for item in effective_batch],

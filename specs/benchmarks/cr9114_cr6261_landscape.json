@@ -1,0 +1,106 @@
+{
+  "candidate_source_url": "https://elifesciences.org/articles/71393",
+  "candidate_source_url_verified": false,
+  "dataset_name": "cr9114_cr6261_landscape",
+  "files": [],
+  "license": "TODO(owner)",
+  "notes": "J05a records format only. No file has been downloaded, hashed, or inspected in this repository. The construct-availability question decides whether the assay records carry an ExactAssayedConstruct or a RegisteredNullConstruct; a UniProt full-length sequence is never an acceptable answer.",
+  "owner_decisions": [
+    {
+      "key": "assay_direction_and_units",
+      "question": "What quantity, unit, and direction (higher_is_stronger / lower_is_stronger) does the released measurement column carry?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "assayed_construct_availability",
+      "question": "Do the release artifacts contain the exact assayed HA/antigen construct sequences, or is a registered null the correct record?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "censoring_comparison_convention",
+      "question": "How do left/right/interval-censored and non-binding outcomes compare against each other and against point values?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "editable_site_table_source",
+      "question": "Which released artifact defines the 16 editable sites and their allowed residues?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "evaluator_custody",
+      "question": "Who holds the complete measurement map, and where does the training loader's firewall sit?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "file_hashes",
+      "question": "Supply the raw downloads so per-file byte sizes and SHA-256 hashes can be computed and recorded.",
+      "status": "unsupplied"
+    },
+    {
+      "key": "license",
+      "question": "What is the license of the retrieved artifacts, and does it permit redistribution of derived splits?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "pareto_reference_point",
+      "question": "What is the Pareto reference point for the multi-target optimization metric?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "release_version",
+      "question": "Which exact release/revision of this source is authoritative for the benchmark?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "replicate_aggregation_convention",
+      "question": "How are replicate measurements combined (or explicitly kept unaggregated) for the oracle?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "retrieval_date",
+      "question": "On what date were the authoritative files retrieved?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "revealed_label_budgets",
+      "question": "What revealed-label budgets, and what fit/development subdivision inside each budget?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "source_url",
+      "question": "Which download URL is authoritative? The candidate_source_url below is unverified.",
+      "status": "unsupplied"
+    },
+    {
+      "key": "split_seed",
+      "question": "Which single approved seed generates the random / mutation-distance / top-region-withheld manifests?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "uncertainty_near_optimal_convention",
+      "question": "What uncertainty-aware definition of near-optimal counts as a hit?",
+      "status": "unsupplied"
+    }
+  ],
+  "plan_assertions": [
+    {
+      "claim": "The CR9114/CR6261 combinatorial landscapes have 16 editable sites, each with two allowed residues.",
+      "source": "docs/PLAN-steering-prerequisites.md (J05)",
+      "verified": false
+    },
+    {
+      "claim": "Replicate measurements and nonbinding/censored outcomes are released and must not be coerced to a KD.",
+      "source": "docs/PLAN-steering-prerequisites.md (J05)",
+      "verified": false
+    },
+    {
+      "claim": "If the exact assayed antigen construct sequences cannot be reconstructed from authoritative artifacts, the absence is registered and only the target-specific null-condition fallback is permitted.",
+      "source": "docs/PLAN-steering-prerequisites.md (J05)",
+      "verified": false
+    }
+  ],
+  "release_version": "TODO(owner)",
+  "retrieval_date": "TODO(owner)",
+  "schema_version": "1",
+  "source_url": "TODO(owner)"
+}

@@ -1,0 +1,81 @@
+{
+  "candidate_source_url": "https://papers.nips.cc/paper_files/paper/2023/hash/8339dacd9df7ffe9623760f74169dd1e-Abstract-Datasets_and_Benchmarks.html",
+  "candidate_source_url_verified": false,
+  "dataset_name": "avida_hil6",
+  "files": [],
+  "license": "TODO(owner)",
+  "notes": "J05a records format only. The splitter and the AUPRC/prevalence baselines are J05c and are deliberately absent.",
+  "owner_decisions": [
+    {
+      "key": "assay_direction_and_units",
+      "question": "What quantity, unit, and direction (higher_is_stronger / lower_is_stronger) does the released measurement column carry?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "construct_vs_reference_sequences",
+      "question": "Are the released antigen sequences the exact assayed constructs, or reference sequences requiring a registered null?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "file_hashes",
+      "question": "Supply the raw downloads so per-file byte sizes and SHA-256 hashes can be computed and recorded.",
+      "status": "unsupplied"
+    },
+    {
+      "key": "inner_development_split_seed",
+      "question": "Which seed derives the inner development-mutant split from the official training partition only?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "label_switching_subset_definition",
+      "question": "What exactly qualifies a VHH/antigen pair for the label-switching subset?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "license",
+      "question": "What is the license of the retrieved artifacts, and does it permit redistribution of derived splits?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "official_split_artifact",
+      "question": "Which released file defines the official antigen-mutant split?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "release_version",
+      "question": "Which exact release/revision of this source is authoritative for the benchmark?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "retrieval_date",
+      "question": "On what date were the authoritative files retrieved?",
+      "status": "unsupplied"
+    },
+    {
+      "key": "source_url",
+      "question": "Which download URL is authoritative? The candidate_source_url below is unverified.",
+      "status": "unsupplied"
+    },
+    {
+      "key": "vhh_cluster_definition",
+      "question": "What clustering method and identity threshold define the final VHH sequence clusters?",
+      "status": "unsupplied"
+    }
+  ],
+  "plan_assertions": [
+    {
+      "claim": "AVIDa-hIL6 provides a wild-type antigen plus 30 mutant antigen sequences and an official antigen-mutant split.",
+      "source": "docs/PLAN-steering-prerequisites.md (J05)",
+      "verified": false
+    },
+    {
+      "claim": "Exact VHH and antigen sequences are released and are the authoritative inputs; a FLAb-style mirror may not erase assay fields.",
+      "source": "docs/PLAN-steering-prerequisites.md (J05)",
+      "verified": false
+    }
+  ],
+  "release_version": "TODO(owner)",
+  "retrieval_date": "TODO(owner)",
+  "schema_version": "1",
+  "source_url": "TODO(owner)"
+}

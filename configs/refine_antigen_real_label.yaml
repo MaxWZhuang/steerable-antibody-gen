@@ -32,6 +32,22 @@ mask_probability: 0.10
 hcdr3_span_probability: 0.0
 hcdr3_span_min: 3
 hcdr3_span_max: 8
+# Which rows contribute ANTIGEN-CONDITIONED MLM targets. Stage 3 restricts this to
+# measured binders: a measured NONBINDER must not become a positive reconstruction
+# target under the antigen it is labeled not to bind. Nonbinders still contribute
+# class-0 compatibility supervision, and their corrupted input is unchanged.
+#
+# Set explicitly rather than left to the stage default, because the two policies
+# produce different training populations from otherwise identical-looking configs.
+# Stage-3 MLM loss is NOT comparable across this setting -- re-baseline rather than
+# compare, and treat any regression budget defined against a pre-change number as
+# void. Resume against a populated output dir is unsafe until run fingerprinting
+# can reject the mismatch (J03); use a fresh output dir or --no-resume-from-last.
+#
+# Contract:  specs/conditional_denoising_eligibility.md
+# Rationale: specs/decisions/0001-conditional-denoising-eligibility.md
+conditional_denoising_eligibility: binary_binders_only
+
 hcdr3_mask_mode: sampled_span
 mask_replacement_strategy: bert
 shuffle_pair_probability: 0.0
