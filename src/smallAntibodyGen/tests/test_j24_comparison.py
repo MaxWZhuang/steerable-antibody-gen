@@ -38,6 +38,8 @@ def _arm(**overrides):
         throughput_sequences_per_second=100.0,
         cache_build_seconds=0.0,
         seeds=3,
+        total_parameters=10_492_674,
+        trainable_parameters=10_492_674,
     )
     base.update(overrides)
     return base
@@ -297,3 +299,34 @@ def test_end_to_end_writes_the_predeclared_schema(cmp_mod, tmp_path):
     # cannot tell whether they were predeclared or fitted.
     assert report["margins"]["auprc"] == 0.02
     assert "sensor" in report["scope"]
+
+
+def test_parameter_counts_are_required_of_both_arms(cmp_mod):
+    """
+    The arms differ in what TRAINS, not only in what the encoder represents: the
+    scratch antigen encoder is trainable and the ESM backbone is frozen. Both
+    counts are mandatory so that asymmetry is visible in the numbers, and so the
+    claim stays "this encoder package works better under the intended training
+    regime" rather than the stronger "pretraining helps".
+    """
+    arm = _arm()
+    del arm["trainable_parameters"]
+    with pytest.raises(cmp_mod.ComparisonError, match="trainable_parameters"):
+        cmp_mod.decide({"scratch": _arm(), "esm": arm}, **MARGINS)
+
+
+def test_the_report_states_what_the_result_does_not_license(cmp_mod, tmp_path):
+    """The claim limit travels with the report, not just with the protocol doc."""
+    results = tmp_path / "r.json"
+    results.write_text(json.dumps({"scratch": _arm(), "esm": _arm()}), encoding="utf-8")
+    out = tmp_path / "report.json"
+    assert cmp_mod.main([
+        "--results", str(results),
+        "--auprc-margin", "0.02",
+        "--calibration-margin", "0.02",
+        "--indistinguishable-within", "0.01",
+        "--output-json", str(out),
+    ]) == 0
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert "does not isolate the effect of" in report["claim_limit"]
+    assert "training regime" in report["claim_limit"]

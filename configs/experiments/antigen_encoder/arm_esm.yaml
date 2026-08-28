@@ -77,6 +77,12 @@ antigen_encoder:
   esm_model_name: facebook/esm2_t6_8M_UR50D
   antigen_max_length: 1024      # MUST equal the scratch arm's; one axis
   finetune: frozen              # J24 adds no LoRA -- that is a later one-axis arm
+  # NOTE ON THE CLAIM: the scratch arm's antigen encoder TRAINS and this one is
+  # frozen, so the arms differ in training regime as well as in representation.
+  # A win here means 'this encoder package works better under the intended
+  # training regime', NOT 'pretraining helps' -- isolating pretraining would
+  # need a trainable-ESM or frozen-scratch arm, which J24 does not run. Both
+  # total and trainable parameter counts are reported for each arm.
   # The backbone is frozen, so only the projection, cross-attention, fusion and
   # heads train. Memory is not the obstacle: measured 816 MiB at 288/1024 batch
   # 16 against the scratch arm's 1842, because a frozen backbone stores no

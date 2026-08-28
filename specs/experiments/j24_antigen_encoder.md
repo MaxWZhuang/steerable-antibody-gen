@@ -18,6 +18,14 @@ better held-out HCDR3 choices for a specific target and controlled contrast anti
 a J24 result as evidence for that claim is the main way this experiment can be misused, so the
 report carries the distinction in its `scope` field and the comparison command prints it.
 
+**What the result licenses, precisely.** The scratch antigen encoder trains; the ESM backbone
+is frozen. The arms therefore differ in **training regime** as well as in representation, so a
+win says *this encoder package works better under the intended training regime*. It does **not**
+isolate the effect of pretraining — that would require a trainable-ESM or frozen-scratch arm,
+which J24 deliberately does not run. The report carries this as `claim_limit`, and both
+`total_parameters` and `trainable_parameters` are required per arm so the asymmetry is visible
+in the numbers rather than only in the prose.
+
 ## 3. Design constraints
 
 Each is a property some mechanism enforces, not an intention.
@@ -101,6 +109,8 @@ stores no gradients, optimizer state, or backward activations.
 | `throughput_sequences_per_second` | From the timing-only calibration |
 | `cache_build_seconds` | Frozen-antigen cache build cost |
 | `seeds` | Seed count; <3 is refused |
+| `total_parameters` | All parameters, trainable or not |
+| `trainable_parameters` | Parameters receiving gradients; the arms differ here by design |
 
 The report also records the margins it was judged under, the two config paths, and the keys
 that differed between them — so a later reader can check the comparison was one-axis without
