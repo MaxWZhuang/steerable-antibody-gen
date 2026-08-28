@@ -9,7 +9,10 @@ from typing import Any, Sequence
 import torch
 
 from smallAntibodyGen.tokenizer import AminoAcidTokenizer
-from smallAntibodyGen.antigen_tokenization import build_antigen_tokenizer
+from smallAntibodyGen.antigen_tokenization import (
+    build_antigen_tokenizer,
+    resolve_antigen_encode_max_length,
+)
 
 
 CANONICAL_AA = "ACDEFGHIKLMNPQRSTVWY"
@@ -468,10 +471,11 @@ class FixedLengthHCDR3Infiller:
             tokenizer=tokenizer,
             esm_model_name=esm_model_name,
         )
-        self._antigen_encode_max_length = (
-            max_length
-            if antigen_encoder_type == "scratch"
-            else (antigen_max_length if antigen_max_length is not None else max_length)
+        # AB-07: one resolver, no per-call-site copy of the rule. The scratch
+        # branch used to clamp the antigen to the ANTIBODY max_length, which is
+        # what made `antigen_max_length` inert on that path.
+        self._antigen_encode_max_length = resolve_antigen_encode_max_length(
+            antigen_max_length, max_length
         )
 
         # External-guidance seam. When ``guidance_model`` is None the infiller
@@ -1344,10 +1348,11 @@ class AntigenCompatibilityScorer:
             tokenizer=tokenizer,
             esm_model_name=esm_model_name,
         )
-        self._antigen_encode_max_length = (
-            max_length
-            if antigen_encoder_type == "scratch"
-            else (antigen_max_length if antigen_max_length is not None else max_length)
+        # AB-07: one resolver, no per-call-site copy of the rule. The scratch
+        # branch used to clamp the antigen to the ANTIBODY max_length, which is
+        # what made `antigen_max_length` inert on that path.
+        self._antigen_encode_max_length = resolve_antigen_encode_max_length(
+            antigen_max_length, max_length
         )
 
     def _encode_antibody(self, record: Any, heavy_sequence: str) -> tuple[torch.Tensor, torch.Tensor]:

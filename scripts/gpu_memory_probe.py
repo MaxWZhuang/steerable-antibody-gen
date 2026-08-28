@@ -15,12 +15,13 @@ anything about data quality; pair it with the census.
 
 Two coupling facts this probe surfaces, both easy to get wrong:
 
-1. On `antigen_encoder_type="scratch"` the collator caps the antigen at the
-   ANTIBODY `max_length` and ignores `antigen_max_length` entirely. So on that
-   path the two limits are not independent, and `--coupled` measures the
-   configuration the code actually produces today. `--decoupled` measures what
-   raising the antigen limit alone WOULD cost, which is the number the owner
-   needs in order to judge whether fixing the coupling is affordable.
+1. The two streams size independently since AB-07: the antigen encoder is built
+   with `config.effective_antigen_max_length` and the collator truncates to the
+   same number. `--pairing coupled` measures the symmetric configuration
+   (antigen budget == antibody budget); `--pairing decoupled` measures the full
+   cross product, which is what the owner needs in order to price a long antigen
+   context against a short antibody one. Before AB-07 every decoupled pair was
+   unbuildable and the sweep reported `StructuralLimit` for all of them.
 2. `use_amp` changes peak memory materially and is a per-run config field, so
    the probe reports both settings rather than picking one.
 
@@ -168,12 +169,27 @@ def probe_once(
         result["ok"] = True
         result["loss_finite"] = bool(torch.isfinite(loss).item())
         if device.type == "cuda":
-            result["peak_allocated_mib"] = round(
-                torch.cuda.max_memory_allocated(device) / BYTES_PER_MIB, 1
-            )
-            result["peak_reserved_mib"] = round(
-                torch.cuda.max_memory_reserved(device) / BYTES_PER_MIB, 1
-            )
+            peak_allocated = torch.cuda.max_memory_allocated(device) / BYTES_PER_MIB
+            peak_reserved = torch.cuda.max_memory_reserved(device) / BYTES_PER_MIB
+            total = torch.cuda.get_device_properties(device).total_memory / BYTES_PER_MIB
+            result["peak_allocated_mib"] = round(peak_allocated, 1)
+            result["peak_reserved_mib"] = round(peak_reserved, 1)
+            # `ok: True` is NOT the same as "fits". On Windows the NVIDIA driver
+            # (WDDM, r536+) silently spills CUDA allocations into shared system
+            # memory over PCIe instead of raising OutOfMemoryError, so a
+            # configuration needing 5.6 GB completes on a 4 GB card -- at a speed
+            # that makes it useless for training. Measured here: ab=288/ag=2048/
+            # bs=32 reported 5628.6 MiB allocated on a 4095.7 MiB device.
+            # Without this flag the row reads as a success and someone budgets
+            # against it.
+            result["device_total_mib"] = round(total, 1)
+            result["fits_in_device_memory"] = bool(peak_reserved <= total)
+            if not result["fits_in_device_memory"]:
+                result["warning"] = (
+                    f"peak {peak_reserved:.0f} MiB exceeds device memory "
+                    f"{total:.0f} MiB; the driver spilled to shared system RAM, "
+                    "so this ran but does not fit"
+                )
     except torch.cuda.OutOfMemoryError as exc:
         # An OOM is a RESULT, not a crash: "this limit does not fit" is exactly
         # what the owner needs recorded, so it is captured rather than raised.
@@ -272,11 +288,15 @@ def main(argv: list[str] | None = None) -> int:
                     tokenizer=tokenizer,
                 )
                 results.append(row)
-                status = (
-                    f"{row.get('peak_reserved_mib', '-')} MiB reserved"
-                    if row["ok"]
-                    else f"FAILED ({row.get('error')})"
-                )
+                if not row["ok"]:
+                    status = f"FAILED ({row.get('error')})"
+                elif row.get("fits_in_device_memory") is False:
+                    status = (
+                        f"{row['peak_reserved_mib']} MiB reserved  "
+                        f"** DOES NOT FIT (spilled to system RAM) **"
+                    )
+                else:
+                    status = f"{row.get('peak_reserved_mib', '-')} MiB reserved"
                 print(
                     f"  amp={'on ' if use_amp else 'off'} "
                     f"ab={max_length:>4} ag={antigen_max_length:>4} "

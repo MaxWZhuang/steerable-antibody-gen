@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn.functional as F
 from torch import nn
+from smallAntibodyGen.antigen_tokenization import resolve_antigen_encode_max_length
 
 @dataclass
 class MLMConfig: 
@@ -64,10 +65,17 @@ class MLMConfig:
         esm_model_name (str):
             HuggingFace model id for the ESM backbone used when
             ``antigen_encoder_type == "esm"`` (default ESM-2 8M).
-        antigen_max_length (int):
-            Maximum antigen token length for the ESM antigen stream. Independent
+        antigen_max_length (int | None):
+            Total antigen token budget, INCLUDING ``[CLS]``/``[EOS]``, for BOTH
+            antigen encoder types. ``None`` inherits ``max_length``. Independent
             of ``max_length`` (which bounds the antibody stream) because the two
             encoders are separate and only interact through cross-attention.
+
+            Before AB-07 this bounded the ESM stream only: the scratch stream was
+            built from the same ``MLMConfig`` as the antibody encoder and so
+            inherited ``max_length`` no matter what this said. On the real ASD
+            corpus that truncated the antigen for 87.31% of training rows
+            (antigen tokens: p50 610, max 2042, against a 192 window).
         antigen_encoder_finetune (str):
             How the ESM antigen encoder is trained: ``"frozen"`` (features only,
             projection/cross-attention/heads trainable) or ``"lora"`` (LoRA
@@ -107,7 +115,12 @@ class MLMConfig:
     # fields are inert until AntibodyAntigenCrossAttention branches on them.
     antigen_encoder_type: str = "scratch"
     esm_model_name: str = "facebook/esm2_t6_8M_UR50D"
-    antigen_max_length: int = 512
+    # None means "inherit max_length". Before AB-07 this defaulted to 512 and was
+    # read NOWHERE except its own validator, so the scratch antigen encoder was
+    # silently built at the antibody max_length. The sentinel keeps that exact
+    # behavior as the default while making the knob real when it is set. See
+    # `effective_antigen_max_length`.
+    antigen_max_length: int | None = None
     antigen_encoder_finetune: str = "frozen"
     lora_r: int = 8
     lora_alpha: int = 16
@@ -168,6 +181,18 @@ class MLMConfig:
     # keeps the stream's variance roughly constant from layer 0 to layer N.
     scale_residual_init: bool = True
 
+    @property
+    def effective_antigen_max_length(self) -> int:
+        """
+        The antigen stream's total token budget, with the ``None`` sentinel resolved.
+
+        Read this rather than ``antigen_max_length`` anywhere the number is
+        actually used, so the "None inherits max_length" rule has one home.
+        """
+        return resolve_antigen_encode_max_length(
+            self.antigen_max_length, self.max_length
+        )
+
     def validate(self) -> None:
         """
         Validate that the configuration is internally consistent.
@@ -200,8 +225,17 @@ class MLMConfig:
             raise ValueError("antigen_encoder_type must be either 'scratch' or 'esm'")
         if self.antigen_encoder_finetune not in {"frozen", "lora"}:
             raise ValueError("antigen_encoder_finetune must be either 'frozen' or 'lora'")
-        if not (0 < self.antigen_max_length <= 1024):
-            raise ValueError("antigen_max_length must be in (0, 1024]")
+        # The old ceiling was 1024, which no comment or commit message justified
+        # and which the real corpus exceeds: measured antigen lengths reach 2042
+        # tokens, so 1024 could not express a setting that covers the data. The
+        # ceiling is now a sanity bound on the positional table (which allocates
+        # `n + 1` rows), not a modeling opinion -- 8192 antigen positions at
+        # d_model 256 is ~2M parameters, large enough to notice and small enough
+        # to be a typo guard rather than a constraint.
+        if self.antigen_max_length is not None and not (
+            0 < self.antigen_max_length <= 8192
+        ):
+            raise ValueError("antigen_max_length must be None or in (0, 8192]")
         if self.lora_r <= 0:
             raise ValueError("lora_r must be > 0")
         if self.lora_alpha <= 0:
@@ -389,9 +423,24 @@ class TransformerSequenceEncoder(nn.Module):
     higher-level models decide how to fuse or decode the resulting features.
     """
 
-    def __init__(self, config: MLMConfig) -> None:
+    def __init__(self, config: MLMConfig, *, max_length: int | None = None) -> None:
+        """
+        Args:
+            config: The shared architecture config.
+            max_length:
+                Token budget for THIS encoder, overriding ``config.max_length``.
+                The dual-stream model builds two encoders from one config, and
+                before AB-07 both were forced to the antibody budget because this
+                override did not exist. ``None`` keeps ``config.max_length``, so
+                every existing caller is unchanged.
+
+                It sizes the positional table AND the input-length guard
+                together; splitting those two is how a model accepts a sequence
+                it has no position for.
+        """
         super().__init__()
         self.config = config
+        self.max_length = config.max_length if max_length is None else max_length
 
         self.token_embedding = nn.Embedding(
             num_embeddings=config.vocab_size,
@@ -399,7 +448,7 @@ class TransformerSequenceEncoder(nn.Module):
             padding_idx=config.pad_token_id,
         )
         self.position_embedding = LearnedPositionalEmbedding(
-            max_length=config.max_length,
+            max_length=self.max_length,
             d_model=config.d_model,
         )
         self.embed_drop = nn.Dropout(config.dropout)
@@ -443,9 +492,9 @@ class TransformerSequenceEncoder(nn.Module):
             raise ValueError("input_ids must have shape [batch_size, seq_len]")
 
         _, seq_len = input_ids.shape
-        if seq_len > self.config.max_length:
+        if seq_len > self.max_length:
             raise ValueError(
-                f"Input sequence length {seq_len} has to be less than the max length, equal to {self.config.max_length}"
+                f"Input sequence length {seq_len} has to be less than the max length, equal to {self.max_length}"
             )
 
         if attention_mask is None:
@@ -823,7 +872,14 @@ class AntibodyAntigenCrossAttention(nn.Module):
 
             self.antigen_encoder = ESMAntigenEncoder(config)
         else:
-            self.antigen_encoder = TransformerSequenceEncoder(config)
+            # AB-07: the antigen stream gets its OWN token budget. Passing
+            # `config` alone built this encoder at the antibody `max_length`,
+            # which is why `antigen_max_length` was inert on the scratch path.
+            # The same number bounds the collator's tokenization, so the
+            # positional table and the encoded input cannot disagree.
+            self.antigen_encoder = TransformerSequenceEncoder(
+                config, max_length=config.effective_antigen_max_length
+            )
 
         self.antibody_to_antigen = nn.MultiheadAttention(
             embed_dim=config.d_model,

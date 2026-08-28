@@ -49,14 +49,15 @@ def test_probe_runs_a_forward_and_backward_on_cpu(probe):
     assert "peak_reserved_mib" not in result
 
 
-def test_antigen_longer_than_max_length_is_recorded_as_a_structural_limit(probe):
+def test_an_antigen_longer_than_the_antibody_context_now_builds_and_runs(probe):
     """
-    On the scratch path the antigen encoder is built from the SAME config as the
-    antibody encoder, so it inherits the antibody `max_length` and rejects any
-    longer antigen. That is AB-07, and the probe's job is to record it as a
-    result the owner can read -- not to crash the sweep partway through, and not
-    to be confused with running out of memory. The distinction is what tells the
-    owner whether a smaller batch would help (it would not).
+    AB-07, FIXED. This test previously asserted the opposite.
+
+    The antigen encoder used to be built from the SAME config as the antibody
+    encoder, so it inherited the antibody `max_length` and a longer antigen was
+    rejected outright -- `antigen_max_length` was inert. It now gets its own
+    token budget and its own positional table, so the decoupled configuration
+    the owner needs to evaluate is measurable rather than unbuildable.
     """
     result = probe.probe_once(
         max_length=32,
@@ -66,14 +67,38 @@ def test_antigen_longer_than_max_length_is_recorded_as_a_structural_limit(probe)
         device=torch.device("cpu"),
         tokenizer=AminoAcidTokenizer(),
     )
+    assert result["ok"] is True, result.get("error_detail")
+    assert result["loss_finite"] is True
+
+
+def test_a_structural_limit_is_still_recorded_rather_than_raised(probe):
+    """
+    The probe's error contract survives the fix: a configuration that cannot be
+    built is a RESULT the owner can read, not a crash that ends the sweep, and it
+    stays distinguishable from an out-of-memory failure -- which is what tells
+    the owner whether a smaller batch would help (for a structural limit it would
+    not).
+    """
+    result = probe.probe_once(
+        max_length=32,
+        antigen_max_length=99_999,
+        batch_size=2,
+        use_amp=False,
+        device=torch.device("cpu"),
+        tokenizer=AminoAcidTokenizer(),
+    )
     assert result["ok"] is False
     assert result["error"] == "StructuralLimit"
-    assert "64" in result["error_detail"]
 
 
-def test_antigen_max_length_above_the_validator_cap_is_structural(probe):
-    """`MLMConfig` caps antigen_max_length at 1024; the census measured antigens
-    up to 2042 tokens, so this ceiling is reachable from real data."""
+def test_the_antigen_budget_now_covers_the_measured_corpus(probe):
+    """
+    AB-07, FIXED. This test previously asserted that 2048 was rejected.
+
+    `MLMConfig` capped `antigen_max_length` at 1024 while the census measured
+    antigens up to 2042 tokens, so no legal setting covered the corpus. 2048 must
+    now build, or the fix does not reach the data that motivated it.
+    """
     result = probe.probe_once(
         max_length=2048,
         antigen_max_length=2048,
@@ -82,8 +107,7 @@ def test_antigen_max_length_above_the_validator_cap_is_structural(probe):
         device=torch.device("cpu"),
         tokenizer=AminoAcidTokenizer(),
     )
-    assert result["ok"] is False
-    assert result["error"] == "StructuralLimit"
+    assert result["ok"] is True, result.get("error_detail")
 
 
 def test_every_row_carries_the_configuration_it_measured(probe):

@@ -10,6 +10,15 @@
 # Watch these metrics (logged as val_hcdr3_*): hcdr3_token_acc and hcdr3_span_exact_match.
 # When ranking generated candidates across proposed lengths, use mean_log_probability, not
 # the raw log-probability sum (raw sum grows with length).
+#
+# READ THE *_novel_* METRICS, NOT THE HEADLINE ONES (BUGLOG AB-11). Measured on the real
+# corpus: 78.60% of this stage's val rows (1,403/1,785) have a heavy CDR3 that appears
+# VERBATIM in train, because the split is keyed on the antigen while this stage predicts the
+# antibody. hcdr3_span_exact_match is therefore ~79% reachable by recall alone. With
+# report_novel_hcdr3_metrics: true the same metrics are also reported over the ~382 rows whose
+# HCDR3 is unseen -- that is the number that supports a generalization claim, and its n is
+# small, so quote hcdr3_novel_valid_spans beside it and treat the result as diagnostic rather
+# than as a precise estimate. Evidence: outputs/J02-and-Ruling4-corpus-evidence.md.
 training_stage: antigen_hcdr3_infill_refine
 data_path: data/processed/antibody_antigen/antibody_antigen.jsonl.gz
 init_checkpoint: checkpoints/mlm_antigen_real_label_v4/best.pt
@@ -40,6 +49,10 @@ hcdr3_span_max: 8
 # Contract:  specs/conditional_denoising_eligibility.md
 # Rationale: specs/decisions/0001-conditional-denoising-eligibility.md
 conditional_denoising_eligibility: all_filtered_rows
+
+# Report hcdr3_* a second time over val rows whose HCDR3 is absent from train (AB-11).
+# Additive: no training behavior, no RNG draw, and no existing metric key changes.
+report_novel_hcdr3_metrics: true
 
 hcdr3_mask_mode: full_span
 mask_replacement_strategy: always_mask
