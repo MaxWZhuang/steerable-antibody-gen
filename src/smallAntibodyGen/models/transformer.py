@@ -203,3 +203,199 @@ def validate_head_count(d_model: int, n_heads: int, label: str) -> None:
             f"{label}={n_heads} does not divide d_model={d_model} "
             f"(head_dim would be {d_model / n_heads})"
         )
+
+
+# --------------------------------------------------------------------------- #
+# J10b: rotary positions and non-causal self-attention
+#
+# Utilities only -- nothing here is wired into a model. Integration is J10c.
+# --------------------------------------------------------------------------- #
+def position_ids_from_mask(attention_mask: torch.Tensor) -> torch.Tensor:
+    """
+    Position ids for real tokens, counting from 1, with padding at 0.
+
+    Deliberately the SAME convention as ``LearnedPositionalEmbedding``: a cumsum
+    over the attention mask, so padding consumes no position. Switching
+    ``position_encoding`` from learned to rope must change how position is
+    REPRESENTED, not which position a token gets -- otherwise the bakeoff would
+    be comparing two things at once, and the difference would be invisible
+    because both arms would look internally consistent.
+    """
+    if attention_mask.dim() != 2:
+        raise ValueError("attention_mask must have shape [batch_size, seq_len]")
+    position_ids = attention_mask.long().cumsum(dim=1)
+    return position_ids.masked_fill(attention_mask == 0, 0)
+
+
+class RotaryEmbedding(nn.Module):
+    """
+    Rotary position embedding (RoFormer).
+
+    Encodes absolute position by rotating each 2-dimensional slice of a head's
+    query and key vectors, with the useful consequence that the resulting
+    attention logit depends only on the RELATIVE offset between two positions.
+
+    Has **no learned parameters** -- ``inv_freq`` is a buffer, not a Parameter.
+    That is the point of listing it as an architecture candidate: it removes the
+    learned position table entirely, so a rope model has strictly fewer
+    parameters than a learned-position one and cannot run out of table at a
+    length it never saw. It does NOT by itself make the model good at unseen
+    lengths; nothing trains those positions.
+
+    ``head_dim`` must be even: the rotation acts on pairs of channels.
+    """
+
+    def __init__(self, head_dim: int, base: float = 10000.0) -> None:
+        super().__init__()
+        if head_dim % 2 != 0:
+            raise ValueError(
+                f"RoPE head_dim must be even (rotation acts on channel pairs); got {head_dim}"
+            )
+        self.head_dim = int(head_dim)
+        self.base = float(base)
+        inv_freq = 1.0 / (
+            self.base ** (torch.arange(0, self.head_dim, 2, dtype=torch.float32) / self.head_dim)
+        )
+        # A buffer, not a Parameter: it must move with the model and be saved,
+        # but never receive a gradient.
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
+
+    def forward(self, position_ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Args:
+            position_ids: ``[batch, seq]`` integer positions.
+
+        Returns:
+            ``(cos, sin)``, each ``[batch, 1, seq, head_dim]`` -- the head axis is
+            size 1 so they broadcast across heads.
+        """
+        positions = position_ids.to(self.inv_freq.dtype)
+        # [batch, seq, head_dim/2]
+        freqs = positions.unsqueeze(-1) * self.inv_freq
+        # Duplicate rather than interleave, matching `rotate_half` below. The two
+        # conventions are both valid and NOT interchangeable; mixing them is a
+        # silent correctness bug, so they live next to each other.
+        emb = torch.cat((freqs, freqs), dim=-1)
+        return emb.cos().unsqueeze(1), emb.sin().unsqueeze(1)
+
+
+def rotate_half(x: torch.Tensor) -> torch.Tensor:
+    """Rotate the halves of the last dimension: ``[a, b] -> [-b, a]``."""
+    half = x.shape[-1] // 2
+    x1, x2 = x[..., :half], x[..., half:]
+    return torch.cat((-x2, x1), dim=-1)
+
+
+def apply_rotary_pos_emb(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    cos: torch.Tensor,
+    sin: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Apply the rotation to queries and keys.
+
+    Values are deliberately NOT rotated: RoPE encodes position in the
+    query/key inner product, and rotating values would mix position into the
+    content being aggregated.
+    """
+    cos = cos.to(query.dtype)
+    sin = sin.to(query.dtype)
+    rotated_query = (query * cos) + (rotate_half(query) * sin)
+    rotated_key = (key * cos) + (rotate_half(key) * sin)
+    return rotated_query, rotated_key
+
+
+class RotarySelfAttention(nn.Module):
+    """
+    Non-causal multi-head self-attention with rotary positions.
+
+    Non-causal by construction: this is a masked language model, so a token must
+    see the whole sequence in both directions. There is no causal mask anywhere
+    in this class and a test asserts its absence -- a causal mask here would
+    quietly halve the context and still train.
+
+    Padding is handled by an explicit key-padding mask. A row with NO valid keys
+    would make softmax divide by zero and produce NaN, which then propagates
+    through the residual stream and poisons the whole batch; such rows are
+    detected and their output zeroed instead.
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int,
+        bias: bool = True,
+        dropout: float = 0.0,
+        rope_base: float = 10000.0,
+    ) -> None:
+        super().__init__()
+        validate_head_count(d_model, n_heads, "n_heads")
+        self.d_model = int(d_model)
+        self.n_heads = int(n_heads)
+        self.head_dim = self.d_model // self.n_heads
+        self.dropout = float(dropout)
+
+        self.q_proj = nn.Linear(d_model, d_model, bias=bias)
+        self.k_proj = nn.Linear(d_model, d_model, bias=bias)
+        self.v_proj = nn.Linear(d_model, d_model, bias=bias)
+        self.out_proj = nn.Linear(d_model, d_model, bias=bias)
+        self.rotary = RotaryEmbedding(self.head_dim, base=rope_base)
+
+    def _split_heads(self, x: torch.Tensor) -> torch.Tensor:
+        batch, seq, _ = x.shape
+        return x.view(batch, seq, self.n_heads, self.head_dim).transpose(1, 2)
+
+    def forward(
+        self,
+        hidden: torch.Tensor,
+        attention_mask: torch.Tensor,
+        position_ids: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """
+        Args:
+            hidden: ``[batch, seq, d_model]``.
+            attention_mask: ``[batch, seq]``, 1 for real tokens and 0 for padding.
+            position_ids: optional explicit positions; derived from the mask when
+                omitted, using the same convention as the learned table.
+        """
+        if hidden.dim() != 3:
+            raise ValueError("hidden must have shape [batch, seq, d_model]")
+        if attention_mask.shape != hidden.shape[:2]:
+            raise ValueError("attention_mask must have shape [batch, seq]")
+
+        if position_ids is None:
+            position_ids = position_ids_from_mask(attention_mask)
+
+        query = self._split_heads(self.q_proj(hidden))
+        key = self._split_heads(self.k_proj(hidden))
+        value = self._split_heads(self.v_proj(hidden))
+
+        cos, sin = self.rotary(position_ids)
+        query, key = apply_rotary_pos_emb(query, key, cos, sin)
+
+        # [batch, 1, 1, seq]; True means "may be attended to". No causal term.
+        keep = attention_mask.bool()[:, None, None, :]
+
+        # A row with no valid key would softmax over an all -inf row -> NaN, which
+        # then spreads through the residual stream into every OTHER example in the
+        # batch. Such rows get a permissive mask here and are zeroed after the
+        # output projection, so a fully padded example cannot poison its batch.
+        row_is_empty = ~attention_mask.bool().any(dim=1)          # [batch]
+        safe_keep = keep | row_is_empty[:, None, None, None]
+
+        context = torch.nn.functional.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            attn_mask=safe_keep,
+            dropout_p=self.dropout if self.training else 0.0,
+            is_causal=False,
+        )
+
+        batch, _, seq, _ = context.shape
+        merged = context.transpose(1, 2).reshape(batch, seq, self.d_model)
+        output = self.out_proj(merged)
+        # AFTER the projection, not before: out_proj has a bias, so zeroing the
+        # context alone would still leave a constant on a fully padded row.
+        return output.masked_fill(row_is_empty[:, None, None], 0.0)
