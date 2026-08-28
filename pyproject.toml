@@ -13,7 +13,7 @@ dependencies = [
     # ASD shards through `pandas.read_parquet`. Never imported by name, so no
     # import scan finds it -- it was an undeclared transitive requirement until
     # the Gate-0 review, and its absence made 11 tests skip silently while the
-    # suite still reported green (see outputs/GATE-0-review.md, finding 3).
+    # suite still reported green (found in the local Gate-0 review).
     "pyarrow>=14.0",
     "PyYAML>=6.0",
     "tabulate>=0.9",

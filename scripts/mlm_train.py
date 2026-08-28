@@ -3711,12 +3711,49 @@ def initialize_antigen_refine_from_checkpoint(
             return state
         return {k: v for k, v in state.items() if not k.startswith("antigen_encoder.")}
 
+    target_shapes = {k: tuple(v.shape) for k, v in model.state_dict().items()}
+    dropped_for_shape: list[str] = []
+
+    def _drop_shape_mismatches(state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """
+        Drop tensors whose shape does not match the model being warm-started.
+
+        `load_state_dict(strict=False)` tolerates MISSING and UNEXPECTED keys but
+        still raises on a shape mismatch, so a size difference has to be filtered
+        rather than relied on to be ignored.
+
+        This exists because the antigen encoder gained its own token budget
+        (AB-07). This function clones the antibody encoder into BOTH branches, so
+        with `antigen_max_length != max_length` the antigen positional table is a
+        different size than the antibody one it would be seeded from -- e.g.
+        [1025, 256] against the checkpoint's [289, 256] at 288/1024. Dropping it
+        leaves that table at fresh init, which is the honest outcome: positions
+        289..1024 have no antibody counterpart to copy, and the transformer stack
+        (the part that actually learned protein sequence structure) is still
+        warm-started.
+
+        Silent would be unacceptable here -- a partially warm-started encoder that
+        nobody was told about is indistinguishable from a fully warm-started one
+        in the loss curve -- so every dropped tensor is named on stdout below.
+        """
+        kept = {}
+        for key, value in state.items():
+            expected = target_shapes.get(key)
+            if expected is not None and tuple(value.shape) != expected:
+                dropped_for_shape.append(
+                    f"{key} (checkpoint {tuple(value.shape)} vs model {expected})"
+                )
+                continue
+            kept[key] = value
+        return kept
+
     has_dual_stream_weights = any(
         key.startswith("antibody_encoder.") for key in checkpoint_state_dict
     )
     if has_dual_stream_weights:
         incompatible = model.load_state_dict(
-            _drop_scratch_antigen(checkpoint_state_dict), strict=False
+            _drop_shape_mismatches(_drop_scratch_antigen(checkpoint_state_dict)),
+            strict=False,
         )
         reused_message = (
             "antibody_encoder.* + fusion/heads (ESM antigen kept at pretrained init)"
@@ -3726,7 +3763,8 @@ def initialize_antigen_refine_from_checkpoint(
     else:
         translated_state_dict = build_antigen_refine_init_state_dict(checkpoint_state_dict)
         incompatible = model.load_state_dict(
-            _drop_scratch_antigen(translated_state_dict), strict=False
+            _drop_shape_mismatches(_drop_scratch_antigen(translated_state_dict)),
+            strict=False,
         )
         reused_message = (
             "antibody_encoder.*, lm_head.* (ESM antigen kept at pretrained init)"
@@ -3742,6 +3780,11 @@ def initialize_antigen_refine_from_checkpoint(
         print(f"[checkpoint] antigen_refine missing keys (left randomly initialized): {missing}")
     if unexpected:
         print(f"[checkpoint] antigen_refine unexpected translated keys: {unexpected}")
+    if dropped_for_shape:
+        print(
+            "[checkpoint] antigen_refine NOT warm-started (shape mismatch, left at fresh "
+            f"init): {dropped_for_shape}"
+        )
 
     return checkpoint
 
