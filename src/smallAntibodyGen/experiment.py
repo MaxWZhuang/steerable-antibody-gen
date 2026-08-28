@@ -52,7 +52,7 @@ import json
 import os
 import subprocess
 from dataclasses import asdict, is_dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Iterable, Mapping, Sequence
 
 __all__ = [
@@ -60,6 +60,7 @@ __all__ = [
     "RUN_FINGERPRINT_KEY",
     "OPERATIONAL_ONLY_CONFIG_FIELDS",
     "PATHLIKE_CONFIG_FIELDS",
+    "is_absolute_on_any_platform",
     "SOURCE_ROOTS",
     "SOURCE_FILES",
     "CONTRACT_ROOTS",
@@ -274,6 +275,48 @@ def hash_file(path: str | Path, chunk_size: int = 1 << 20) -> str:
     return digest.hexdigest()
 
 
+def is_absolute_on_any_platform(value: str | Path) -> bool:
+    """
+    Is ``value`` an absolute path under EITHER POSIX or Windows rules?
+
+    ``os.path.isabs`` and ``Path.is_absolute`` answer only for the HOST os, which
+    makes every caller here host-dependent in exactly the way a fingerprint must
+    not be. On Windows ``Path("/scratch/corpus.gz").is_absolute()`` is ``False``
+    (no drive letter), so a POSIX scratch path is not recognized as external and
+    its machine-specific prefix is hashed into the objective fingerprint
+    verbatim; on POSIX ``Path("C:/scratch/corpus.gz").is_absolute()`` is
+    ``False`` and the same happens with a Windows path.
+
+    Either way two machines fingerprint the same logical run differently, so a
+    resume or warm-start is refused for a reason that has nothing to do with the
+    objective. Deciding absoluteness under both rule sets makes the answer a
+    property of the string rather than of the machine reading it.
+    """
+    text = str(value)
+    windows = PureWindowsPath(text)
+    # `PureWindowsPath.is_absolute()` requires BOTH a drive and a root, so it is
+    # False for the root-relative "/scratch" and "\scratch". `.root` is the
+    # discriminator that catches those, and it is also set for "C:/x", so it
+    # alone would suffice; the explicit is_absolute() calls document intent.
+    return (
+        PurePosixPath(text).is_absolute()
+        or windows.is_absolute()
+        or bool(windows.root)
+    )
+
+
+def _cross_platform_basename(text: str) -> str:
+    """
+    Last path component, splitting on BOTH separators.
+
+    ``Path("C:/data/corpus.gz").name`` is the whole string on POSIX, because a
+    backslash or drive letter is an ordinary character there -- so a Windows
+    path would keep its machine-specific prefix in the fingerprint on a Linux
+    box, which is the same defect in the other direction.
+    """
+    return text.replace("\\", "/").rstrip("/").rpartition("/")[2] or text
+
+
 def normalize_path_value(value: str | Path, repo_root: str | Path | None = None) -> str:
     """
     Turn a path into a machine-independent string.
@@ -286,18 +329,21 @@ def normalize_path_value(value: str | Path, repo_root: str | Path | None = None)
     text = str(value)
     if not text:
         return text
+    # Decide this from the ORIGINAL text: os.path.normpath rewrites separators
+    # into the host's flavor, which is exactly the host-dependence being removed.
+    absolute = is_absolute_on_any_platform(text)
     path = Path(os.path.normpath(text))
     if repo_root is not None:
         root = Path(repo_root)
         try:
             resolved_root = root.resolve()
-            resolved = path if path.is_absolute() else (resolved_root / path)
+            resolved = path if absolute else (resolved_root / path)
             resolved = Path(os.path.normpath(str(resolved)))
             return resolved.relative_to(resolved_root).as_posix()
         except (ValueError, OSError):
             pass
-    if path.is_absolute():
-        return path.name
+    if absolute:
+        return _cross_platform_basename(text)
     return PurePosixPath(path.as_posix()).as_posix()
 
 
@@ -318,7 +364,7 @@ def normalize_config_for_fingerprint(
             continue
         value = config[key]
         if isinstance(value, (str, Path)) and value:
-            if key in PATHLIKE_CONFIG_FIELDS or os.path.isabs(str(value)):
+            if key in PATHLIKE_CONFIG_FIELDS or is_absolute_on_any_platform(value):
                 value = normalize_path_value(value, repo_root)
             else:
                 value = str(value)

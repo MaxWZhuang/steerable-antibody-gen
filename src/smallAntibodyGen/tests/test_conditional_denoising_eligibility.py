@@ -824,21 +824,44 @@ def test_base_collator_output_is_byte_identical_to_the_pre_change_collator(
     """
     The weaker form of this test -- "all rows are eligible" on an all-binder
     fixture -- passes even if the base default is flipped to
-    `binary_binders_only`. This one loads the collator as it existed at HEAD~
-    and compares tensors, so it fails on any behavioral drift.
+    `binary_binders_only`. This one loads the collator as it existed BEFORE
+    J22c and compares tensors, so it fails on any behavioral drift.
+
+    The reference revision is pinned to a SHA on purpose. It was originally
+    spelled `HEAD`, which made the test self-invalidating: it compared the
+    working tree against the tip, so it could only pass while J22c was
+    uncommitted. The moment J22c landed (as `350d37a`), `HEAD` *became* the
+    changed collator and the diff went empty -- the guard reported success by
+    comparing the change against itself. A pinned pre-change SHA cannot drift,
+    and the assertion below re-proves that the fetched source really is
+    pre-change rather than trusting the revision name.
     """
     import importlib.util
     import subprocess
 
+    # `2dde1af` == "document steering design and add regression coverage", the
+    # commit immediately before J22c landed. Do not replace with HEAD/HEAD~.
+    PRE_CHANGE_REVISION = "2dde1afff7d2d4dba98f10fe85e853fe73e86abe"
+
     repo_root = project_root.parents[1]
     previous = subprocess.run(
-        ["git", "show", "HEAD:src/smallAntibodyGen/data/MLMCollator.py"],
+        ["git", "show", f"{PRE_CHANGE_REVISION}:src/smallAntibodyGen/data/MLMCollator.py"],
         cwd=repo_root,
         capture_output=True,
         text=True,
     )
     if previous.returncode != 0:
-        pytest.skip("pre-change MLMCollator.py is not retrievable from git")
+        pytest.skip(
+            f"pre-change MLMCollator.py is not retrievable at {PRE_CHANGE_REVISION} "
+            "(shallow clone or rewritten history)"
+        )
+
+    # The revision must actually predate the change, or this test is comparing
+    # the feature against itself -- the exact failure the SHA pin exists to stop.
+    assert "conditional_denoising_eligible" not in previous.stdout, (
+        f"{PRE_CHANGE_REVISION} already contains the eligibility change; "
+        "the pinned reference revision is wrong"
+    )
 
     legacy_path = tmp_path / "legacy_collator.py"
     legacy_path.write_text(previous.stdout, encoding="utf-8")

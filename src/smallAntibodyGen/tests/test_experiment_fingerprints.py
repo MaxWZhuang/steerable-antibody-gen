@@ -740,3 +740,47 @@ def test_fingerprint_payload_is_json_serializable(tmp_path: Path):
     repo = _make_repo(tmp_path / "repo")
     fp = _fingerprint(repo)
     assert json.loads(json.dumps(fp)) == fp
+
+
+@pytest.mark.parametrize(
+    "external",
+    [
+        "/scratch/run-a/corpus.jsonl.gz",       # POSIX absolute
+        "/var/folders/xyz/corpus.jsonl.gz",     # POSIX absolute, different prefix
+        "C:/scratch/run-a/corpus.jsonl.gz",     # Windows absolute, forward slashes
+        r"C:\scratch\run-a\corpus.jsonl.gz",   # Windows absolute, backslashes
+        r"\scratch\corpus.jsonl.gz",                   # Windows root-relative
+    ],
+)
+def test_external_paths_collapse_regardless_of_the_host_os(tmp_path: Path, external: str):
+    """
+    Absoluteness must be a property of the STRING, not of the machine reading it.
+
+    `os.path.isabs` / `Path.is_absolute` answer for the host only. On Windows
+    `Path("/scratch/corpus.gz").is_absolute()` is False (no drive letter), so a
+    POSIX scratch path was hashed into the objective fingerprint with its full
+    machine-specific prefix; on POSIX the same happened to "C:/scratch/...".
+    Two machines then fingerprint the same logical run differently and a resume
+    is refused for a reason unrelated to the objective -- while the checkpoint
+    also carries someone's absolute directory layout.
+
+    Every spelling below names the same file and must collapse to its basename.
+    """
+    from smallAntibodyGen import experiment
+
+    repo = _make_repo(tmp_path / "repo")
+    normalized = experiment.normalize_config_for_fingerprint(
+        {"data_path": external}, repo_root=repo
+    )
+    assert normalized["data_path"] == "corpus.jsonl.gz"
+
+
+def test_repo_relative_paths_are_untouched_by_the_absoluteness_rule(tmp_path: Path):
+    """The widened rule must not start collapsing ordinary relative paths."""
+    from smallAntibodyGen import experiment
+
+    repo = _make_repo(tmp_path / "repo")
+    normalized = experiment.normalize_config_for_fingerprint(
+        {"data_path": "data/processed/oas_5k/oas_all.jsonl.gz"}, repo_root=repo
+    )
+    assert normalized["data_path"] == "data/processed/oas_5k/oas_all.jsonl.gz"

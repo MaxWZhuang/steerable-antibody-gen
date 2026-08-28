@@ -8,6 +8,7 @@ defaults.
 from __future__ import annotations
 
 import importlib.util
+import json
 import math
 import sys
 import warnings
@@ -827,3 +828,34 @@ def test_require_clean_worktree_defaults_off_and_is_parseable(
     ).require_clean_worktree is True
     with pytest.raises(ValueError, match="require_clean_worktree"):
         mlm_train.TrainConfig(data_path="x", require_clean_worktree="yes").validate()
+
+def test_metrics_jsonl_lines_end_with_lf_on_every_platform(
+    project_root: Path, tmp_path: Path
+):
+    """
+    `metrics.jsonl` must be byte-identical whatever OS wrote it.
+
+    `append_metrics_jsonl` used the default `newline=None`, which translates
+    `\n` to `os.linesep` on write -- so the identical metrics record landed
+    as `\r\n` on Windows and `\n` on POSIX. J01 hashes this file into the
+    asset inventory and J03 fingerprints runs for cross-machine comparison,
+    so a platform-dependent encoding makes two runs with identical metrics
+    hash differently for no reason connected to the run.
+
+    This asserts on raw BYTES on purpose: reading the file back in text mode
+    applies universal newlines and would translate the defect away, passing
+    against the pre-fix code.
+    """
+    mlm_train = load_mlm_train_module(project_root)
+
+    mlm_train.append_metrics_jsonl(tmp_path, {"epoch": 1, "loss": 0.5})
+    mlm_train.append_metrics_jsonl(tmp_path, {"epoch": 2, "loss": 0.25})
+
+    raw = (tmp_path / "metrics.jsonl").read_bytes()
+    assert b"\r\n" not in raw, "metrics.jsonl must not contain CRLF"
+    assert raw.count(b"\n") == 2, "one LF-terminated line per record"
+    assert raw.endswith(b"\n")
+
+    # The payload survives the change: still one JSON object per line.
+    records = [json.loads(line) for line in raw.decode("utf-8").split("\n") if line]
+    assert [r["epoch"] for r in records] == [1, 2]
