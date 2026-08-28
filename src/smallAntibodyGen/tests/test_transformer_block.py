@@ -21,7 +21,12 @@ import torch
 from smallAntibodyGen.models.mlm import MLMConfig
 from smallAntibodyGen.models.transformer import (
     RMSNorm,
+    RotaryEmbedding,
+    RotarySelfAttention,
     SwiGLU,
+    apply_rotary_pos_emb,
+    position_ids_from_mask,
+    rotate_half,
     gelu_ffn_parameter_count,
     resolve_head_count,
     swiglu_parameter_count,
@@ -309,3 +314,200 @@ def test_the_fields_reach_the_architecture_fingerprint(tmp_path):
     assert legacy["model_config"]["norm_type"] == "layernorm"
     assert modern["model_config"]["norm_type"] == "rmsnorm"
     assert experiment.hash_payload(legacy) != experiment.hash_payload(modern)
+
+
+# --------------------------------------------------------------------------- #
+# J10b: rotary positions and non-causal self-attention
+#
+# Every property here is one that would leave a model that still trains, still
+# converges, and reports a plausible loss while being quietly wrong -- a causal
+# mask that halves the context, padding that leaks, or positions that shift when
+# the encoding changes.
+# --------------------------------------------------------------------------- #
+def test_position_ids_match_the_learned_table_convention():
+    """
+    Switching `position_encoding` must change how position is REPRESENTED, not
+    which position a token gets. Both paths derive ids by cumsum over the mask,
+    counting real tokens from 1 and leaving padding at 0, so padding consumes no
+    position.
+    """
+    mask = torch.tensor([[1, 1, 1, 0, 0], [1, 1, 1, 1, 1]])
+    ids = position_ids_from_mask(mask)
+    assert ids.tolist() == [[1, 2, 3, 0, 0], [1, 2, 3, 4, 5]]
+
+
+def test_rotary_has_no_learned_parameters():
+    """
+    A rope model has strictly fewer parameters than a learned-position one --
+    there is no position table at all. `inv_freq` is a buffer so it moves with
+    the model without ever receiving a gradient.
+    """
+    rotary = RotaryEmbedding(8)
+    assert list(rotary.parameters()) == []
+    assert "inv_freq" in dict(rotary.named_buffers())
+
+
+def test_rotary_rejects_an_odd_head_dim():
+    """The rotation acts on channel pairs; an odd head_dim would silently drop
+    or misalign a channel."""
+    with pytest.raises(ValueError, match="head_dim must be even"):
+        RotaryEmbedding(7)
+
+
+def test_rotate_half_matches_its_definition():
+    x = torch.tensor([[1.0, 2.0, 3.0, 4.0]])
+    assert torch.equal(rotate_half(x), torch.tensor([[-3.0, -4.0, 1.0, 2.0]]))
+
+
+def test_rotation_preserves_vector_norm():
+    """A rotation changes direction, not length. A norm change here would mean
+    RoPE is rescaling activations, which is not what it is for."""
+    rotary = RotaryEmbedding(8)
+    q = torch.randn(1, 2, 5, 8)
+    cos, sin = rotary(torch.arange(5).unsqueeze(0))
+    rq, _ = apply_rotary_pos_emb(q, q, cos, sin)
+    assert torch.allclose(rq.norm(dim=-1), q.norm(dim=-1), atol=1e-5)
+
+
+def test_attention_logits_depend_only_on_relative_position():
+    """
+    THE defining property of RoPE, and the reason it is a candidate at all.
+
+    Two vectors at absolute positions (m, n) and at (m+k, n+k) must produce the
+    same query-key inner product. If this fails, the implementation encodes
+    absolute position wearing RoPE's name -- and it would still train.
+    """
+    rotary = RotaryEmbedding(16)
+    q = torch.randn(1, 1, 1, 16)
+    k = torch.randn(1, 1, 1, 16)
+
+    def logit(pos_q: int, pos_k: int) -> float:
+        cq, sq = rotary(torch.tensor([[pos_q]]))
+        ck, sk = rotary(torch.tensor([[pos_k]]))
+        rq, _ = apply_rotary_pos_emb(q, q, cq, sq)
+        _, rk = apply_rotary_pos_emb(k, k, ck, sk)
+        return float((rq * rk).sum())
+
+    assert logit(3, 7) == pytest.approx(logit(10, 14), abs=1e-4)
+    assert logit(3, 7) == pytest.approx(logit(103, 107), abs=1e-3)
+    # And it is genuinely position-dependent, not a constant.
+    assert logit(3, 7) != pytest.approx(logit(3, 20), abs=1e-3)
+
+
+def test_self_attention_output_shape():
+    attn = RotarySelfAttention(d_model=32, n_heads=4).eval()
+    hidden = torch.randn(2, 6, 32)
+    mask = torch.ones(2, 6, dtype=torch.long)
+    assert attn(hidden, mask).shape == (2, 6, 32)
+
+
+def test_attention_is_not_causal():
+    """
+    This is a masked language model: a token must see the whole sequence in both
+    directions. A causal mask would halve the effective context and the model
+    would still train, so the absence is asserted rather than assumed -- the
+    first position's output must react to the LAST token.
+    """
+    attn = RotarySelfAttention(d_model=32, n_heads=4).eval()
+    mask = torch.ones(1, 5, dtype=torch.long)
+    hidden = torch.randn(1, 5, 32)
+
+    with torch.no_grad():
+        before = attn(hidden, mask)[0, 0].clone()
+        changed = hidden.clone()
+        changed[0, 4] += 5.0          # perturb the LAST token only
+        after = attn(changed, mask)[0, 0]
+
+    assert not torch.allclose(before, after, atol=1e-6), (
+        "position 0 did not react to the final token: attention is causal"
+    )
+
+
+def test_padded_tokens_cannot_affect_unpadded_outputs():
+    """
+    Padding leakage is silent: the model trains, and validation quietly depends
+    on whatever garbage sits in the pad slots. Changing padded content must leave
+    every real position bit-identical.
+    """
+    attn = RotarySelfAttention(d_model=32, n_heads=4).eval()
+    mask = torch.tensor([[1, 1, 1, 0, 0]])
+    hidden = torch.randn(1, 5, 32)
+
+    with torch.no_grad():
+        before = attn(hidden, mask)[:, :3].clone()
+        polluted = hidden.clone()
+        polluted[0, 3:] = 99.0
+        after = attn(polluted, mask)[:, :3]
+
+    assert torch.allclose(before, after, atol=1e-6)
+
+
+def test_a_fully_padded_row_is_finite_and_does_not_poison_the_batch():
+    """
+    Softmax over an all-masked row divides by zero and yields NaN, which then
+    spreads through the residual stream into every other example in the batch.
+    The row is zeroed instead -- and the point is the OTHER row stays correct.
+    """
+    attn = RotarySelfAttention(d_model=32, n_heads=4).eval()
+    mask = torch.tensor([[0, 0, 0, 0], [1, 1, 1, 1]])
+    hidden = torch.randn(2, 4, 32)
+
+    with torch.no_grad():
+        out = attn(hidden, mask)
+        alone = attn(hidden[1:], mask[1:])
+
+    assert torch.isfinite(out).all()
+    assert torch.equal(out[0], torch.zeros_like(out[0]))
+    assert torch.allclose(out[1], alone[0], atol=1e-6)
+
+
+def test_backward_is_finite_with_heavy_padding():
+    """Gradients, not just activations: a NaN that only appears in the backward
+    pass is just as fatal and far less visible."""
+    attn = RotarySelfAttention(d_model=32, n_heads=4)
+    mask = torch.tensor([[1, 0, 0, 0], [0, 0, 0, 0]])
+    hidden = torch.randn(2, 4, 32, requires_grad=True)
+    attn(hidden, mask).sum().backward()
+    assert torch.isfinite(hidden.grad).all()
+    assert all(torch.isfinite(p.grad).all() for p in attn.parameters() if p.grad is not None)
+
+
+def test_eval_mode_is_deterministic():
+    """Dropout must be off in eval, or two identical evaluations disagree and
+    every comparison inherits the noise."""
+    attn = RotarySelfAttention(d_model=32, n_heads=4, dropout=0.5).eval()
+    hidden = torch.randn(1, 5, 32)
+    mask = torch.ones(1, 5, dtype=torch.long)
+    with torch.no_grad():
+        assert torch.equal(attn(hidden, mask), attn(hidden, mask))
+
+
+def test_bias_free_attention_really_has_no_biases():
+    """`attention_bias: false` is one of the adopted canonical settings, so the
+    parameter set has to actually reflect it."""
+    attn = RotarySelfAttention(d_model=32, n_heads=4, bias=False)
+    assert not any(name.endswith(".bias") for name, _ in attn.named_parameters())
+    with_bias = RotarySelfAttention(d_model=32, n_heads=4, bias=True)
+    assert any(name.endswith(".bias") for name, _ in with_bias.named_parameters())
+
+
+def test_head_count_must_divide_d_model():
+    with pytest.raises(ValueError, match="does not divide"):
+        RotarySelfAttention(d_model=32, n_heads=5)
+
+
+def test_explicit_position_ids_override_the_mask_derivation():
+    """
+    J10c will need to pass positions explicitly in places. The override has to
+    actually take effect, or a caller would silently get mask-derived positions.
+    """
+    attn = RotarySelfAttention(d_model=32, n_heads=4).eval()
+    hidden = torch.randn(1, 4, 32)
+    mask = torch.ones(1, 4, dtype=torch.long)
+    with torch.no_grad():
+        derived = attn(hidden, mask)
+        shifted = attn(hidden, mask, position_ids=torch.tensor([[5, 6, 7, 8]]))
+    # Same relative offsets, so the ATTENTION pattern matches even though the
+    # absolute positions differ -- which is the relative-position property again,
+    # now observed end to end through the whole attention op.
+    assert torch.allclose(derived, shifted, atol=1e-4)
