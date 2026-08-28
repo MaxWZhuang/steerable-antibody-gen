@@ -1,6 +1,6 @@
 # Stage 3/4 — antigen-conditioned compatibility on REAL binder/non-binder labels.
 # Warm-starts antibody encoder + heads from stage 2; the antigen encoder + cross-attention
-# fusion + compatibility head are trained here. Produces checkpoints/mlm_antigen_real_label_v4/best.pt.
+# fusion + compatibility head are trained here. Produces checkpoints/mlm_antigen_real_label_v5/best.pt.
 #
 # v3 -> v4: norm_first: true (pre-LN), matching stages 1-2. In pre-LN mode `fuse` also gains
 # terminal fusion_out_norm_* layers (docs/ARCHITECTURE.md 4.3), so this stage's dual-stream
@@ -16,8 +16,8 @@
 # always-positive rate yourself, and watch the "[split] ... overlap" line for target leakage.
 training_stage: antigen_real_label_refine
 data_path: data/processed/antibody_antigen/antibody_antigen.jsonl.gz
-init_checkpoint: checkpoints/mlm_paired_refine_v4/best.pt
-output_dir: checkpoints/mlm_antigen_real_label_v4
+init_checkpoint: checkpoints/mlm_paired_refine_v5/best.pt
+output_dir: checkpoints/mlm_antigen_real_label_v5
 resume_from_last: true
 
 seed: 42
@@ -25,7 +25,23 @@ batch_size: 16
 eval_batch_size: 16
 train_num_workers: 0
 eval_num_workers: 0
-max_length: 192
+# v4 -> v5: 192 -> 288 (Open Decision 1, resolved 2026-08-27). 192 truncated 100.00% of
+# paired-OAS train rows and destroyed CDR-L3 on 99.96% of them, and 75.86% of the
+# antibody-antigen rows. 288 clears BOTH corpora outright -- measured maxima are 281 (paired,
+# 2,513,626 rows) and 258 (antibody-antigen, 828,315 rows) -- so no row is truncated at all.
+# 256 was rejected: it still overflows 452 paired and 2 antigen rows.
+# Evidence: the local (untracked) J04 context-census reports under outputs/.
+max_length: 288
+
+# Antigen stream token budget, INCLUDING [CLS]/[EOS] (Open Decision 1, resolved 2026-08-27).
+# Inert before AB-07 was fixed: the antigen encoder was built from the same config as the
+# antibody encoder and silently inherited max_length, truncating 87.31% of train rows with a
+# worst overflow of +1850 tokens. 1024 covers 99.31% of train and 96.42% of val antigens
+# (measured p50 610 / max 2042) and costs 1842 MiB of 4096 at batch 16 with AMP -- ~55%
+# headroom. 2048 removes the final tail but leaves only ~23-25% worst-case headroom, exposes
+# quadratic antigen self-attention, and lets one long antigen expand its locally padded batch;
+# it is deferred to a targeted run if the per-target breakdown shows the >1024 tail matters.
+antigen_max_length: 1024
 bucket_width: 8
 
 mask_probability: 0.10
@@ -69,8 +85,10 @@ dropout: 0.1
 norm_first: true    # v4: pre-LN. Must match stage 2 exactly or init-compat rejects the warm start.
 
 # Antigen stream = from-scratch transformer. NOTE: the scratch antigen encoder truncates the
-# antigen to max_length (192) tokens, so long antigens are only partially seen. The ESM variant
-# (refine_antigen_hcdr3_infill_esm.yaml) lifts this to 512.
+# antigen to antigen_max_length (1024) tokens -- its OWN budget since AB-07, no longer the
+# antibody max_length. At 1024, 0.69% of training and 3.58% of validation antigens are still
+# truncated (measured p50 610 / max 2042); 2048 would reach 0% but see the header note on
+# headroom. The ESM variant uses the SAME 1024 so the arms differ on one axis.
 use_amp: true
 show_progress: true
 device: cuda

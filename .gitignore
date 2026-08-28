@@ -8,7 +8,9 @@ __pycache__/
 .claude/
 CLAUDE.md
 
-# Local-only docs
+# Local-only docs. INTERNAL: research notes, the bug log, the architecture
+# contract, and the steering plans are for the owner, not for the public repo.
+# Do not add negations here -- see the note in specs/README or ask first.
 docs/
 
 # Logs and scratch/temp artifacts

@@ -49,6 +49,15 @@ from collections import OrderedDict
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterator, Mapping, Sequence
 
+SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+# `is_absolute_on_any_platform` lives with the fingerprint code because both
+# need the same host-independent answer; defining it twice is how the two
+# copies drift.
+from smallAntibodyGen import experiment  # noqa: E402
+
 # A fixed literal, never a generated value: the schema version is part of the
 # contract, not part of the run.
 SCHEMA_VERSION = "training-inventory/1"
@@ -606,7 +615,7 @@ def parse_root_argument(raw: str) -> tuple[str, Path]:
         raise ValueError(f"empty root path in {raw!r}")
 
     path = Path(location)
-    if path.is_absolute() and not separator:
+    if experiment.is_absolute_on_any_platform(location) and not separator:
         raise ValueError(
             f"absolute root {location!r} must be given as LABEL=PATH so the JSON "
             "records a machine-independent label instead of the absolute prefix"

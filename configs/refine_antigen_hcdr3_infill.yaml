@@ -1,19 +1,30 @@
 # Stage 4/4 — antigen-conditioned, fixed-length HCDR3 infilling (from-scratch antigen stream).
 # Warm-starts from stage 3. Trains on the full is_strong_binder population (~216.6k train /
 # 1.78k val) -- positive-only conditional residue model, not a binder classifier.
-# Produces checkpoints/mlm_antigen_hcdr3_infill_v4/best.pt.
+# Produces checkpoints/mlm_antigen_hcdr3_infill_v5/best.pt.
 #
-# v3 -> v4: norm_first: true (pre-LN), matching stages 1-3. Generation and scoring must use a
-# v4 checkpoint: hcdr3_infill.py's DEFAULT_SCORE_CHECKPOINT was moved to the v4 stage-3 dir in
-# the same commit. Mixing a v4 infiller with a v3 scorer is a cross-generation error.
+# v3 -> v4: norm_first: true (pre-LN), matching stages 1-3.
+# v4 -> v5: 288 / 1024 context (Open Decision 1). Generation and scoring must use a v5
+# checkpoint: hcdr3_infill.py's DEFAULT_SCORE_CHECKPOINT moved to the v5 stage-3 dir in the
+# same commit. Mixing generations across the infiller and the scorer is a silent error --
+# it produces plausible scores against the wrong model.
 #
 # Watch these metrics (logged as val_hcdr3_*): hcdr3_token_acc and hcdr3_span_exact_match.
 # When ranking generated candidates across proposed lengths, use mean_log_probability, not
 # the raw log-probability sum (raw sum grows with length).
+#
+# READ THE *_novel_* METRICS, NOT THE HEADLINE ONES (BUGLOG AB-11). Measured on the real
+# corpus: 78.60% of this stage's val rows (1,403/1,785) have a heavy CDR3 that appears
+# VERBATIM in train, because the split is keyed on the antigen while this stage predicts the
+# antibody. hcdr3_span_exact_match is therefore ~79% reachable by recall alone. With
+# report_novel_hcdr3_metrics: true the same metrics are also reported over the ~382 rows whose
+# HCDR3 is unseen -- that is the number that supports a generalization claim, and its n is
+# small, so quote hcdr3_novel_valid_spans beside it and treat the result as diagnostic rather
+# than as a precise estimate. Evidence: the local (untracked) J02/Ruling-4 corpus report under outputs/.
 training_stage: antigen_hcdr3_infill_refine
 data_path: data/processed/antibody_antigen/antibody_antigen.jsonl.gz
-init_checkpoint: checkpoints/mlm_antigen_real_label_v4/best.pt
-output_dir: checkpoints/mlm_antigen_hcdr3_infill_v4
+init_checkpoint: checkpoints/mlm_antigen_real_label_v5/best.pt
+output_dir: checkpoints/mlm_antigen_hcdr3_infill_v5
 resume_from_last: true
 
 seed: 42
@@ -21,7 +32,23 @@ batch_size: 16
 eval_batch_size: 16
 train_num_workers: 0
 eval_num_workers: 0
-max_length: 192
+# v4 -> v5: 192 -> 288 (Open Decision 1, resolved 2026-08-27). 192 truncated 100.00% of
+# paired-OAS train rows and destroyed CDR-L3 on 99.96% of them, and 75.86% of the
+# antibody-antigen rows. 288 clears BOTH corpora outright -- measured maxima are 281 (paired,
+# 2,513,626 rows) and 258 (antibody-antigen, 828,315 rows) -- so no row is truncated at all.
+# 256 was rejected: it still overflows 452 paired and 2 antigen rows.
+# Evidence: the local (untracked) J04 context-census reports under outputs/.
+max_length: 288
+
+# Antigen stream token budget, INCLUDING [CLS]/[EOS] (Open Decision 1, resolved 2026-08-27).
+# Inert before AB-07 was fixed: the antigen encoder was built from the same config as the
+# antibody encoder and silently inherited max_length, truncating 87.31% of train rows with a
+# worst overflow of +1850 tokens. 1024 covers 99.31% of train and 96.42% of val antigens
+# (measured p50 610 / max 2042) and costs 1842 MiB of 4096 at batch 16 with AMP -- ~55%
+# headroom. 2048 removes the final tail but leaves only ~23-25% worst-case headroom, exposes
+# quadratic antigen self-attention, and lets one long antigen expand its locally padded batch;
+# it is deferred to a targeted run if the per-target breakdown shows the >1024 tail matters.
+antigen_max_length: 1024
 bucket_width: 8
 
 mask_probability: 0.10
@@ -40,6 +67,10 @@ hcdr3_span_max: 8
 # Contract:  specs/conditional_denoising_eligibility.md
 # Rationale: specs/decisions/0001-conditional-denoising-eligibility.md
 conditional_denoising_eligibility: all_filtered_rows
+
+# Report hcdr3_* a second time over val rows whose HCDR3 is absent from train (AB-11).
+# Additive: no training behavior, no RNG draw, and no existing metric key changes.
+report_novel_hcdr3_metrics: true
 
 hcdr3_mask_mode: full_span
 mask_replacement_strategy: always_mask

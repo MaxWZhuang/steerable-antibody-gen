@@ -199,7 +199,20 @@ class TrainConfig:
     # none of these keys leaves every existing stage byte-for-byte unchanged.
     antigen_encoder_type: str = "scratch"
     esm_model_name: str = "facebook/esm2_t6_8M_UR50D"
-    antigen_max_length: int = 512
+    # None inherits max_length -- see MLMConfig.antigen_max_length (AB-07).
+    # The previous literal 512 default was only ever consumable by the ESM
+    # path (the scratch path ignored the field entirely), and the one ESM
+    # config sets it explicitly, so no checked-in config changes behavior.
+    # ---- Rung-1 architecture candidates (J10). Defaults are the legacy block.
+    position_encoding: str = "learned"
+    norm_type: str = "layernorm"
+    ffn_type: str = "gelu"
+    swiglu_hidden_dim: int | None = None
+    attention_bias: bool = True
+    ffn_bias: bool = True
+    encoder_n_heads: int | None = None
+    cross_attention_n_heads: int | None = None
+    antigen_max_length: int | None = None
     antigen_encoder_finetune: str = "frozen"
     lora_r: int = 8
     lora_alpha: int = 16
@@ -277,6 +290,33 @@ class TrainConfig:
     # silently fall back to pre-fix behavior, and the contract is explicit that
     # "a default reaching production through omission is a defect".
     conditional_denoising_eligibility: str | None = None
+
+    # AB-11: also report the HCDR3 metrics over only those validation rows whose
+    # true HCDR3 never appears in training. Default off so an unmodified config
+    # keeps its historical metrics.jsonl key set exactly; the stage-4 config
+    # turns it on, because 78.60% of that stage's validation rows have an HCDR3
+    # that is verbatim in training and the unpartitioned number is therefore
+    # ~79% reachable by recall (BUGLOG AB-11).
+    report_novel_hcdr3_metrics: bool = False
+
+    # ---- J11 experiment harness. Both default OFF, so an unmodified config is
+    # byte-for-byte unchanged. ------------------------------------------------
+    #
+    # Stop after exactly this many OPTIMIZER UPDATES, across epochs. 0 disables.
+    # `epochs` alone cannot express the frozen J11 schedule: one epoch of the 3M
+    # corpus is ~185,640 updates against the frozen 51,000, and a comparison that
+    # ran to a different number of updates per arm would not be the experiment
+    # that was predeclared.
+    #
+    # Counted as UPDATES, not batches: AMP skips the optimizer step on inf/NaN
+    # gradients, and a batch counter would silently let one arm take fewer real
+    # updates than the other.
+    max_updates: int = 0
+    # Apply J11's paired initialization before the first update: re-derive every
+    # parameter from a seed hashed on its module NAME, then reset the training
+    # RNG. Without it the two width arms differ in far more than width, because
+    # the wider feed-forward shifts every subsequent init draw. 0 disables.
+    paired_init_seed: int = 0
     # Learned conditional length posterior. 0.0 (default) builds NO length head
     # and adds a 0-scaled differentiable-zero term, so existing runs are
     # byte-identical. `length_head_max` must cover the corpus's HCDR3 lengths;
@@ -471,8 +511,26 @@ class TrainConfig:
             raise ValueError("antigen_encoder_type must be one of: scratch, esm")
         if self.antigen_encoder_finetune not in {"frozen", "lora"}:
             raise ValueError("antigen_encoder_finetune must be one of: frozen, lora")
-        if not (0 < self.antigen_max_length <= 1024):
-            raise ValueError("antigen_max_length must be in (0, 1024]")
+        if self.max_updates < 0:
+            raise ValueError("max_updates must be >= 0 (0 disables the limit)")
+        if self.max_updates and self.warmup_steps >= self.max_updates:
+            raise ValueError(
+                f"warmup_steps ({self.warmup_steps}) must be < max_updates "
+                f"({self.max_updates}), or the run is entirely warmup and produces "
+                "zero post-warmup updates to compare"
+            )
+        if self.paired_init_seed < 0:
+            raise ValueError("paired_init_seed must be >= 0 (0 disables pairing)")
+        if self.max_updates and self.early_stopping_patience:
+            raise ValueError(
+                "max_updates and early_stopping_patience are incompatible: a fixed-step "
+                "comparison must run to the SAME step in every arm, and early stopping "
+                "would end one arm sooner and make the arms incomparable"
+            )
+        if self.antigen_max_length is not None and not (
+            0 < self.antigen_max_length <= 8192
+        ):
+            raise ValueError("antigen_max_length must be None or in (0, 8192]")
         if self.lora_r <= 0:
             raise ValueError("lora_r must be > 0")
         if self.lora_alpha <= 0:
@@ -751,6 +809,27 @@ def build_arg_parser() -> argparse.ArgumentParser:
         dest="include_strength_rows",
         action="store_false",
         default=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--max-updates",
+        type=int,
+        default=argparse.SUPPRESS,
+        help="Stop after exactly this many optimizer updates across epochs (0 = off).",
+    )
+    parser.add_argument(
+        "--paired-init-seed",
+        type=int,
+        default=argparse.SUPPRESS,
+        help="Apply J11 paired initialization with this seed before training (0 = off).",
+    )
+    parser.add_argument(
+        "--report-novel-hcdr3-metrics",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help=(
+            "Also report hcdr3_* metrics over validation rows whose HCDR3 is "
+            "absent from training (AB-11). Default off."
+        ),
     )
     parser.add_argument(
         "--conditional-denoising-eligibility",
@@ -1243,14 +1322,28 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
+NEWLINE = chr(10)
+
+
 def append_metrics_jsonl(
     output_dir: Path,
     record: Dict[str, Any],
 ) -> None:
     """
     Append one metrics record to the run's JSONL log.
+
+    ``newline=""`` is load-bearing, not style. Python's default
+    (``newline=None``) translates ``\n`` to ``os.linesep`` on write, so the
+    same record serializes to different BYTES on Windows (``\r\n``) and
+    POSIX (``\n``). J01 hashes this file into the asset inventory and J03
+    fingerprints runs so they can be compared across machines -- a
+    platform-dependent encoding defeats both, because two runs that logged
+    identical metrics would hash differently purely because of the OS.
+
+    Writing the separator explicitly makes the log byte-identical everywhere.
+    On POSIX this is a no-op (``os.linesep`` is already ``\n``).
     """
-    with open(output_dir / "metrics.jsonl", "a", encoding="utf-8") as f:
+    with open(output_dir / "metrics.jsonl", "a", encoding="utf-8", newline="") as f:
         f.write(json.dumps(_json_safe(record), sort_keys=True) + "\n")
 
 
@@ -1676,6 +1769,14 @@ def build_model_config(tokenizer: AminoAcidTokenizer, cfg: TrainConfig) -> MLMCo
         norm_first=cfg.norm_first,
         # Carried onto the model config so the antigen stream can branch on the
         # encoder choice in Stage A. Defaults ("scratch") keep today's model.
+        position_encoding=cfg.position_encoding,
+        norm_type=cfg.norm_type,
+        ffn_type=cfg.ffn_type,
+        swiglu_hidden_dim=cfg.swiglu_hidden_dim,
+        attention_bias=cfg.attention_bias,
+        ffn_bias=cfg.ffn_bias,
+        encoder_n_heads=cfg.encoder_n_heads,
+        cross_attention_n_heads=cfg.cross_attention_n_heads,
         antigen_encoder_type=cfg.antigen_encoder_type,
         esm_model_name=cfg.esm_model_name,
         antigen_max_length=cfg.antigen_max_length,
@@ -2101,9 +2202,19 @@ def hcdr3_metric_counts(
     hcdr3_token_start: torch.Tensor,
     hcdr3_token_end: torch.Tensor,
     hcdr3_valid_mask: torch.Tensor,
+    *,
+    novel_reference: frozenset[str] | None = None,
+    id_to_token: list[str] | None = None,
 ) -> dict[str, int]:
     """
     Count HCDR3-specific infilling successes for one batch.
+
+    When BOTH ``novel_reference`` (every HCDR3 string seen in training) and
+    ``id_to_token`` are supplied, the same counts are additionally accumulated
+    over only those rows whose true HCDR3 is absent from training -- the AB-11
+    partition. Both are required together; supplying one alone is a no-op, so the
+    partition can never be computed against an empty reference and silently
+    report the full validation set as novel.
 
     ``hcdr3_target_mask`` marks the target residues inside the heavy-chain CDR3
     interval. Token accuracy is computed over those target residues only.
@@ -2120,6 +2231,16 @@ def hcdr3_metric_counts(
 
     exact_matches = 0
     valid_spans = 0
+    # AB-11 partition: the same three quantities restricted to rows whose true
+    # HCDR3 does not appear anywhere in training. Accumulated as separate counts
+    # rather than a separate pass so the two numbers are guaranteed to come from
+    # the same predictions.
+    novel_correct_tokens = 0
+    novel_target_tokens = 0
+    novel_exact_matches = 0
+    novel_valid_spans = 0
+    partition = novel_reference is not None and id_to_token is not None
+
     batch_size = labels.size(0)
     for idx in range(batch_size):
         if not bool(hcdr3_valid_mask[idx].item()):
@@ -2132,15 +2253,74 @@ def hcdr3_metric_counts(
         if int(span_target_mask.sum().item()) != (end - start):
             continue
         valid_spans += 1
-        if torch.equal(preds[idx, start:end], labels[idx, start:end]):
+        row_exact = bool(torch.equal(preds[idx, start:end], labels[idx, start:end]))
+        if row_exact:
             exact_matches += 1
 
-    return {
+        if not partition:
+            continue
+        # The labels over a fully-targeted span ARE the true HCDR3 residues, so
+        # the row's identity is recoverable from the batch without threading the
+        # raw record through the training loop.
+        span_ids = labels[idx, start:end].tolist()
+        span = "".join(
+            id_to_token[token_id]
+            for token_id in span_ids
+            if 0 <= token_id < len(id_to_token)
+        ).upper()
+        if span in novel_reference:
+            continue
+        novel_valid_spans += 1
+        novel_exact_matches += int(row_exact)
+        row_target_mask = target_mask[idx, start:end]
+        novel_target_tokens += int(row_target_mask.sum().item())
+        novel_correct_tokens += int(
+            (preds[idx, start:end][row_target_mask] == labels[idx, start:end][row_target_mask])
+            .sum()
+            .item()
+        )
+
+    counts = {
         "hcdr3_correct_tokens": correct_tokens,
         "hcdr3_target_tokens": target_tokens,
         "hcdr3_exact_matches": exact_matches,
         "hcdr3_valid_spans": valid_spans,
     }
+    if partition:
+        counts.update(
+            {
+                "hcdr3_novel_correct_tokens": novel_correct_tokens,
+                "hcdr3_novel_target_tokens": novel_target_tokens,
+                "hcdr3_novel_exact_matches": novel_exact_matches,
+                "hcdr3_novel_valid_spans": novel_valid_spans,
+            }
+        )
+    return counts
+
+
+def build_train_hcdr3_reference(
+    dataset: "OASSequenceDataset | RecordSubsetDataset",
+) -> frozenset[str]:
+    """
+    Every heavy-CDR3 string present in the TRAINING split.
+
+    Used to partition validation into rows whose HCDR3 the model has seen
+    verbatim during training and rows where it has not. Measured on the real
+    corpus, 78.60% of stage-4 validation rows fall in the first group (AB-11), so
+    `val_hcdr3_span_exact_match` as reported is ~79% reachable by recall.
+
+    Exact string membership, deliberately: it is the weakest possible notion of
+    "seen", which makes the resulting novel subset a permissive upper bound on
+    how clean validation is. A cluster-level or edit-distance criterion would
+    only shrink it further, so a metric that looks bad here would look worse
+    under any stricter rule.
+    """
+    reference: set[str] = set()
+    for record in getattr(dataset, "records", []):
+        hcdr3 = (getattr(record, "cdr3_aa_heavy", None) or "").strip().upper()
+        if hcdr3:
+            reference.add(hcdr3)
+    return frozenset(reference)
 
 
 def finalize_hcdr3_metrics(counts: dict[str, int]) -> dict[str, float]:
@@ -2149,7 +2329,7 @@ def finalize_hcdr3_metrics(counts: dict[str, int]) -> dict[str, float]:
     """
     target_tokens = counts.get("hcdr3_target_tokens", 0)
     valid_spans = counts.get("hcdr3_valid_spans", 0)
-    return {
+    metrics = {
         "hcdr3_token_acc": (
             counts.get("hcdr3_correct_tokens", 0) / target_tokens
             if target_tokens > 0
@@ -2163,6 +2343,32 @@ def finalize_hcdr3_metrics(counts: dict[str, int]) -> dict[str, float]:
         "hcdr3_target_tokens": float(target_tokens),
         "hcdr3_valid_spans": float(valid_spans),
     }
+    # Emitted only when the partition was actually computed, so a run with the
+    # knob off keeps exactly its historical metrics.jsonl key set.
+    if "hcdr3_novel_valid_spans" in counts:
+        novel_target_tokens = counts.get("hcdr3_novel_target_tokens", 0)
+        novel_valid_spans = counts.get("hcdr3_novel_valid_spans", 0)
+        metrics.update(
+            {
+                "hcdr3_novel_token_acc": (
+                    counts.get("hcdr3_novel_correct_tokens", 0) / novel_target_tokens
+                    if novel_target_tokens > 0
+                    else float("nan")
+                ),
+                "hcdr3_novel_span_exact_match": (
+                    counts.get("hcdr3_novel_exact_matches", 0) / novel_valid_spans
+                    if novel_valid_spans > 0
+                    else float("nan")
+                ),
+                "hcdr3_novel_target_tokens": float(novel_target_tokens),
+                # Report the denominator next to the metric, always. On the real
+                # corpus this is ~382 rows against 1,785 -- small enough that the
+                # interval is wide, and the number is only interpretable beside
+                # its n.
+                "hcdr3_novel_valid_spans": float(novel_valid_spans),
+            }
+        )
+    return metrics
 
 
 def pair_classification_accuracy(
@@ -2545,6 +2751,7 @@ def evaluate(
     tokenizer: AminoAcidTokenizer,
     cfg: TrainConfig,
     device: torch.device,
+    novel_hcdr3_reference: frozenset[str] | None = None,
 ) -> Dict[str, float]:
     """
     Run one full validation pass.
@@ -2723,6 +2930,10 @@ def evaluate(
                 batch["hcdr3_token_start"],
                 batch["hcdr3_token_end"],
                 batch["hcdr3_valid_mask"],
+                novel_reference=novel_hcdr3_reference,
+                id_to_token=(
+                    list(tokenizer.vocab) if novel_hcdr3_reference is not None else None
+                ),
             )
             mask = batch["compatibility_mask"].bool()
             if mask.sum().item() > 0:
@@ -2770,6 +2981,10 @@ def evaluate(
                 batch["hcdr3_token_start"],
                 batch["hcdr3_token_end"],
                 batch["hcdr3_valid_mask"],
+                novel_reference=novel_hcdr3_reference,
+                id_to_token=(
+                    list(tokenizer.vocab) if novel_hcdr3_reference is not None else None
+                ),
             )
             aux_loss_name = "pair_loss"
             aux_acc_name = "pair_acc"
@@ -2782,7 +2997,11 @@ def evaluate(
         total_aux_labeled += aux_labeled
         total_batches += 1
         for key, value in batch_hcdr3_counts.items():
-            hcdr3_counts[key] += value
+            # `.get` rather than `+=`: `hcdr3_metric_counts` emits the AB-11
+            # `hcdr3_novel_*` counters only when the partition is enabled, so the
+            # accumulator cannot be pre-seeded with a fixed key set without
+            # inventing zeros for a partition that was never computed.
+            hcdr3_counts[key] = hcdr3_counts.get(key, 0) + value
         running_aux_acc = (total_aux_correct / total_aux_labeled) if total_aux_labeled > 0 else 0.0
         running_mlm_loss = (total_mlm_loss_weighted / total_mlm_tokens) if total_mlm_tokens > 0 else float("nan")
         running_mlm_acc = (total_mlm_correct / total_mlm_tokens) if total_mlm_tokens > 0 else float("nan")
@@ -2874,6 +3093,13 @@ def evaluate(
             total_aux_correct / total_aux_labeled if total_aux_labeled > 0 else float("nan")
         )
     return metrics
+
+
+#: Optimizer updates actually applied, across the whole run. Module-level so the
+#: epoch loop and `main` share one count without threading it through every
+#: signature. `amp_skips` is tracked beside it because a run with unexplained
+#: skips is one of J11's disqualifying conditions.
+UPDATE_COUNTER: Dict[str, int] = {"updates": 0, "amp_skips": 0}
 
 
 def train_one_epoch(
@@ -3067,8 +3293,22 @@ def train_one_epoch(
         scaler.update()
         # Advance the LR warmup only when AMP did not skip the optimizer step
         # (it skips on inf/NaN grads), so warmup progress tracks real updates.
-        if scheduler is not None and scaler.get_scale() >= scale_before:
+        applied_update = scaler.get_scale() >= scale_before
+        if scheduler is not None and applied_update:
             scheduler.step()
+        # An UPDATE is a step the optimizer actually applied. Counting batches
+        # instead would let an arm that hit more AMP skips take fewer real
+        # updates than its pair while both reported the same "step".
+        if applied_update:
+            UPDATE_COUNTER["updates"] += 1
+        else:
+            UPDATE_COUNTER["amp_skips"] += 1
+
+        if cfg.max_updates and UPDATE_COUNTER["updates"] >= cfg.max_updates:
+            # Stop EXACTLY at the frozen update count. The comparison is defined
+            # at this step; running one arm past it would compare different
+            # amounts of training.
+            break
 
         # Intra-epoch checkpoint (epoch-granular resume). Save the current
         # 0-based epoch index so a resumed run re-enters this epoch from batch 0
@@ -3191,7 +3431,11 @@ def train_one_epoch(
         total_aux_labeled += aux_labeled
         total_batches += 1
         for key, value in batch_hcdr3_counts.items():
-            hcdr3_counts[key] += value
+            # `.get` rather than `+=`: `hcdr3_metric_counts` emits the AB-11
+            # `hcdr3_novel_*` counters only when the partition is enabled, so the
+            # accumulator cannot be pre-seeded with a fixed key set without
+            # inventing zeros for a partition that was never computed.
+            hcdr3_counts[key] = hcdr3_counts.get(key, 0) + value
         running_aux_acc = (total_aux_correct / total_aux_labeled) if total_aux_labeled > 0 else 0.0
         running_mlm_loss = (total_mlm_loss_weighted / total_mlm_tokens) if total_mlm_tokens > 0 else float("nan")
         running_mlm_acc = (total_mlm_correct / total_mlm_tokens) if total_mlm_tokens > 0 else float("nan")
@@ -3555,12 +3799,70 @@ def initialize_antigen_refine_from_checkpoint(
             return state
         return {k: v for k, v in state.items() if not k.startswith("antigen_encoder.")}
 
+    target_shapes = {k: tuple(v.shape) for k, v in model.state_dict().items()}
+    dropped_for_shape: list[str] = []
+
+    # The ONLY tensor a warm start may legitimately skip on a shape mismatch.
+    # This function clones the antibody encoder into BOTH branches, so when the
+    # antigen stream has its own token budget its positional table is a different
+    # size than the antibody table it would be seeded from -- e.g. [1025, 256]
+    # against a stage-2 checkpoint's [289, 256] at 288/1024. Positions past the
+    # antibody's length have no counterpart to copy.
+    #
+    # Everything else is an ERROR. A blanket "drop whatever does not fit" would
+    # silently accept a d_model, vocab, or layer-count mismatch -- exactly the
+    # class of thing the strict load and the init-compat gate exist to catch --
+    # and the run would train from a quietly half-initialized model while its
+    # loss curve looked ordinary.
+    SHAPE_EXEMPT_KEYS = frozenset({"antigen_encoder.position_embedding.embedding.weight"})
+
+    def _drop_shape_mismatches(state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """
+        Drop the ONE permitted shape-mismatched tensor; raise on any other.
+
+        ``load_state_dict(strict=False)`` tolerates MISSING and UNEXPECTED keys
+        but still raises on a shape mismatch, so a size difference has to be
+        handled here rather than relied on to be ignored.
+
+        Dropping is never silent: the skipped tensor is named on stdout by the
+        caller, because a partially warm-started encoder nobody was told about is
+        indistinguishable from a fully warm-started one in the loss curve.
+        """
+        kept = {}
+        unexpected_mismatches: list[str] = []
+        for key, value in state.items():
+            expected = target_shapes.get(key)
+            if expected is not None and tuple(value.shape) != expected:
+                detail = f"{key} (checkpoint {tuple(value.shape)} vs model {expected})"
+                if key in SHAPE_EXEMPT_KEYS:
+                    dropped_for_shape.append(detail)
+                else:
+                    unexpected_mismatches.append(detail)
+                continue
+            kept[key] = value
+        if unexpected_mismatches:
+            raise ValueError(
+                "init_checkpoint is not shape-compatible with this model, and the "
+                "mismatch is NOT the antigen positional table that a changed antigen "
+                "budget legitimately reshapes."
+                + NEWLINE
+                + "Mismatched tensors:"
+                + NEWLINE
+                + NEWLINE.join("  " + m for m in sorted(unexpected_mismatches))
+                + NEWLINE
+                + "This is an architecture mismatch: retrain rather than coercing the "
+                "weights. Only these may be skipped: "
+                + ", ".join(sorted(SHAPE_EXEMPT_KEYS))
+            )
+        return kept
+
     has_dual_stream_weights = any(
         key.startswith("antibody_encoder.") for key in checkpoint_state_dict
     )
     if has_dual_stream_weights:
         incompatible = model.load_state_dict(
-            _drop_scratch_antigen(checkpoint_state_dict), strict=False
+            _drop_shape_mismatches(_drop_scratch_antigen(checkpoint_state_dict)),
+            strict=False,
         )
         reused_message = (
             "antibody_encoder.* + fusion/heads (ESM antigen kept at pretrained init)"
@@ -3570,7 +3872,8 @@ def initialize_antigen_refine_from_checkpoint(
     else:
         translated_state_dict = build_antigen_refine_init_state_dict(checkpoint_state_dict)
         incompatible = model.load_state_dict(
-            _drop_scratch_antigen(translated_state_dict), strict=False
+            _drop_shape_mismatches(_drop_scratch_antigen(translated_state_dict)),
+            strict=False,
         )
         reused_message = (
             "antibody_encoder.*, lm_head.* (ESM antigen kept at pretrained init)"
@@ -3586,6 +3889,11 @@ def initialize_antigen_refine_from_checkpoint(
         print(f"[checkpoint] antigen_refine missing keys (left randomly initialized): {missing}")
     if unexpected:
         print(f"[checkpoint] antigen_refine unexpected translated keys: {unexpected}")
+    if dropped_for_shape:
+        print(
+            "[checkpoint] antigen_refine NOT warm-started (shape mismatch, left at fresh "
+            f"init): {dropped_for_shape}"
+        )
 
     return checkpoint
 
@@ -4001,6 +4309,27 @@ def main() -> None:
                 print("[compat-baseline] " + " ".join(baseline_parts))
 
     model = build_model(tokenizer, cfg, device)
+    if cfg.paired_init_seed:
+        # J11 pairing. Applied here, right after construction, because the point
+        # is to erase the initialization difference the two arms' differing FFN
+        # widths would otherwise cause -- every parameter is re-derived from a
+        # seed hashed on its module NAME, so its value depends on neither
+        # construction order nor width. `reset_training_rng` then puts both arms
+        # on one data-order and dropout stream.
+        #
+        # This runs BEFORE any init_checkpoint load below, so warm-started
+        # weights still win where they exist; pairing only decides what the
+        # freshly-initialized parameters are.
+        from smallAntibodyGen.experiments import init_parity as _init_parity
+
+        touched = _init_parity.reinitialize_by_module_name(
+            model, build_model_config(tokenizer, cfg), seed=cfg.paired_init_seed
+        )
+        _init_parity.reset_training_rng(cfg.paired_init_seed)
+        print(
+            f"[paired-init] seed={cfg.paired_init_seed}: re-initialized {len(touched)} "
+            "modules by name and reset the training RNG"
+        )
     optimizer = build_optimizer(model, cfg)
     # The GradScaler and warmup scheduler are owned by main() and reused across
     # epochs (and persisted/restored) so their adaptive state is not reset.
@@ -4170,7 +4499,33 @@ def main() -> None:
         pretrain_metrics_record["pretrain_row_random"] = pretrain_row_random_metrics
     append_metrics_jsonl(output_dir, pretrain_metrics_record)
 
+    # AB-11 partition. Built once -- it is a property of the training split, not
+    # of the epoch -- and only when the run asked for it, so a run with the knob
+    # off pays nothing and keeps its historical metric key set.
+    novel_hcdr3_reference: frozenset[str] | None = None
+    if cfg.report_novel_hcdr3_metrics:
+        novel_hcdr3_reference = build_train_hcdr3_reference(train_dataset)
+        print(
+            f"[hcdr3-novelty] {len(novel_hcdr3_reference)} distinct heavy CDR3 strings "
+            "in train; validation HCDR3 metrics will also be reported over rows whose "
+            "HCDR3 is absent from that set (suffix: hcdr3_novel_*)"
+        )
+        if not novel_hcdr3_reference:
+            raise ValueError(
+                "report_novel_hcdr3_metrics=True but the training split yielded 0 "
+                "heavy CDR3 strings, so every validation row would be counted as "
+                "novel and the partition would silently duplicate the unpartitioned "
+                "metric."
+            )
+
     for epoch in range(start_epoch, cfg.epochs):
+        if cfg.max_updates and UPDATE_COUNTER["updates"] >= cfg.max_updates:
+            print(
+                f"[max-updates] reached {UPDATE_COUNTER['updates']} optimizer updates; "
+                "stopping before epoch "
+                f"{epoch + 1}"
+            )
+            break
         train_metrics = train_one_epoch(
             model=model,
             train_dataset=train_dataset,
@@ -4211,6 +4566,7 @@ def main() -> None:
             tokenizer=tokenizer,
             cfg=cfg,
             device=device,
+            novel_hcdr3_reference=novel_hcdr3_reference,
         )
 
         # best.pt / early stopping / the checkpoint's tracked val_loss all key on

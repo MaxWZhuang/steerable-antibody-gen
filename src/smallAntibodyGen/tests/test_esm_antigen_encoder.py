@@ -174,12 +174,39 @@ def test_dual_stream_init_does_not_clobber_pretrained_esm_weights():
     config = _esm_config()
     try:
         standalone = ESMAntigenEncoder(config)
+        # A second independent load of the SAME encoder. Any key that differs
+        # between two loads was not read from the checkpoint at all -- it is
+        # freshly randomized by `transformers` on every construction, so it was
+        # never pretrained and "was it overwritten?" is not a meaningful
+        # question about it. Newer `transformers` builds an `EsmModel` with a
+        # pooler (`pooler.dense.{weight,bias}`) that the `esm2_t6_8M_UR50D`
+        # checkpoint does not contain, and reports it as MISSING/newly
+        # initialized. Deriving the exclusion this way rather than hard-coding
+        # "pooler" keeps the test correct as the library's module list changes.
+        reloaded = ESMAntigenEncoder(config)
         fused = AntibodyAntigenCrossAttention(config)
     except OSError:
         pytest.skip("ESM weights unavailable (offline)")
 
     reference = dict(standalone.esm.state_dict())
+    second = dict(reloaded.esm.state_dict())
     embedded = dict(fused.antigen_encoder.esm.state_dict())
     assert reference.keys() == embedded.keys()
-    for key, value in reference.items():
-        assert torch.equal(value, embedded[key]), f"pretrained ESM weight overwritten: {key}"
+
+    never_pretrained = {
+        key for key, value in reference.items() if not torch.equal(value, second[key])
+    }
+    pretrained = [key for key in reference if key not in never_pretrained]
+
+    # The guard is only meaningful if the checkpoint actually supplied weights,
+    # and only honest if it still covers nearly all of them.
+    assert pretrained, "no ESM weight was loaded from the checkpoint"
+    assert len(never_pretrained) < len(reference) / 10, (
+        "most ESM weights are randomly initialized on every load; the checkpoint "
+        f"is not being read (never_pretrained={sorted(never_pretrained)})"
+    )
+
+    for key in pretrained:
+        assert torch.equal(reference[key], embedded[key]), (
+            f"pretrained ESM weight overwritten: {key}"
+        )

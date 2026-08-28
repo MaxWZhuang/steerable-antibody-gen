@@ -23,14 +23,16 @@ What it reports
 2. For each candidate ``max_length``: row overflow, worst overflow, heavy-CDR3
    loss and light-CDR3 loss.
 3. The ANTIBODY and ANTIGEN streams separately, because the dual-stream model
-   encodes them separately — and because on the ``scratch`` antigen path the
-   antigen's effective cap is not ``antigen_max_length`` at all. The collator
-   computes it as::
+   encodes them separately and they now have independent token budgets: the
+   antigen's cap is ``resolve_antigen_encode_max_length(antigen_max_length,
+   max_length)``, i.e. ``antigen_max_length`` when set and ``max_length`` when it
+   is ``None``.
 
-       max_length if antigen_encoder_type == "scratch" else (antigen_max_length or max_length)
-
-   so a scratch run silently caps 2048-aa antigens at the antibody ``max_length``.
-   Nothing else in the repository counts how often that truncates.
+   Until AB-07 was fixed (2026-08-27) the scratch path ignored
+   ``antigen_max_length`` entirely and clamped every antigen to the antibody
+   ``max_length``. This census is what measured the cost: 87.31% of training rows
+   truncated at ``max_length: 192``, antigen tokens reaching 2042. The candidate
+   antigen caps below are therefore now real choices rather than a hypothetical.
 4. How well the arithmetic reconstructions agree with the tokenizer.
 
 It is a read-only census. It streams the JSONL (it never instantiates
@@ -517,8 +519,9 @@ def print_census(census: dict) -> None:
                 f"  (mean {antigen['mean']})"
             )
             print(
-                "  NOTE: on antigen_encoder_type='scratch' the collator caps the antigen at "
-                "the ANTIBODY max_length and ignores antigen_max_length entirely."
+                "  NOTE: the antigen cap is antigen_max_length when set, else the antibody "
+                "max_length. Raising it past a stage's trained value requires a retrain "
+                "(AB-07): the antigen positional table is sized by that number."
             )
             for row in population["antigen_candidates"]:
                 print(
