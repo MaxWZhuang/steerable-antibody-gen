@@ -1,5 +1,5 @@
 # Stage 2/4 — paired VH/VL refinement. Warm-starts from the stage-1 base model.
-# Produces checkpoints/mlm_paired_refine_v4/best.pt, consumed by stage 3's init_checkpoint.
+# Produces checkpoints/mlm_paired_refine_v5/best.pt, consumed by stage 3's init_checkpoint.
 # This is BY FAR the largest compute item in the chain (45 epochs over ~1.8M paired rows);
 # best.pt is checkpointed on val loss, but all 45 epochs run (no early stopping).
 #

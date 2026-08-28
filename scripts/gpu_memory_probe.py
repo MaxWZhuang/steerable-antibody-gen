@@ -51,6 +51,7 @@ if str(SRC_ROOT) not in sys.path:
 
 from smallAntibodyGen.models.mlm import (  # noqa: E402
     AntibodyAntigenCrossAttention,
+    AntibodyMLM,
     MLMConfig,
 )
 from smallAntibodyGen.tokenizer import AminoAcidTokenizer  # noqa: E402
@@ -95,16 +96,31 @@ def build_probe_model(
     max_length: int,
     antigen_max_length: int,
     tokenizer: AminoAcidTokenizer,
-) -> AntibodyAntigenCrossAttention:
-    """Build the dual-stream model at one candidate context pair."""
+    antigen_encoder_type: str = "scratch",
+    model_kind: str = "dual",
+) -> torch.nn.Module:
+    """
+    Build the dual-stream model at one candidate context pair.
+
+    ``antigen_encoder_type`` matters for memory, not just for science: the ESM
+    arm carries a pretrained backbone whose activations the scratch probe does
+    not price at all. A budget derived from the scratch sweep therefore says
+    nothing about whether the ESM arm fits.
+    """
     config = MLMConfig(
         vocab_size=tokenizer.vocab_size,
         pad_token_id=tokenizer.pad_id,
         max_length=max_length,
         antigen_max_length=antigen_max_length,
-        antigen_encoder_type="scratch",
+        antigen_encoder_type=antigen_encoder_type,
         **BASE_ARCHITECTURE,
     )
+    if model_kind == "antibody":
+        # Stages 1-2 build AntibodyMLM, which has no antigen stream at all.
+        # Pricing them with the dual-stream model would overstate their cost by
+        # a whole encoder, so the budget for a paired refine has to be measured
+        # on the class that stage actually instantiates.
+        return AntibodyMLM(config)
     return AntibodyAntigenCrossAttention(config)
 
 
@@ -116,6 +132,8 @@ def probe_once(
     use_amp: bool,
     device: torch.device,
     tokenizer: AminoAcidTokenizer,
+    antigen_encoder_type: str = "scratch",
+    model_kind: str = "dual",
 ) -> dict[str, Any]:
     """
     One forward + backward at full sequence occupancy, reporting peak memory.
@@ -129,6 +147,8 @@ def probe_once(
         "antigen_max_length": antigen_max_length,
         "batch_size": batch_size,
         "use_amp": use_amp,
+        "antigen_encoder_type": antigen_encoder_type,
+        "model_kind": model_kind,
     }
 
     if device.type == "cuda":
@@ -137,26 +157,39 @@ def probe_once(
         torch.cuda.reset_peak_memory_stats(device)
 
     try:
-        model = build_probe_model(max_length, antigen_max_length, tokenizer).to(device)
+        model = build_probe_model(
+            max_length, antigen_max_length, tokenizer, antigen_encoder_type, model_kind
+        ).to(device)
         model.train()
         optimizer = torch.optim.AdamW(model.parameters(), lr=3e-5)
         result["parameters"] = sum(p.numel() for p in model.parameters())
 
-        # Ids in the residue range; the specific ids do not affect memory.
-        low, high = 0, tokenizer.vocab_size
-        antibody = torch.randint(low, high, (batch_size, max_length), device=device)
-        antigen = torch.randint(low, high, (batch_size, antigen_max_length), device=device)
+        # Ids in the residue range; the specific ids do not affect memory, but
+        # they must be IN RANGE for their own embedding table. The two streams do
+        # not share a vocabulary on the ESM path -- ESM-2 has 33 tokens against
+        # this tokenizer's 35 -- and an out-of-range id is a device-side assert
+        # that reads like an unrelated CUDA failure, not a bad test input.
+        antibody_vocab = tokenizer.vocab_size
+        antigen_vocab = antibody_vocab
+        if antigen_encoder_type == "esm":
+            antigen_vocab = int(model.antigen_encoder.esm.config.vocab_size)
+        antibody = torch.randint(0, antibody_vocab, (batch_size, max_length), device=device)
+        antigen = torch.randint(0, antigen_vocab, (batch_size, antigen_max_length), device=device)
         antibody_mask = torch.ones_like(antibody)
         antigen_mask = torch.ones_like(antigen)
-        labels = torch.randint(low, high, (batch_size, max_length), device=device)
+        labels = torch.randint(0, antibody_vocab, (batch_size, max_length), device=device)
 
         scaler = torch.amp.GradScaler("cuda", enabled=use_amp and device.type == "cuda")
         with torch.amp.autocast(
             device_type=device.type, enabled=use_amp and device.type == "cuda"
         ):
-            logits, compat_logits = model(
-                antibody, antibody_mask, antigen, antigen_mask
-            )
+            if model_kind == "antibody":
+                out = model(antibody, antibody_mask)
+                logits = out[0] if isinstance(out, tuple) else out
+            else:
+                logits, compat_logits = model(
+                    antibody, antibody_mask, antigen, antigen_mask
+                )
             loss = torch.nn.functional.cross_entropy(
                 logits.reshape(-1, logits.size(-1)), labels.reshape(-1)
             )
@@ -246,6 +279,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "max_length, i.e. what fixing that coupling would cost."
         ),
     )
+    parser.add_argument(
+        "--antigen-encoder-type",
+        choices=["scratch", "esm"],
+        default="scratch",
+        help=(
+            "Which antigen encoder to price. 'esm' adds a pretrained backbone the "
+            "scratch sweep does not account for, so the two are not interchangeable "
+            "budgets."
+        ),
+    )
+    parser.add_argument(
+        "--model-kind",
+        choices=["dual", "antibody"],
+        default="dual",
+        help=(
+            "'antibody' prices AntibodyMLM, the class stages 1-2 build. Pricing a "
+            "paired refine with the dual-stream model overstates it by a whole encoder."
+        ),
+    )
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--output-json", type=Path, default=None)
     return parser
@@ -286,6 +338,8 @@ def main(argv: list[str] | None = None) -> int:
                     use_amp=use_amp,
                     device=device,
                     tokenizer=tokenizer,
+                    antigen_encoder_type=args.antigen_encoder_type,
+                    model_kind=args.model_kind,
                 )
                 results.append(row)
                 if not row["ok"]:
@@ -307,6 +361,8 @@ def main(argv: list[str] | None = None) -> int:
         "schema_version": "gpu-memory-probe/1",
         "device": device_info,
         "architecture": BASE_ARCHITECTURE,
+        "antigen_encoder_type": args.antigen_encoder_type,
+        "model_kind": args.model_kind,
         "results": results,
     }
     if args.output_json is not None:
