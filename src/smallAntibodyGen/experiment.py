@@ -52,7 +52,7 @@ import json
 import os
 import subprocess
 from dataclasses import asdict, is_dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Iterable, Mapping, Sequence
 
 __all__ = [
@@ -60,6 +60,7 @@ __all__ = [
     "RUN_FINGERPRINT_KEY",
     "OPERATIONAL_ONLY_CONFIG_FIELDS",
     "PATHLIKE_CONFIG_FIELDS",
+    "is_absolute_on_any_platform",
     "SOURCE_ROOTS",
     "SOURCE_FILES",
     "CONTRACT_ROOTS",
@@ -68,6 +69,9 @@ __all__ = [
     "GENERATED_ARTIFACT_SUFFIXES",
     "GENERATED_ARTIFACT_FILE_NAMES",
     "WARM_START_ARCHITECTURE_KEYS",
+    "ANTIGEN_ONLY_ARCHITECTURE_KEYS",
+    "ANTIBODY_ONLY_MODEL_CLASSES",
+    "parent_has_antigen_stream",
     "FingerprintError",
     "ResumeFingerprintMismatch",
     "LegacyCheckpointResumeError",
@@ -197,6 +201,18 @@ WARM_START_ARCHITECTURE_KEYS: tuple[str, ...] = (
     "use_strength_head",
     "use_length_head",
     "length_head_max",
+    # Rung-1 architecture candidates (J10). `norm_type` and `ffn_type` change the
+    # parameter set; `position_encoding` does not, which makes it the dangerous
+    # one -- a rope checkpoint would load cleanly into a learned-position model
+    # and silently compute something else.
+    "position_encoding",
+    "norm_type",
+    "ffn_type",
+    "swiglu_hidden_dim",
+    "attention_bias",
+    "ffn_bias",
+    "encoder_n_heads",
+    "cross_attention_n_heads",
     "antigen_encoder_type",
     "esm_model_name",
     "antigen_max_length",
@@ -205,6 +221,51 @@ WARM_START_ARCHITECTURE_KEYS: tuple[str, ...] = (
     "lora_alpha",
     "lora_dropout",
 )
+
+#: The subset of :data:`WARM_START_ARCHITECTURE_KEYS` that describes ONLY the
+#: antigen stream. These are exempt from warm-start equality when -- and only
+#: when -- the parent checkpoint has no antigen stream at all.
+#:
+#: A stage-2 antibody-only checkpoint carries no antigen weights, so there is
+#: nothing for these fields to be incompatible WITH: the antigen stream is
+#: constructed by the translation step (`build_antigen_refine_init_state_dict`),
+#: not loaded. Requiring equality there makes every legitimate stage-2 -> stage-3
+#: transition unlaunchable -- stage 2 fingerprints `antigen_max_length: None`
+#: while stage 3 fingerprints 1024, and an ESM arm additionally moves
+#: `antigen_encoder_type` from "scratch" to "esm".
+#:
+#: When the parent IS dual-stream the equality still holds, and that is the point
+#: of scoping the exemption rather than dropping the keys: a stage-3 -> stage-4
+#: warm start carries TRAINED antigen weights, so a changed `antigen_max_length`
+#: would silently reshape a learned positional table and a changed
+#: `antigen_encoder_type` would discard a learned encoder.
+ANTIGEN_ONLY_ARCHITECTURE_KEYS: frozenset[str] = frozenset({
+    "antigen_encoder_type",
+    "esm_model_name",
+    "antigen_max_length",
+    "antigen_encoder_finetune",
+    "lora_r",
+    "lora_alpha",
+    "lora_dropout",
+})
+
+#: Model classes that have no antigen stream. Kept as a set rather than a
+#: negation so adding a third model class fails closed (unknown class => treated
+#: as having an antigen stream => equality enforced).
+ANTIBODY_ONLY_MODEL_CLASSES: frozenset[str] = frozenset({"AntibodyMLM"})
+
+
+def parent_has_antigen_stream(parent_architecture: Mapping[str, Any]) -> bool:
+    """
+    Does the parent checkpoint carry antigen-stream weights?
+
+    Answered from the recorded `model_class` rather than from the presence of
+    antigen fields, because those fields are populated on every `MLMConfig`
+    including an antibody-only one -- they are simply unused there.
+    """
+    model_class = str(parent_architecture.get("model_class", ""))
+    return model_class not in ANTIBODY_ONLY_MODEL_CLASSES
+
 
 _MAX_DIFF_LINES = 25
 _MAX_VALUE_REPR = 160
@@ -274,6 +335,48 @@ def hash_file(path: str | Path, chunk_size: int = 1 << 20) -> str:
     return digest.hexdigest()
 
 
+def is_absolute_on_any_platform(value: str | Path) -> bool:
+    """
+    Is ``value`` an absolute path under EITHER POSIX or Windows rules?
+
+    ``os.path.isabs`` and ``Path.is_absolute`` answer only for the HOST os, which
+    makes every caller here host-dependent in exactly the way a fingerprint must
+    not be. On Windows ``Path("/scratch/corpus.gz").is_absolute()`` is ``False``
+    (no drive letter), so a POSIX scratch path is not recognized as external and
+    its machine-specific prefix is hashed into the objective fingerprint
+    verbatim; on POSIX ``Path("C:/scratch/corpus.gz").is_absolute()`` is
+    ``False`` and the same happens with a Windows path.
+
+    Either way two machines fingerprint the same logical run differently, so a
+    resume or warm-start is refused for a reason that has nothing to do with the
+    objective. Deciding absoluteness under both rule sets makes the answer a
+    property of the string rather than of the machine reading it.
+    """
+    text = str(value)
+    windows = PureWindowsPath(text)
+    # `PureWindowsPath.is_absolute()` requires BOTH a drive and a root, so it is
+    # False for the root-relative "/scratch" and "\scratch". `.root` is the
+    # discriminator that catches those, and it is also set for "C:/x", so it
+    # alone would suffice; the explicit is_absolute() calls document intent.
+    return (
+        PurePosixPath(text).is_absolute()
+        or windows.is_absolute()
+        or bool(windows.root)
+    )
+
+
+def _cross_platform_basename(text: str) -> str:
+    """
+    Last path component, splitting on BOTH separators.
+
+    ``Path("C:/data/corpus.gz").name`` is the whole string on POSIX, because a
+    backslash or drive letter is an ordinary character there -- so a Windows
+    path would keep its machine-specific prefix in the fingerprint on a Linux
+    box, which is the same defect in the other direction.
+    """
+    return text.replace("\\", "/").rstrip("/").rpartition("/")[2] or text
+
+
 def normalize_path_value(value: str | Path, repo_root: str | Path | None = None) -> str:
     """
     Turn a path into a machine-independent string.
@@ -286,18 +389,21 @@ def normalize_path_value(value: str | Path, repo_root: str | Path | None = None)
     text = str(value)
     if not text:
         return text
+    # Decide this from the ORIGINAL text: os.path.normpath rewrites separators
+    # into the host's flavor, which is exactly the host-dependence being removed.
+    absolute = is_absolute_on_any_platform(text)
     path = Path(os.path.normpath(text))
     if repo_root is not None:
         root = Path(repo_root)
         try:
             resolved_root = root.resolve()
-            resolved = path if path.is_absolute() else (resolved_root / path)
+            resolved = path if absolute else (resolved_root / path)
             resolved = Path(os.path.normpath(str(resolved)))
             return resolved.relative_to(resolved_root).as_posix()
         except (ValueError, OSError):
             pass
-    if path.is_absolute():
-        return path.name
+    if absolute:
+        return _cross_platform_basename(text)
     return PurePosixPath(path.as_posix()).as_posix()
 
 
@@ -318,7 +424,7 @@ def normalize_config_for_fingerprint(
             continue
         value = config[key]
         if isinstance(value, (str, Path)) and value:
-            if key in PATHLIKE_CONFIG_FIELDS or os.path.isabs(str(value)):
+            if key in PATHLIKE_CONFIG_FIELDS or is_absolute_on_any_platform(value):
                 value = normalize_path_value(value, repo_root)
             else:
                 value = str(value)
@@ -849,6 +955,13 @@ def check_warm_start_fingerprint(
 
     parent_arch = (parent_manifests.get("architecture") or {}).get("model_config", {})
     current_arch = (current_manifests.get("architecture") or {}).get("model_config", {})
+    parent_architecture = parent_manifests.get("architecture") or {}
+
+    # Antigen-only fields are exempt ONLY when the parent has no antigen stream
+    # to be incompatible with. See ANTIGEN_ONLY_ARCHITECTURE_KEYS.
+    antigen_exempt = not parent_has_antigen_stream(parent_architecture)
+    antigen_transitions: list[str] = []
+
     for key in WARM_START_ARCHITECTURE_KEYS:
         if key == "model_class":
             # A stage transition legitimately swaps AntibodyMLM for
@@ -859,18 +972,49 @@ def check_warm_start_fingerprint(
             continue
         if key not in parent_arch or key not in current_arch:
             continue
-        if parent_arch[key] != current_arch[key]:
-            mismatches.append(
-                f"  architecture.{key}: checkpoint={_render(parent_arch[key])}, "
-                f"run={_render(current_arch[key])}"
+        if parent_arch[key] == current_arch[key]:
+            continue
+        if antigen_exempt and key in ANTIGEN_ONLY_ARCHITECTURE_KEYS:
+            # Allowed, but never silent: a reader must be able to see which
+            # antigen fields the transition introduced.
+            antigen_transitions.append(
+                f"  architecture.{key}: {_render(parent_arch[key])} -> "
+                f"{_render(current_arch[key])}"
             )
+            continue
+        mismatches.append(
+            f"  architecture.{key}: checkpoint={_render(parent_arch[key])}, "
+            f"run={_render(current_arch[key])}"
+        )
+
+    if antigen_transitions:
+        print(
+            f"[warm-start] {path}: antibody-only parent, so the antigen stream is "
+            "CONSTRUCTED here rather than loaded. Antigen-only fields introduced by "
+            "this transition:\n" + "\n".join(sorted(antigen_transitions))
+        )
 
     if mismatches:
+        hint = ""
+        if not antigen_exempt and any(
+            f"  architecture.{key}:" in line
+            for line in mismatches
+            for key in ANTIGEN_ONLY_ARCHITECTURE_KEYS
+        ):
+            hint = (
+                "\n\nAn antigen-only field differs and the parent checkpoint ALREADY HAS a "
+                "trained antigen stream, so this is not a stream-introducing transition: the "
+                "parent's antigen weights would be silently reshaped or discarded. Root this "
+                "run at an antibody-only (stage-2) checkpoint instead, which is also what the "
+                "plan's J24 encoder comparison requires."
+            )
         raise WarmStartFingerprintMismatch(
             f"init_checkpoint {path} is not warm-start compatible with this run.\n"
             "The architecture and tokenizer must match; the objective and the data are "
             "allowed to change (that is what a stage transition is).\n"
-            "Mismatches (checkpoint -> this run):\n" + "\n".join(mismatches[:_MAX_DIFF_LINES])
+            "Mismatches (checkpoint -> this run):\n"
+            + "\n".join(mismatches[:_MAX_DIFF_LINES])
+            + hint
         )
 
 

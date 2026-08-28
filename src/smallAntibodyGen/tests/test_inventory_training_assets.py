@@ -96,8 +96,18 @@ def write_checkpoint_with_storages(path: Path, payload: dict) -> Path:
 
 
 def write_corpus(path: Path, text: str) -> Path:
+    """
+    Write ``text`` verbatim, with no platform newline translation.
+
+    ``Path.write_text`` defaults to ``newline=None``, which rewrites
+    ``\n`` as ``os.linesep``. On Windows that silently turns a fixture
+    written as ``b'{"epoch": 1}\n'`` into ``b'{"epoch": 1}\r\n'``, so a
+    test asserting on a hash of the intended bytes fails for a reason that
+    has nothing to do with the hashing code under test.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        handle.write(text)
     return path
 
 

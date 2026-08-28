@@ -9,6 +9,12 @@ requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24",
     "pandas>=2.0",
+    # Parquet engine for `scripts/prepare_antibody_antigen.py`, which reads the
+    # ASD shards through `pandas.read_parquet`. Never imported by name, so no
+    # import scan finds it -- it was an undeclared transitive requirement until
+    # the Gate-0 review, and its absence made 11 tests skip silently while the
+    # suite still reported green (found in the local Gate-0 review).
+    "pyarrow>=14.0",
     "PyYAML>=6.0",
     "tabulate>=0.9",
     "torch>=2.1",

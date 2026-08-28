@@ -1,5 +1,5 @@
 # Stage 2/4 — paired VH/VL refinement. Warm-starts from the stage-1 base model.
-# Produces checkpoints/mlm_paired_refine_v4/best.pt, consumed by stage 3's init_checkpoint.
+# Produces checkpoints/mlm_paired_refine_v5/best.pt, consumed by stage 3's init_checkpoint.
 # This is BY FAR the largest compute item in the chain (45 epochs over ~1.8M paired rows);
 # best.pt is checkpointed on val loss, but all 45 epochs run (no early stopping).
 #
@@ -7,8 +7,8 @@
 # checkpoint — see the generation note in configs/pretrain_oas_small.yaml.
 training_stage: paired_refine
 data_path: data/processed/oas_paired_all/oas_paired.jsonl.gz
-init_checkpoint: checkpoints/mlm_3m_unpaired_v4/best.pt
-output_dir: checkpoints/mlm_paired_refine_v4
+init_checkpoint: checkpoints/mlm_3m_unpaired_v5/best.pt
+output_dir: checkpoints/mlm_paired_refine_v5
 resume_from_last: true
 
 seed: 42
@@ -16,7 +16,13 @@ batch_size: 32
 eval_batch_size: 32
 train_num_workers: 0
 eval_num_workers: 0
-max_length: 192
+# v4 -> v5: 192 -> 288 (Open Decision 1, resolved 2026-08-27). 192 truncated 100.00% of
+# paired-OAS train rows and destroyed CDR-L3 on 99.96% of them, and 75.86% of the
+# antibody-antigen rows. 288 clears BOTH corpora outright -- measured maxima are 281 (paired,
+# 2,513,626 rows) and 258 (antibody-antigen, 828,315 rows) -- so no row is truncated at all.
+# 256 was rejected: it still overflows 452 paired and 2 antigen rows.
+# Evidence: the local (untracked) J04 context-census reports under outputs/.
+max_length: 288
 bucket_width: 8
 
 mask_probability: 0.15
@@ -40,6 +46,12 @@ d_ff: 1024                # FIX: old example said 512, which fails the init-comp
 dropout: 0.1
 norm_first: true          # v4: pre-LN. Must match stage 1 exactly or init-compat rejects the warm start.
 
+# Deliberately NOT changed to the batch-16 + AMP envelope of Open Decision 1. That envelope
+# was chosen for the ANTIGEN stages, where the second encoder dominates memory; this stage has
+# no antigen stream. Measured on the GTX 1650 SUPER at the new max_length: 288 with batch 32
+# and AMP off peaks at 1200 MiB of 4096 (29%), against 834 MiB at the old 192 -- so the known-
+# good setting still fits with room to spare and is kept rather than perturbed alongside the
+# context change. One axis at a time.
 use_amp: false            # matches the known-good prior paired run. Flip to true for speed if stable.
 show_progress: true
 device: cuda

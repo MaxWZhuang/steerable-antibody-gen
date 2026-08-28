@@ -6,6 +6,17 @@ from dataclasses import dataclass
 import torch
 import torch.nn.functional as F
 from torch import nn
+from smallAntibodyGen.antigen_tokenization import resolve_antigen_encode_max_length
+from smallAntibodyGen.models.transformer import (
+    RMSNorm,
+    ModernEncoderStack,
+    apply_modern_residual_depth_scaling,
+    build_norm,
+    is_legacy_block,
+    position_ids_from_mask,
+    resolve_head_count,
+    validate_head_count,
+)
 
 @dataclass
 class MLMConfig: 
@@ -64,10 +75,17 @@ class MLMConfig:
         esm_model_name (str):
             HuggingFace model id for the ESM backbone used when
             ``antigen_encoder_type == "esm"`` (default ESM-2 8M).
-        antigen_max_length (int):
-            Maximum antigen token length for the ESM antigen stream. Independent
+        antigen_max_length (int | None):
+            Total antigen token budget, INCLUDING ``[CLS]``/``[EOS]``, for BOTH
+            antigen encoder types. ``None`` inherits ``max_length``. Independent
             of ``max_length`` (which bounds the antibody stream) because the two
             encoders are separate and only interact through cross-attention.
+
+            Before AB-07 this bounded the ESM stream only: the scratch stream was
+            built from the same ``MLMConfig`` as the antibody encoder and so
+            inherited ``max_length`` no matter what this said. On the real ASD
+            corpus that truncated the antigen for 87.31% of training rows
+            (antigen tokens: p50 610, max 2042, against a 192 window).
         antigen_encoder_finetune (str):
             How the ESM antigen encoder is trained: ``"frozen"`` (features only,
             projection/cross-attention/heads trainable) or ``"lora"`` (LoRA
@@ -105,9 +123,41 @@ class MLMConfig:
     # Antigen-stream encoder selection (Direction 1: hybrid PLM antigen encoder).
     # Defaults preserve the original from-scratch dual-stream behavior, so these
     # fields are inert until AntibodyAntigenCrossAttention branches on them.
+    # ---- Rung-1 architecture candidates (J10). ------------------------------
+    # EVERY default below reproduces the current model exactly, so an unmodified
+    # config builds the identical parameter set and existing checkpoints keep
+    # loading. Candidate configs opt in; nothing is inferred.
+    #
+    # These are architecture identity, so they belong in the fingerprint and in
+    # the warm-start compatibility check: `norm_type` and `ffn_type` change the
+    # parameter SET, while `position_encoding` changes what the same parameters
+    # mean. A checkpoint trained under one and loaded under another would either
+    # fail confusingly or -- worse for `position_encoding` -- load cleanly and
+    # compute something different.
+    position_encoding: str = "learned"      # learned | rope
+    norm_type: str = "layernorm"            # layernorm | rmsnorm
+    ffn_type: str = "gelu"                  # gelu | swiglu
+    # Required when ffn_type == "swiglu", and NEVER inferred from d_ff: SwiGLU
+    # has three projections, so reusing d_ff would silently build a 1.5x larger
+    # feed-forward and let the bakeoff credit the architecture for the capacity.
+    # See models/transformer.swiglu_width_matching_gelu.
+    swiglu_hidden_dim: int | None = None
+    attention_bias: bool = True
+    ffn_bias: bool = True
+    # None inherits the legacy `n_heads`. Resolved and stored SEPARATELY so the
+    # encoder's head shape can be a bakeoff axis without touching the antigen
+    # fusion, which J10 does not modernize.
+    encoder_n_heads: int | None = None
+    cross_attention_n_heads: int | None = None
+
     antigen_encoder_type: str = "scratch"
     esm_model_name: str = "facebook/esm2_t6_8M_UR50D"
-    antigen_max_length: int = 512
+    # None means "inherit max_length". Before AB-07 this defaulted to 512 and was
+    # read NOWHERE except its own validator, so the scratch antigen encoder was
+    # silently built at the antibody max_length. The sentinel keeps that exact
+    # behavior as the default while making the knob real when it is set. See
+    # `effective_antigen_max_length`.
+    antigen_max_length: int | None = None
     antigen_encoder_finetune: str = "frozen"
     lora_r: int = 8
     lora_alpha: int = 16
@@ -168,6 +218,28 @@ class MLMConfig:
     # keeps the stream's variance roughly constant from layer 0 to layer N.
     scale_residual_init: bool = True
 
+    @property
+    def resolved_encoder_n_heads(self) -> int:
+        """Self-attention head count, with the legacy ``n_heads`` fallback."""
+        return resolve_head_count(self.encoder_n_heads, self.n_heads)
+
+    @property
+    def resolved_cross_attention_n_heads(self) -> int:
+        """Antigen cross-attention head count, resolved independently of the encoder's."""
+        return resolve_head_count(self.cross_attention_n_heads, self.n_heads)
+
+    @property
+    def effective_antigen_max_length(self) -> int:
+        """
+        The antigen stream's total token budget, with the ``None`` sentinel resolved.
+
+        Read this rather than ``antigen_max_length`` anywhere the number is
+        actually used, so the "None inherits max_length" rule has one home.
+        """
+        return resolve_antigen_encode_max_length(
+            self.antigen_max_length, self.max_length
+        )
+
     def validate(self) -> None:
         """
         Validate that the configuration is internally consistent.
@@ -196,12 +268,49 @@ class MLMConfig:
             raise ValueError("norm_first must be a bool")
         if self.activation not in {"relu", "gelu"}:
             raise ValueError("activation must be either 'relu' (ReLU/Rectified Linear Unit) or 'gelu' (GELU/Gaussian Error Linear Unit)")
+        if self.position_encoding not in {"learned", "rope"}:
+            raise ValueError("position_encoding must be either 'learned' or 'rope'")
+        if self.norm_type not in {"layernorm", "rmsnorm"}:
+            raise ValueError("norm_type must be either 'layernorm' or 'rmsnorm'")
+        if self.ffn_type not in {"gelu", "swiglu"}:
+            raise ValueError("ffn_type must be either 'gelu' or 'swiglu'")
+        if self.ffn_type == "swiglu" and self.swiglu_hidden_dim is None:
+            raise ValueError(
+                "ffn_type='swiglu' requires an explicit swiglu_hidden_dim. It is not "
+                "inferred from d_ff: SwiGLU's three projections would make the "
+                "feed-forward 1.5x larger, and an architecture bakeoff would then be "
+                "comparing capacity rather than architecture. Use "
+                "models.transformer.swiglu_width_matching_gelu to pick a width and "
+                "report its residual."
+            )
+        if self.ffn_type == "gelu" and self.swiglu_hidden_dim is not None:
+            raise ValueError(
+                "swiglu_hidden_dim is set but ffn_type='gelu'; the width would be "
+                "silently ignored"
+            )
+        if self.swiglu_hidden_dim is not None and self.swiglu_hidden_dim <= 0:
+            raise ValueError("swiglu_hidden_dim must be > 0")
+        for label, value in (
+            ("encoder_n_heads", self.encoder_n_heads),
+            ("cross_attention_n_heads", self.cross_attention_n_heads),
+        ):
+            if value is not None:
+                validate_head_count(self.d_model, int(value), label)
         if self.antigen_encoder_type not in {"scratch", "esm"}:
             raise ValueError("antigen_encoder_type must be either 'scratch' or 'esm'")
         if self.antigen_encoder_finetune not in {"frozen", "lora"}:
             raise ValueError("antigen_encoder_finetune must be either 'frozen' or 'lora'")
-        if not (0 < self.antigen_max_length <= 1024):
-            raise ValueError("antigen_max_length must be in (0, 1024]")
+        # The old ceiling was 1024, which no comment or commit message justified
+        # and which the real corpus exceeds: measured antigen lengths reach 2042
+        # tokens, so 1024 could not express a setting that covers the data. The
+        # ceiling is now a sanity bound on the positional table (which allocates
+        # `n + 1` rows), not a modeling opinion -- 8192 antigen positions at
+        # d_model 256 is ~2M parameters, large enough to notice and small enough
+        # to be a typo guard rather than a constraint.
+        if self.antigen_max_length is not None and not (
+            0 < self.antigen_max_length <= 8192
+        ):
+            raise ValueError("antigen_max_length must be None or in (0, 8192]")
         if self.lora_r <= 0:
             raise ValueError("lora_r must be > 0")
         if self.lora_alpha <= 0:
@@ -285,6 +394,13 @@ def init_module_weights(module: nn.Module, config: MLMConfig) -> None:
     elif isinstance(module, nn.LayerNorm):
         nn.init.ones_(module.weight)
         nn.init.zeros_(module.bias)
+    elif isinstance(module, RMSNorm):
+        # Same intent as the LayerNorm branch: start as the identity. RMSNorm has
+        # no bias, so there is nothing to zero. Without this branch RMSNorm would
+        # fall through to the no-op tail and keep its constructor's ones() -- which
+        # happens to be right today, and would silently stop being right the moment
+        # the constructor changed.
+        nn.init.ones_(module.weight)
     elif isinstance(module, nn.MultiheadAttention):
         # Reached both for the standalone fusion attention and for the attention
         # inside nn.TransformerEncoderLayer, which is intended: it puts both on one
@@ -389,47 +505,89 @@ class TransformerSequenceEncoder(nn.Module):
     higher-level models decide how to fuse or decode the resulting features.
     """
 
-    def __init__(self, config: MLMConfig) -> None:
+    def __init__(self, config: MLMConfig, *, max_length: int | None = None) -> None:
+        """
+        Args:
+            config: The shared architecture config.
+            max_length:
+                Token budget for THIS encoder, overriding ``config.max_length``.
+                The dual-stream model builds two encoders from one config, and
+                before AB-07 both were forced to the antibody budget because this
+                override did not exist. ``None`` keeps ``config.max_length``, so
+                every existing caller is unchanged.
+
+                It sizes the positional table AND the input-length guard
+                together; splitting those two is how a model accepts a sequence
+                it has no position for.
+        """
         super().__init__()
         self.config = config
+        self.max_length = config.max_length if max_length is None else max_length
 
         self.token_embedding = nn.Embedding(
             num_embeddings=config.vocab_size,
             embedding_dim=config.d_model,
             padding_idx=config.pad_token_id,
         )
-        self.position_embedding = LearnedPositionalEmbedding(
-            max_length=config.max_length,
-            d_model=config.d_model,
+        # RoPE carries position in the attention rotation, so there is NO learned
+        # table at all -- that is a real parameter saving (max_length + 1 rows of
+        # d_model; 289 x 256 = 73,984 at the canonical shape) and a real property:
+        # a rope encoder cannot run out of table at a length it never saw. It does
+        # not thereby become good at such lengths; nothing trains those positions.
+        self.uses_learned_positions = config.position_encoding == "learned"
+        self.position_embedding = (
+            LearnedPositionalEmbedding(
+                max_length=self.max_length,
+                d_model=config.d_model,
+            )
+            if self.uses_learned_positions
+            else None
         )
         self.embed_drop = nn.Dropout(config.dropout)
 
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=config.d_model,
-            nhead=config.n_heads,
-            dim_feedforward=config.d_ff,
-            dropout=config.dropout,
-            activation=config.activation,
-            batch_first=True,
-            norm_first=config.norm_first,
-        )
-        self.encoder = nn.TransformerEncoder(
-            encoder_layer,
-            num_layers=config.n_layers,
-            enable_nested_tensor=False,
-        )
+        # A LEGACY configuration keeps running through nn.TransformerEncoder,
+        # untouched. That is why "the legacy config passes the entire existing
+        # suite" is true by construction rather than by a parity argument: the
+        # legacy path is not reimplemented, it is not entered differently, it is
+        # the same code. Any departure at all takes the modern block, because a
+        # block that is NEARLY the old one is the worst outcome -- it would differ
+        # silently. See `is_legacy_block`.
+        self.is_legacy_block = is_legacy_block(config)
+        if self.is_legacy_block:
+            encoder_layer = nn.TransformerEncoderLayer(
+                d_model=config.d_model,
+                nhead=config.n_heads,
+                dim_feedforward=config.d_ff,
+                dropout=config.dropout,
+                activation=config.activation,
+                batch_first=True,
+                norm_first=config.norm_first,
+            )
+            self.encoder = nn.TransformerEncoder(
+                encoder_layer,
+                num_layers=config.n_layers,
+                enable_nested_tensor=False,
+            )
+        else:
+            self.encoder = ModernEncoderStack(
+                config, config.d_model, config.resolved_encoder_n_heads
+            )
         # Required in pre-LN mode (the stack's output is un-normalized there);
         # near-redundant but harmless in post-LN mode, where the last layer
         # already ends in a LayerNorm. Kept unconditional so the parameter set
-        # does not depend on norm_first.
-        self.final_norm = nn.LayerNorm(config.d_model)
+        # does not depend on norm_first. Follows norm_type so the whole stack uses
+        # one normalization operator.
+        self.final_norm = build_norm(config, config.d_model)
 
         # Replace PyTorch's per-module defaults (N(0, 1) embeddings, xavier
         # attention, kaiming FFN) with one coherent scheme, then damp the residual
         # writes by depth. Owning init here means every consumer of this encoder
         # -- antibody stream, scratch antigen stream, both models -- gets it.
         self.apply(lambda module: init_module_weights(module, config))
-        apply_residual_depth_scaling(self.encoder, config)
+        if self.is_legacy_block:
+            apply_residual_depth_scaling(self.encoder, config)
+        else:
+            apply_modern_residual_depth_scaling(self.encoder, config)
 
     def _validate_inputs(
         self,
@@ -443,9 +601,9 @@ class TransformerSequenceEncoder(nn.Module):
             raise ValueError("input_ids must have shape [batch_size, seq_len]")
 
         _, seq_len = input_ids.shape
-        if seq_len > self.config.max_length:
+        if seq_len > self.max_length:
             raise ValueError(
-                f"Input sequence length {seq_len} has to be less than the max length, equal to {self.config.max_length}"
+                f"Input sequence length {seq_len} has to be less than the max length, equal to {self.max_length}"
             )
 
         if attention_mask is None:
@@ -469,11 +627,10 @@ class TransformerSequenceEncoder(nn.Module):
         """
         Build the token + positional embeddings for the encoder stack.
         """
-        token_emb = self.token_embedding(input_ids)
-        pos_emb = self.position_embedding(attention_mask)
-        hidden = token_emb + pos_emb
-        hidden = self.embed_drop(hidden)
-        return hidden
+        hidden = self.token_embedding(input_ids)
+        if self.position_embedding is not None:
+            hidden = hidden + self.position_embedding(attention_mask)
+        return self.embed_drop(hidden)
 
     def forward(
         self,
@@ -485,8 +642,17 @@ class TransformerSequenceEncoder(nn.Module):
         """
         attention_mask = self._validate_inputs(input_ids, attention_mask)
         hidden = self.embed(input_ids, attention_mask)
-        key_padding_mask = self._build_key_padding_mask(attention_mask)
-        hidden = self.encoder(hidden, src_key_padding_mask=key_padding_mask)
+        if self.is_legacy_block:
+            key_padding_mask = self._build_key_padding_mask(attention_mask)
+            hidden = self.encoder(hidden, src_key_padding_mask=key_padding_mask)
+        else:
+            # The modern stack takes the mask in its positive sense (1 = real) and
+            # derives rotary positions with the SAME cumsum convention the learned
+            # table uses, so switching position_encoding changes how position is
+            # represented rather than which position a token gets.
+            hidden = self.encoder(
+                hidden, attention_mask, position_ids_from_mask(attention_mask)
+            )
         hidden = self.final_norm(hidden)
         return hidden, attention_mask
 
@@ -823,7 +989,14 @@ class AntibodyAntigenCrossAttention(nn.Module):
 
             self.antigen_encoder = ESMAntigenEncoder(config)
         else:
-            self.antigen_encoder = TransformerSequenceEncoder(config)
+            # AB-07: the antigen stream gets its OWN token budget. Passing
+            # `config` alone built this encoder at the antibody `max_length`,
+            # which is why `antigen_max_length` was inert on the scratch path.
+            # The same number bounds the collator's tokenization, so the
+            # positional table and the encoded input cannot disagree.
+            self.antigen_encoder = TransformerSequenceEncoder(
+                config, max_length=config.effective_antigen_max_length
+            )
 
         self.antibody_to_antigen = nn.MultiheadAttention(
             embed_dim=config.d_model,
