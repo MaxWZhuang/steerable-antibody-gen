@@ -125,3 +125,44 @@ def build_antigen_tokenizer(
     raise ValueError(
         f"unknown antigen_encoder_type {antigen_encoder_type!r}; expected 'scratch' or 'esm'"
     )
+
+
+def resolve_antigen_encode_max_length(
+    antigen_max_length: int | None,
+    max_length: int,
+) -> int:
+    """
+    Resolve the antigen stream's token budget. ONE definition, four call sites.
+
+    ``None`` means "inherit the antibody ``max_length``". That sentinel is what
+    keeps the default byte-identical to the pre-AB-07 behavior while making the
+    knob real when it is set.
+
+    Before AB-07 this expression was written out three times -- in
+    ``AntibodyAntigenCollator``, in the infiller, and in the compatibility
+    scorer -- and each copy read::
+
+        max_length if antigen_encoder_type == "scratch" else (antigen_max_length or max_length)
+
+    i.e. the scratch path silently ignored ``antigen_max_length`` and clamped the
+    antigen to the ANTIBODY budget. Three copies of a rule is also three chances
+    for the training encoder and the generation encoder to disagree, which is
+    this repository's most expensive bug class; the encoder type is deliberately
+    NOT a parameter here, because the resolved budget does not depend on it.
+
+    The returned value is a TOTAL token budget including ``[CLS]``/``[EOS]``:
+    ``AminoAcidTokenizer.encode_sequence(..., max_length=n)`` returns exactly
+    ``n`` ids with the specials inside that count. The model's positional table
+    must therefore be built from this same number, which is what
+    ``AntibodyAntigenCrossAttention`` now does.
+
+    Args:
+        antigen_max_length: Configured antigen budget, or ``None`` to inherit.
+        max_length: The antibody stream's budget.
+
+    Returns:
+        The antigen stream's total token budget.
+    """
+    if antigen_max_length is None:
+        return max_length
+    return antigen_max_length

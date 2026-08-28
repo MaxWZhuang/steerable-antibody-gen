@@ -789,7 +789,12 @@ def test_parse_args_antigen_encoder_defaults_to_scratch(tmp_path: Path, project_
 
     assert cfg.antigen_encoder_type == "scratch"
     assert cfg.esm_model_name == "facebook/esm2_t6_8M_UR50D"
-    assert cfg.antigen_max_length == 512
+    # AB-07: was 512. That literal was only ever reachable on the ESM path --
+    # the scratch path ignored the field entirely -- so nothing consumed it by
+    # default. `None` now means "inherit max_length", which is precisely the
+    # behavior every scratch config already had, so this default is unchanged
+    # in effect and merely honest about it.
+    assert cfg.antigen_max_length is None
     assert cfg.antigen_encoder_finetune == "frozen"
     assert cfg.lora_r == 8
     assert cfg.lora_alpha == 16
@@ -880,13 +885,30 @@ def test_parse_args_rejects_esm_on_non_antigen_stage(tmp_path: Path, project_roo
 
 
 def test_parse_args_rejects_out_of_range_antigen_max_length(tmp_path: Path, project_root: Path):
+    """
+    AB-07 raised the ceiling from 1024 to 8192. 4096 -- which this test used to
+    reject -- is now legal, because the measured corpus reaches 2042 antigen
+    tokens and the old ceiling could not express a setting that covers the data.
+    The remaining bound is a typo guard on the positional table, not a modeling
+    opinion, so the rejection case moves to something no corpus could want.
+    """
     mlm_train = load_mlm_train_module(project_root)
     data_path = tmp_path / "tiny.jsonl.gz"
     data_path.write_text("", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="antigen_max_length must be in"):
+    accepted = mlm_train.parse_args(
+        ["--data-path", str(data_path), "--antigen-max-length", "4096"]
+    )
+    assert accepted.antigen_max_length == 4096
+
+    with pytest.raises(ValueError, match="antigen_max_length must be None or in"):
         mlm_train.parse_args(
-            ["--data-path", str(data_path), "--antigen-max-length", "4096"]
+            ["--data-path", str(data_path), "--antigen-max-length", "8193"]
+        )
+
+    with pytest.raises(ValueError, match="antigen_max_length must be None or in"):
+        mlm_train.parse_args(
+            ["--data-path", str(data_path), "--antigen-max-length", "0"]
         )
 
 
