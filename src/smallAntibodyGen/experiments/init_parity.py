@@ -173,3 +173,149 @@ def assert_shared_parameters_match(left: nn.Module, right: nn.Module) -> None:
         "attributable to the antigen encoder alone. "
         + "; ".join(problems)
     )
+
+
+# --------------------------------------------------------------------------- #
+# J11: pairing two arms that differ only in a width
+# --------------------------------------------------------------------------- #
+def reinitialize_by_module_name(
+    model: nn.Module,
+    config: MLMConfig,
+    seed: int,
+) -> tuple[str, ...]:
+    """
+    Re-initialize EVERY module from a seed derived from its own name.
+
+    J24 needed this for the shared fusion; J11 needs it for almost the whole
+    model. The two width arms differ only in the SwiGLU projections, so nearly
+    every parameter is same-name and same-shape -- and under ordinary seeding
+    they would still differ, because the wider arm's FFN consumes more init RNG
+    and shifts every draw after it. Three seeds of a comparison whose arms start
+    from different weights is not three paired observations; it is six unrelated
+    runs, and 1.0 percentage point of HCDR3 recovery is well inside what that
+    noise can produce.
+
+    Seeding per module NAME makes each parameter's value independent of
+    construction order and therefore of the width. Parameters whose SHAPE differs
+    between arms (the SwiGLU projections) necessarily still differ -- that is the
+    axis under test.
+
+    Two details that are easy to get wrong:
+
+    - Modules are visited in sorted name order and initialized DIRECTLY rather
+      than via ``.apply()``, so each leaf is drawn exactly once from its own seed
+      instead of inheriting a parent's traversal.
+    - Residual-depth scaling is a post-init multiply, so re-initializing wipes it
+      out. It is re-applied here; forgetting that would silently un-damp the
+      residual writes and change training dynamics for both arms.
+
+    The global RNG is restored, so this pass does not shift the data-order or
+    dropout streams. Call :func:`reset_training_rng` afterwards to put both arms
+    on an identical training stream.
+
+    Returns:
+        The module names that were initialized, in application order.
+    """
+    from smallAntibodyGen.models.mlm import apply_residual_depth_scaling
+    from smallAntibodyGen.models.transformer import (
+        ModernEncoderStack,
+        apply_modern_residual_depth_scaling,
+    )
+
+    rng_state = torch.get_rng_state()
+    touched: list[str] = []
+    try:
+        for name, module in sorted(model.named_modules(), key=lambda item: item[0]):
+            if not name:
+                continue
+            # Only leaves that own parameters directly; containers would
+            # otherwise re-draw their children under the container's seed.
+            if not any(True for _ in module.parameters(recurse=False)):
+                continue
+            torch.manual_seed(_module_seed(seed, name))
+            init_module_weights(module, config)
+            touched.append(name)
+
+        # Re-apply the depth damping the re-init just erased.
+        for _, module in model.named_modules():
+            if isinstance(module, ModernEncoderStack):
+                apply_modern_residual_depth_scaling(module, config)
+            elif isinstance(module, nn.TransformerEncoder):
+                apply_residual_depth_scaling(module, config)
+    finally:
+        torch.set_rng_state(rng_state)
+    return tuple(touched)
+
+
+def reset_training_rng(seed: int) -> None:
+    """
+    Put the training RNG at a known point AFTER construction.
+
+    Construction consumes a different amount of RNG in each arm, so without this
+    the two arms would see different data order and different dropout masks even
+    with identical weights -- reintroducing, in the training stream, exactly the
+    confound the per-module init just removed from the parameters.
+    """
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def compare_parameter_sets(
+    left: nn.Module,
+    right: nn.Module,
+) -> dict[str, list[str]]:
+    """
+    Classify two arms' parameters into identical / differing / shape-mismatched.
+
+    Returned rather than asserted so a report can state how much of the model was
+    actually held fixed -- "the arms are paired" is a quantity, not a claim.
+    """
+    left_params = dict(left.named_parameters())
+    right_params = dict(right.named_parameters())
+
+    identical: list[str] = []
+    differing: list[str] = []
+    shape_mismatch: list[str] = []
+    for name in sorted(set(left_params) & set(right_params)):
+        a, b = left_params[name], right_params[name]
+        if a.shape != b.shape:
+            shape_mismatch.append(name)
+        elif torch.equal(a.detach(), b.detach()):
+            identical.append(name)
+        else:
+            differing.append(name)
+    return {
+        "identical": identical,
+        "differing": differing,
+        "shape_mismatch": shape_mismatch,
+        "only_left": sorted(set(left_params) - set(right_params)),
+        "only_right": sorted(set(right_params) - set(left_params)),
+    }
+
+
+def assert_arms_are_paired(left: nn.Module, right: nn.Module) -> dict[str, list[str]]:
+    """
+    Raise unless every same-name, same-shape parameter is bit-identical.
+
+    Shape mismatches are ALLOWED and returned: in J11 they are the SwiGLU
+    projections, which is the axis being compared. Anything else differing means
+    the arms are not paired and the seed count is not evidence.
+    """
+    report = compare_parameter_sets(left, right)
+    problems = []
+    if report["differing"]:
+        problems.append(
+            "same-name same-shape parameters differ: " + str(report["differing"][:10])
+        )
+    if report["only_left"] or report["only_right"]:
+        problems.append(
+            f"parameter sets differ: only_left={report['only_left'][:5]}, "
+            f"only_right={report['only_right'][:5]}"
+        )
+    if problems:
+        raise AssertionError(
+            "J11 arms are not paired, so three seeds are three unrelated pairs "
+            "rather than three paired observations. " + "; ".join(problems)
+        )
+    return report
