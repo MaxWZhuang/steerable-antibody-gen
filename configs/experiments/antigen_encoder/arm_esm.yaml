@@ -1,0 +1,89 @@
+# J24 arm E -- frozen ESM-2 8M antigen encoder.
+#
+# PAIRED with arm_scratch.yaml. The two files must differ in EXACTLY the antigen
+# encoder block; every other line is intentionally identical, and
+# scripts/compare_antigen_encoder_arms.py refuses to compare them if that stops
+# being true. Edit them together or not at all.
+#
+# J24 question: given the same pretrained antibody model, data, supervision,
+# initialization, and 1024-token antigen crop, does frozen ESM-2 produce stronger
+# antigen-dependent policy behavior than the scratch antigen encoder? J24 selects
+# the antigen SENSOR; it does not test the target-specific claim, which is a later
+# experiment.
+#
+# DO NOT RUN YET. Blocked on:
+#   (a) a promoted v5 stage-2 checkpoint -- the placeholder below does not exist;
+#   (b) the approved inner-development evaluation assets (J05c).
+# Protocol and promotion rule: specs/experiments/j24_antigen_encoder.md
+#
+# Both arms warm-start from the SAME stage-2 antibody checkpoint. Rooting the ESM
+# arm at a scratch stage-3 checkpoint would carry fusion and head weights trained
+# on scratch antigen features into the ESM arm, measuring ESM through a fusion
+# fitted to its competitor. The warm-start gate now rejects that transition.
+
+training_stage: antigen_real_label_refine
+data_path: data/processed/antibody_antigen/antibody_antigen.jsonl.gz
+init_checkpoint: checkpoints/mlm_paired_refine_v5/best.pt
+output_dir: checkpoints/experiments/j24_arm_esm_seed42
+resume_from_last: false        # a pilot arm is never resumed; rerun it clean
+
+# One of the >= 3 seeds. The seed varies the data order and the antibody-side
+# dropout; it does NOT vary the shared fusion/head initialization, which is
+# re-derived per module by experiments.init_parity so both arms start bit-identical.
+seed: 42
+
+batch_size: 16
+eval_batch_size: 16
+train_num_workers: 0
+eval_num_workers: 0
+
+# Open Decision 1. Identical in both arms by construction: the comparison is
+# between encoders, not between context windows.
+max_length: 288
+antigen_max_length: 1024
+bucket_width: 8
+
+# The antigen residue crop is equalized ACROSS ARMS, not just the token budget.
+# The two tokenizers spend different overheads inside 1024 -- scratch emits
+# [CLS] [OTHER_CHAIN] ... [EOS] (3) and ESM <cls> ... <eos> (2) -- so an
+# uncorrected run hands the ESM arm one extra residue on every antigen. Both arms
+# crop to 1021 residues. See experiments/antigen_residues.py.
+
+mask_probability: 0.15
+hcdr3_span_probability: 0.0
+conditional_denoising_eligibility: binary_binders_only
+
+learning_rate: 0.00003
+warmup_steps: 200
+weight_decay: 0.01
+grad_clip_norm: 1.0
+compatibility_loss_weight: 1.0
+epochs: 1                      # pilot; frozen after the timing-only calibration
+
+d_model: 256
+n_heads: 8
+n_layers: 6
+d_ff: 1024
+dropout: 0.1
+norm_first: true
+
+use_amp: true
+show_progress: true
+device: cuda
+
+# ---- THE ONLY BLOCK THAT MAY DIFFER BETWEEN THE TWO ARMS --------------------
+antigen_encoder:
+  type: esm
+  esm_model_name: facebook/esm2_t6_8M_UR50D
+  antigen_max_length: 1024      # MUST equal the scratch arm's; one axis
+  finetune: frozen              # J24 adds no LoRA -- that is a later one-axis arm
+  # The backbone is frozen, so only the projection, cross-attention, fusion and
+  # heads train. Memory is not the obstacle: measured 816 MiB at 288/1024 batch
+  # 16 against the scratch arm's 1842, because a frozen backbone stores no
+  # gradients (outputs/gpu-memory-probe-esm.json). Its outputs are cacheable for
+  # the same reason -- see experiments/antigen_cache.py, and note that ONLY the
+  # frozen backbone output may be cached, never anything downstream of it.
+  #
+  # Requires the optional extra: pip install -e ".[esm]"  (transformers + peft),
+  # plus a populated HF cache or network access at model build.
+# -----------------------------------------------------------------------------
