@@ -784,3 +784,150 @@ def test_repo_relative_paths_are_untouched_by_the_absoluteness_rule(tmp_path: Pa
         {"data_path": "data/processed/oas_5k/oas_all.jsonl.gz"}, repo_root=repo
     )
     assert normalized["data_path"] == "data/processed/oas_5k/oas_all.jsonl.gz"
+
+
+# --------------------------------------------------------------------------- #
+# Antigen-only fields across a stream-introducing transition
+# --------------------------------------------------------------------------- #
+def test_stage2_to_stage3_may_introduce_the_antigen_stream(tmp_path: Path, capsys):
+    """
+    The transition the whole v5 chain depends on.
+
+    Stage 2 is antibody-only and fingerprints `antigen_max_length: None`; stage 3
+    is dual-stream and fingerprints 1024. Requiring equality made every
+    legitimate stage-2 -> stage-3 warm start unlaunchable. The parent carries no
+    antigen weights at all, so there is nothing for the field to be incompatible
+    WITH -- the antigen stream is constructed by the translation step, not
+    loaded.
+    """
+    from smallAntibodyGen import experiment
+
+    repo = _make_repo(tmp_path / "repo")
+    parent = _fingerprint(
+        repo, model_cfg=_model_cfg(antigen_max_length=None), model_class="AntibodyMLM"
+    )
+    child = _fingerprint(
+        repo,
+        model_cfg=_model_cfg(antigen_max_length=1024),
+        model_class="AntibodyAntigenCrossAttention",
+    )
+    experiment.check_warm_start_fingerprint(parent, child, Path("stage2.pt"))
+
+    # Allowed, but never silent.
+    out = capsys.readouterr().out
+    assert "antibody-only parent" in out
+    assert "architecture.antigen_max_length" in out
+    assert "1024" in out
+
+
+def test_stage2_to_stage3_may_also_introduce_an_esm_antigen_encoder(tmp_path: Path):
+    """The ESM arm additionally moves antigen_encoder_type scratch -> esm. From an
+    antibody-only parent that is the same kind of transition, not a conflict."""
+    from smallAntibodyGen import experiment
+
+    repo = _make_repo(tmp_path / "repo")
+    parent = _fingerprint(
+        repo,
+        model_cfg=_model_cfg(antigen_encoder_type="scratch", antigen_max_length=None),
+        model_class="AntibodyMLM",
+    )
+    child = _fingerprint(
+        repo,
+        model_cfg=_model_cfg(antigen_encoder_type="esm", antigen_max_length=1024),
+        model_class="AntibodyAntigenCrossAttention",
+    )
+    experiment.check_warm_start_fingerprint(parent, child, Path("stage2.pt"))
+
+
+def test_a_dual_stream_parent_still_requires_antigen_fields_to_match(tmp_path: Path):
+    """
+    The exemption is SCOPED, and this is why.
+
+    A stage-3 -> stage-4 warm start carries TRAINED antigen weights. Changing
+    `antigen_max_length` there would silently reshape a learned positional table,
+    and changing `antigen_encoder_type` would discard a learned encoder. Blanket-
+    exempting the antigen fields would have let both through.
+    """
+    from smallAntibodyGen import experiment
+
+    repo = _make_repo(tmp_path / "repo")
+    parent = _fingerprint(
+        repo,
+        model_cfg=_model_cfg(antigen_max_length=1024),
+        model_class="AntibodyAntigenCrossAttention",
+    )
+    child = _fingerprint(
+        repo,
+        model_cfg=_model_cfg(antigen_max_length=2048),
+        model_class="AntibodyAntigenCrossAttention",
+    )
+    with pytest.raises(
+        experiment.WarmStartFingerprintMismatch, match="antigen_max_length"
+    ):
+        experiment.check_warm_start_fingerprint(parent, child, Path("stage3.pt"))
+
+
+def test_swapping_the_encoder_on_a_trained_antigen_stream_is_rejected_with_a_hint(
+    tmp_path: Path,
+):
+    """
+    Exactly the scratch-stage-3 -> ESM-stage-4 move the plan's J24 forbids:
+    it would keep fusion and head weights trained on scratch features. The gate
+    rejects it and the message says where to root the run instead.
+    """
+    from smallAntibodyGen import experiment
+
+    repo = _make_repo(tmp_path / "repo")
+    parent = _fingerprint(
+        repo,
+        model_cfg=_model_cfg(antigen_encoder_type="scratch", antigen_max_length=1024),
+        model_class="AntibodyAntigenCrossAttention",
+    )
+    child = _fingerprint(
+        repo,
+        model_cfg=_model_cfg(antigen_encoder_type="esm", antigen_max_length=1024),
+        model_class="AntibodyAntigenCrossAttention",
+    )
+    with pytest.raises(experiment.WarmStartFingerprintMismatch) as excinfo:
+        experiment.check_warm_start_fingerprint(parent, child, Path("stage3.pt"))
+    message = str(excinfo.value)
+    assert "antigen_encoder_type" in message
+    assert "antibody-only (stage-2) checkpoint" in message
+    assert "J24" in message
+
+
+def test_shared_architecture_is_never_exempted_by_the_transition(tmp_path: Path):
+    """
+    The exemption must cover ONLY antigen-stream fields. A stream-introducing
+    transition is not a licence to change d_model, and the antibody weights being
+    copied would be the wrong shape.
+    """
+    from smallAntibodyGen import experiment
+
+    repo = _make_repo(tmp_path / "repo")
+    parent = _fingerprint(
+        repo,
+        model_cfg=_model_cfg(d_model=32, antigen_max_length=None),
+        model_class="AntibodyMLM",
+    )
+    child = _fingerprint(
+        repo,
+        model_cfg=_model_cfg(d_model=64, antigen_max_length=1024),
+        model_class="AntibodyAntigenCrossAttention",
+    )
+    with pytest.raises(experiment.WarmStartFingerprintMismatch, match="d_model"):
+        experiment.check_warm_start_fingerprint(parent, child, Path("stage2.pt"))
+
+
+def test_an_unknown_model_class_fails_closed(tmp_path: Path):
+    """
+    `parent_has_antigen_stream` is written as a set membership rather than a
+    negation so a future third model class is treated as HAVING an antigen
+    stream, i.e. equality is enforced. Failing open here would silently exempt
+    the new class.
+    """
+    from smallAntibodyGen import experiment
+
+    assert experiment.parent_has_antigen_stream({"model_class": "SomeFutureModel"})
+    assert experiment.parent_has_antigen_stream({})
+    assert not experiment.parent_has_antigen_stream({"model_class": "AntibodyMLM"})

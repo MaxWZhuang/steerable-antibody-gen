@@ -230,35 +230,63 @@ def test_scratch_path_no_longer_silently_clamps_the_antigen(tokenizer):
 
 # --------------------------------------------------------------------------- #
 # Warm-start across a changed antigen budget
+#
+# These use a real stage-2 `AntibodyMLM` donor, NOT a dual-stream one. That is
+# the whole point: a dual-stream donor takes the `has_dual_stream_weights` branch
+# and never reaches `build_antigen_refine_init_state_dict`, which is the
+# translation actually used by a stage-2 -> stage-3 warm start and the only path
+# on which the antigen positional table is seeded from the ANTIBODY table.
 # --------------------------------------------------------------------------- #
-def test_warm_start_drops_only_the_shape_mismatched_tensor_and_says_so(
+def _load_mlm_train(project_root, name):
+    import importlib.util
+    import sys as _sys
+
+    script = project_root.parents[1] / "scripts" / "mlm_train.py"
+    spec = importlib.util.spec_from_file_location(name, script)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    _sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _stage2_donor(max_length: int):
+    """A real antibody-only stage-2 model, the shape a paired refine actually saves."""
+    from smallAntibodyGen.models.mlm import AntibodyMLM
+
+    return AntibodyMLM(_config(max_length=max_length))
+
+
+def test_stage2_donor_takes_the_translation_branch(project_root, tmp_path):
+    """
+    Guard on the guard: assert the fixture really is antibody-only, so these
+    tests cannot silently drift back onto the dual-stream branch and stop
+    covering `build_antigen_refine_init_state_dict`.
+    """
+    donor = _stage2_donor(64)
+    keys = set(donor.state_dict())
+    assert any(k.startswith("sequence_encoder.") for k in keys)
+    assert not any(k.startswith("antibody_encoder.") for k in keys)
+    assert not any(k.startswith("antigen_encoder.") for k in keys)
+
+
+def test_warm_start_seeds_both_streams_and_skips_only_the_antigen_positions(
     project_root, tmp_path, capsys
 ):
     """
-    `initialize_antigen_refine_from_checkpoint` clones the antibody encoder into
-    BOTH branches. Once the antigen stream has its own budget, its positional
-    table is a different size than the antibody table it would be seeded from, and
-    `load_state_dict(strict=False)` raises on a shape mismatch rather than
-    ignoring it -- so the stage-3 warm start died outright at 288/1024.
+    The stage-2 -> stage-3 transition at 288/1024, in miniature.
 
-    The contract: drop exactly the mismatched tensor, warm-start everything else,
-    and NAME what was dropped. A partially warm-started encoder nobody was told
-    about is indistinguishable from a fully warm-started one in the loss curve.
+    `build_antigen_refine_init_state_dict` copies `sequence_encoder.*` into BOTH
+    `antibody_encoder.*` and `antigen_encoder.*`. With independent budgets the
+    antigen positional table is a different size than the antibody table it is
+    seeded from, and `load_state_dict(strict=False)` raises on a shape mismatch
+    rather than ignoring it -- so stage 3 died outright before this was handled.
+
+    Contract: skip exactly that table, seed everything else, and NAME the skip.
     """
-    import sys as _sys
-    import importlib.util
-    from dataclasses import asdict
+    mt = _load_mlm_train(project_root, "mlm_train_ws")
 
-    script = project_root.parents[1] / "scripts" / "mlm_train.py"
-    spec = importlib.util.spec_from_file_location("mlm_train_ws", script)
-    mt = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    _sys.modules[spec.name] = mt
-    spec.loader.exec_module(mt)
-
-    # A stage-2-shaped checkpoint: antibody-only, antigen table sized like the
-    # antibody one (64), against a dual-stream model whose antigen budget is 256.
-    donor = AntibodyAntigenCrossAttention(_config(max_length=64))
+    donor = _stage2_donor(64)
     ckpt = tmp_path / "stage2.pt"
     torch.save({"model_state_dict": donor.state_dict(), "epoch": 0}, ckpt)
 
@@ -270,34 +298,35 @@ def test_warm_start_drops_only_the_shape_mismatched_tensor_and_says_so(
     assert "antigen_encoder.position_embedding.embedding.weight" in out
     assert "(65, 32)" in out and "(257, 32)" in out
 
-    # The mismatched table stayed at fresh init...
-    assert target.antigen_encoder.position_embedding.embedding.weight.shape == (257, 32)
-    # ...while shape-compatible antigen weights WERE warm-started, which is the
-    # half of the contract that a blanket "skip the antigen encoder" would lose.
-    assert torch.equal(
-        target.antigen_encoder.token_embedding.weight,
-        donor.antigen_encoder.token_embedding.weight,
-    )
+    donor_state = donor.state_dict()
+    # The antibody stream is fully seeded from the donor's sequence encoder...
     assert torch.equal(
         target.antibody_encoder.token_embedding.weight,
-        donor.antibody_encoder.token_embedding.weight,
+        donor_state["sequence_encoder.token_embedding.weight"],
+    )
+    # ...and so is the antigen stream, EXCEPT its positional table.
+    assert torch.equal(
+        target.antigen_encoder.token_embedding.weight,
+        donor_state["sequence_encoder.token_embedding.weight"],
+    )
+    assert target.antigen_encoder.position_embedding.embedding.weight.shape == (257, 32)
+    assert not torch.equal(
+        target.antigen_encoder.position_embedding.embedding.weight[:65],
+        donor_state["sequence_encoder.position_embedding.embedding.weight"],
+    )
+    # The antibody positional table, whose shape DOES match, is still seeded.
+    assert torch.equal(
+        target.antibody_encoder.position_embedding.embedding.weight,
+        donor_state["sequence_encoder.position_embedding.embedding.weight"],
     )
 
 
-def test_warm_start_with_matching_budgets_drops_nothing(project_root, tmp_path, capsys):
-    """The filter must be inert when the budgets agree -- otherwise it would be a
+def test_warm_start_with_matching_budgets_skips_nothing(project_root, tmp_path, capsys):
+    """The exception must be inert when the budgets agree, or it would be a
     behavior change for every existing config rather than a new capability."""
-    import sys as _sys
-    import importlib.util
+    mt = _load_mlm_train(project_root, "mlm_train_ws2")
 
-    script = project_root.parents[1] / "scripts" / "mlm_train.py"
-    spec = importlib.util.spec_from_file_location("mlm_train_ws2", script)
-    mt = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    _sys.modules[spec.name] = mt
-    spec.loader.exec_module(mt)
-
-    donor = AntibodyAntigenCrossAttention(_config(max_length=64))
+    donor = _stage2_donor(64)
     ckpt = tmp_path / "stage2_match.pt"
     torch.save({"model_state_dict": donor.state_dict(), "epoch": 0}, ckpt)
 
@@ -307,5 +336,56 @@ def test_warm_start_with_matching_budgets_drops_nothing(project_root, tmp_path, 
     assert "NOT warm-started" not in capsys.readouterr().out
     assert torch.equal(
         target.antigen_encoder.position_embedding.embedding.weight,
-        donor.antigen_encoder.position_embedding.embedding.weight,
+        donor.state_dict()["sequence_encoder.position_embedding.embedding.weight"],
     )
+
+
+def test_any_other_shape_mismatch_is_fatal(project_root, tmp_path):
+    """
+    The exception is ONE tensor, not a policy of tolerating misfits.
+
+    A blanket "drop whatever does not fit" would silently accept a d_model,
+    vocab, or layer-count mismatch -- precisely what the strict load and the
+    init-compat gate exist to catch -- and the run would train from a quietly
+    half-initialized model behind an ordinary-looking loss curve.
+    """
+    import pytest
+
+    mt = _load_mlm_train(project_root, "mlm_train_ws3")
+
+    # Same architecture except d_model, so many tensors mismatch and none of
+    # them is the exempt antigen positional table.
+    donor = AntibodyMLM_with(_config(max_length=64, d_model=64, n_heads=4, d_ff=128))
+    ckpt = tmp_path / "wrong_width.pt"
+    torch.save({"model_state_dict": donor.state_dict(), "epoch": 0}, ckpt)
+
+    target = AntibodyAntigenCrossAttention(_config(max_length=64, antigen_max_length=256))
+    with pytest.raises(ValueError, match="not shape-compatible"):
+        mt.initialize_antigen_refine_from_checkpoint(ckpt, target)
+
+
+def test_the_fatal_error_names_the_offending_tensors(project_root, tmp_path):
+    """An architecture mismatch must say WHICH tensors, or the operator cannot
+    tell a real incompatibility from the one benign case."""
+    import pytest
+
+    mt = _load_mlm_train(project_root, "mlm_train_ws4")
+    donor = AntibodyMLM_with(_config(max_length=64, d_model=64, n_heads=4, d_ff=128))
+    ckpt = tmp_path / "wrong_width2.pt"
+    torch.save({"model_state_dict": donor.state_dict(), "epoch": 0}, ckpt)
+    target = AntibodyAntigenCrossAttention(_config(max_length=64, antigen_max_length=256))
+
+    with pytest.raises(ValueError) as excinfo:
+        mt.initialize_antigen_refine_from_checkpoint(ckpt, target)
+    message = str(excinfo.value)
+    assert "token_embedding.weight" in message
+    assert "retrain rather than coercing" in message
+    # And it must still name the one key that IS exempt, so the operator can see
+    # the boundary rather than guess at it.
+    assert "antigen_encoder.position_embedding.embedding.weight" in message
+
+
+def AntibodyMLM_with(config):
+    from smallAntibodyGen.models.mlm import AntibodyMLM
+
+    return AntibodyMLM(config)

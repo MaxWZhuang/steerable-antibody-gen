@@ -7,10 +7,22 @@
 #
 # Requires the optional extra: pip install -e ".[esm]"  (transformers + peft), plus network
 # access (or a pre-populated HF cache / HF_HOME) to fetch esm2_t6_8M weights at model build.
-# v5: the context-length confound is GONE. Both arms now see the antigen at 1024 tokens, so a
-# scratch-vs-ESM gap is attributable to the antigen encoder alone. Until AB-07 was fixed the
-# scratch antigen stream could not exceed the antibody max_length (192), which is why the v3/v4
-# header had to declare ESM-512-vs-scratch-192 as a second, unavoidable axis.
+# v5: the CONTEXT-LENGTH confound is removed -- both arms now see the antigen at 1024 tokens,
+# where before AB-07 the scratch stream was pinned to the antibody max_length (192) against
+# ESM's 512. That is one confound, not the only one.
+#
+# THIS CONFIG CANNOT RUN AS WRITTEN, AND THAT IS DELIBERATE. It warm-starts from the SCRATCH
+# stage-3 checkpoint, so it would inherit fusion and head weights trained on scratch antigen
+# features and then swap the encoder underneath them -- the ESM arm would be measured through
+# a fusion fitted to its competitor. The plan's J24 says so explicitly: 'do not copy a
+# fusion/head trained on scratch features into the ESM arm', and requires BOTH arms to start
+# from the same stage-2 antibody checkpoint. The warm-start gate now enforces this: swapping
+# antigen_encoder_type on a parent that already has a trained antigen stream is rejected.
+#
+# Keep this file as the record of the stage-4 ESM ablation's shape; the encoder COMPARISON
+# belongs to J24 (not started), rooted at stage 2, with fresh fusion/heads in both arms.
+# Memory is not the obstacle: ESM at 288/1024 batch 16 measures 816 MiB against scratch's
+# 1842 MiB, because the frozen backbone stores no gradients (outputs/gpu-memory-probe-esm.json).
 #
 # v3 -> v4: norm_first: true, tracking the scratch stage 4 so the ablation keeps its shared
 # init and its single varied axis (antigen encoder). norm_first must stay IDENTICAL to the

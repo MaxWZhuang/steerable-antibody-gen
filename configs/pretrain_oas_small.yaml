@@ -1,6 +1,6 @@
 # Stage 1/4 — base MLM pretraining on unpaired OAS (~3M heavy+light).
 # Chain: THIS -> refine_oas_paired -> refine_antigen_real_label -> refine_antigen_hcdr3_infill
-# Produces checkpoints/mlm_3m_unpaired_v4/best.pt, consumed by stage 2's init_checkpoint.
+# Produces checkpoints/mlm_3m_unpaired_v5/best.pt, consumed by stage 2's init_checkpoint.
 #
 # v3 -> v4: norm_first: true (pre-LN). This is an architecture change, so the whole chain
 # retrains from scratch and NO v3 checkpoint may be warm-started, evaluated, or compared

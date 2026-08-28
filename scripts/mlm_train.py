@@ -1266,6 +1266,9 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
+NEWLINE = chr(10)
+
+
 def append_metrics_jsonl(
     output_dir: Path,
     record: Dict[str, Any],
@@ -3714,37 +3717,58 @@ def initialize_antigen_refine_from_checkpoint(
     target_shapes = {k: tuple(v.shape) for k, v in model.state_dict().items()}
     dropped_for_shape: list[str] = []
 
+    # The ONLY tensor a warm start may legitimately skip on a shape mismatch.
+    # This function clones the antibody encoder into BOTH branches, so when the
+    # antigen stream has its own token budget its positional table is a different
+    # size than the antibody table it would be seeded from -- e.g. [1025, 256]
+    # against a stage-2 checkpoint's [289, 256] at 288/1024. Positions past the
+    # antibody's length have no counterpart to copy.
+    #
+    # Everything else is an ERROR. A blanket "drop whatever does not fit" would
+    # silently accept a d_model, vocab, or layer-count mismatch -- exactly the
+    # class of thing the strict load and the init-compat gate exist to catch --
+    # and the run would train from a quietly half-initialized model while its
+    # loss curve looked ordinary.
+    SHAPE_EXEMPT_KEYS = frozenset({"antigen_encoder.position_embedding.embedding.weight"})
+
     def _drop_shape_mismatches(state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
-        Drop tensors whose shape does not match the model being warm-started.
+        Drop the ONE permitted shape-mismatched tensor; raise on any other.
 
-        `load_state_dict(strict=False)` tolerates MISSING and UNEXPECTED keys but
-        still raises on a shape mismatch, so a size difference has to be filtered
-        rather than relied on to be ignored.
+        ``load_state_dict(strict=False)`` tolerates MISSING and UNEXPECTED keys
+        but still raises on a shape mismatch, so a size difference has to be
+        handled here rather than relied on to be ignored.
 
-        This exists because the antigen encoder gained its own token budget
-        (AB-07). This function clones the antibody encoder into BOTH branches, so
-        with `antigen_max_length != max_length` the antigen positional table is a
-        different size than the antibody one it would be seeded from -- e.g.
-        [1025, 256] against the checkpoint's [289, 256] at 288/1024. Dropping it
-        leaves that table at fresh init, which is the honest outcome: positions
-        289..1024 have no antibody counterpart to copy, and the transformer stack
-        (the part that actually learned protein sequence structure) is still
-        warm-started.
-
-        Silent would be unacceptable here -- a partially warm-started encoder that
-        nobody was told about is indistinguishable from a fully warm-started one
-        in the loss curve -- so every dropped tensor is named on stdout below.
+        Dropping is never silent: the skipped tensor is named on stdout by the
+        caller, because a partially warm-started encoder nobody was told about is
+        indistinguishable from a fully warm-started one in the loss curve.
         """
         kept = {}
+        unexpected_mismatches: list[str] = []
         for key, value in state.items():
             expected = target_shapes.get(key)
             if expected is not None and tuple(value.shape) != expected:
-                dropped_for_shape.append(
-                    f"{key} (checkpoint {tuple(value.shape)} vs model {expected})"
-                )
+                detail = f"{key} (checkpoint {tuple(value.shape)} vs model {expected})"
+                if key in SHAPE_EXEMPT_KEYS:
+                    dropped_for_shape.append(detail)
+                else:
+                    unexpected_mismatches.append(detail)
                 continue
             kept[key] = value
+        if unexpected_mismatches:
+            raise ValueError(
+                "init_checkpoint is not shape-compatible with this model, and the "
+                "mismatch is NOT the antigen positional table that a changed antigen "
+                "budget legitimately reshapes."
+                + NEWLINE
+                + "Mismatched tensors:"
+                + NEWLINE
+                + NEWLINE.join("  " + m for m in sorted(unexpected_mismatches))
+                + NEWLINE
+                + "This is an architecture mismatch: retrain rather than coercing the "
+                "weights. Only these may be skipped: "
+                + ", ".join(sorted(SHAPE_EXEMPT_KEYS))
+            )
         return kept
 
     has_dual_stream_weights = any(
