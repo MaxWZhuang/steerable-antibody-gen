@@ -8,6 +8,12 @@ import torch.nn.functional as F
 from torch import nn
 from smallAntibodyGen.antigen_tokenization import resolve_antigen_encode_max_length
 from smallAntibodyGen.models.transformer import (
+    RMSNorm,
+    ModernEncoderStack,
+    apply_modern_residual_depth_scaling,
+    build_norm,
+    is_legacy_block,
+    position_ids_from_mask,
     resolve_head_count,
     validate_head_count,
 )
@@ -388,6 +394,13 @@ def init_module_weights(module: nn.Module, config: MLMConfig) -> None:
     elif isinstance(module, nn.LayerNorm):
         nn.init.ones_(module.weight)
         nn.init.zeros_(module.bias)
+    elif isinstance(module, RMSNorm):
+        # Same intent as the LayerNorm branch: start as the identity. RMSNorm has
+        # no bias, so there is nothing to zero. Without this branch RMSNorm would
+        # fall through to the no-op tail and keep its constructor's ones() -- which
+        # happens to be right today, and would silently stop being right the moment
+        # the constructor changed.
+        nn.init.ones_(module.weight)
     elif isinstance(module, nn.MultiheadAttention):
         # Reached both for the standalone fusion attention and for the attention
         # inside nn.TransformerEncoderLayer, which is intended: it puts both on one
@@ -516,38 +529,65 @@ class TransformerSequenceEncoder(nn.Module):
             embedding_dim=config.d_model,
             padding_idx=config.pad_token_id,
         )
-        self.position_embedding = LearnedPositionalEmbedding(
-            max_length=self.max_length,
-            d_model=config.d_model,
+        # RoPE carries position in the attention rotation, so there is NO learned
+        # table at all -- that is a real parameter saving (max_length + 1 rows of
+        # d_model; 289 x 256 = 73,984 at the canonical shape) and a real property:
+        # a rope encoder cannot run out of table at a length it never saw. It does
+        # not thereby become good at such lengths; nothing trains those positions.
+        self.uses_learned_positions = config.position_encoding == "learned"
+        self.position_embedding = (
+            LearnedPositionalEmbedding(
+                max_length=self.max_length,
+                d_model=config.d_model,
+            )
+            if self.uses_learned_positions
+            else None
         )
         self.embed_drop = nn.Dropout(config.dropout)
 
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=config.d_model,
-            nhead=config.n_heads,
-            dim_feedforward=config.d_ff,
-            dropout=config.dropout,
-            activation=config.activation,
-            batch_first=True,
-            norm_first=config.norm_first,
-        )
-        self.encoder = nn.TransformerEncoder(
-            encoder_layer,
-            num_layers=config.n_layers,
-            enable_nested_tensor=False,
-        )
+        # A LEGACY configuration keeps running through nn.TransformerEncoder,
+        # untouched. That is why "the legacy config passes the entire existing
+        # suite" is true by construction rather than by a parity argument: the
+        # legacy path is not reimplemented, it is not entered differently, it is
+        # the same code. Any departure at all takes the modern block, because a
+        # block that is NEARLY the old one is the worst outcome -- it would differ
+        # silently. See `is_legacy_block`.
+        self.is_legacy_block = is_legacy_block(config)
+        if self.is_legacy_block:
+            encoder_layer = nn.TransformerEncoderLayer(
+                d_model=config.d_model,
+                nhead=config.n_heads,
+                dim_feedforward=config.d_ff,
+                dropout=config.dropout,
+                activation=config.activation,
+                batch_first=True,
+                norm_first=config.norm_first,
+            )
+            self.encoder = nn.TransformerEncoder(
+                encoder_layer,
+                num_layers=config.n_layers,
+                enable_nested_tensor=False,
+            )
+        else:
+            self.encoder = ModernEncoderStack(
+                config, config.d_model, config.resolved_encoder_n_heads
+            )
         # Required in pre-LN mode (the stack's output is un-normalized there);
         # near-redundant but harmless in post-LN mode, where the last layer
         # already ends in a LayerNorm. Kept unconditional so the parameter set
-        # does not depend on norm_first.
-        self.final_norm = nn.LayerNorm(config.d_model)
+        # does not depend on norm_first. Follows norm_type so the whole stack uses
+        # one normalization operator.
+        self.final_norm = build_norm(config, config.d_model)
 
         # Replace PyTorch's per-module defaults (N(0, 1) embeddings, xavier
         # attention, kaiming FFN) with one coherent scheme, then damp the residual
         # writes by depth. Owning init here means every consumer of this encoder
         # -- antibody stream, scratch antigen stream, both models -- gets it.
         self.apply(lambda module: init_module_weights(module, config))
-        apply_residual_depth_scaling(self.encoder, config)
+        if self.is_legacy_block:
+            apply_residual_depth_scaling(self.encoder, config)
+        else:
+            apply_modern_residual_depth_scaling(self.encoder, config)
 
     def _validate_inputs(
         self,
@@ -587,11 +627,10 @@ class TransformerSequenceEncoder(nn.Module):
         """
         Build the token + positional embeddings for the encoder stack.
         """
-        token_emb = self.token_embedding(input_ids)
-        pos_emb = self.position_embedding(attention_mask)
-        hidden = token_emb + pos_emb
-        hidden = self.embed_drop(hidden)
-        return hidden
+        hidden = self.token_embedding(input_ids)
+        if self.position_embedding is not None:
+            hidden = hidden + self.position_embedding(attention_mask)
+        return self.embed_drop(hidden)
 
     def forward(
         self,
@@ -603,8 +642,17 @@ class TransformerSequenceEncoder(nn.Module):
         """
         attention_mask = self._validate_inputs(input_ids, attention_mask)
         hidden = self.embed(input_ids, attention_mask)
-        key_padding_mask = self._build_key_padding_mask(attention_mask)
-        hidden = self.encoder(hidden, src_key_padding_mask=key_padding_mask)
+        if self.is_legacy_block:
+            key_padding_mask = self._build_key_padding_mask(attention_mask)
+            hidden = self.encoder(hidden, src_key_padding_mask=key_padding_mask)
+        else:
+            # The modern stack takes the mask in its positive sense (1 = real) and
+            # derives rotary positions with the SAME cumsum convention the learned
+            # table uses, so switching position_encoding changes how position is
+            # represented rather than which position a token gets.
+            hidden = self.encoder(
+                hidden, attention_mask, position_ids_from_mask(attention_mask)
+            )
         hidden = self.final_norm(hidden)
         return hidden, attention_mask
 
