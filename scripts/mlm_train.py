@@ -1249,8 +1249,19 @@ def append_metrics_jsonl(
 ) -> None:
     """
     Append one metrics record to the run's JSONL log.
+
+    ``newline=""`` is load-bearing, not style. Python's default
+    (``newline=None``) translates ``\n`` to ``os.linesep`` on write, so the
+    same record serializes to different BYTES on Windows (``\r\n``) and
+    POSIX (``\n``). J01 hashes this file into the asset inventory and J03
+    fingerprints runs so they can be compared across machines -- a
+    platform-dependent encoding defeats both, because two runs that logged
+    identical metrics would hash differently purely because of the OS.
+
+    Writing the separator explicitly makes the log byte-identical everywhere.
+    On POSIX this is a no-op (``os.linesep`` is already ``\n``).
     """
-    with open(output_dir / "metrics.jsonl", "a", encoding="utf-8") as f:
+    with open(output_dir / "metrics.jsonl", "a", encoding="utf-8", newline="") as f:
         f.write(json.dumps(_json_safe(record), sort_keys=True) + "\n")
 
 
