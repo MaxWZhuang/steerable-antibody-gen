@@ -244,6 +244,15 @@ def collect(results_root: Path) -> dict[tuple[int, int], dict[str, Any]]:
     return runs
 
 
+def write_manifest(path: Path, payload: dict[str, Any]) -> None:
+    """Write a JSON manifest deterministically (sorted keys, LF, trailing newline)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    print(f"  wrote {path}")
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -295,13 +304,63 @@ def main(argv: list[str] | None = None) -> int:
         for command in commands:
             print("    " + " ".join(command))
 
+        manifest = {
+            "schema_version": "j11-launch/1",
+            "commit": lineage["commit"],
+            "branch": lineage["branch"],
+            "warnings": warnings,
+            "schedule": {
+                "total_updates": TOTAL_UPDATES,
+                "warmup_updates": WARMUP_UPDATES,
+                "post_warmup_updates": TOTAL_UPDATES - WARMUP_UPDATES,
+                "widths": list(WIDTHS),
+                "seeds": list(SEEDS),
+            },
+            "runs": [
+                {
+                    "width": width,
+                    "seed": seed,
+                    "config": str(config_path(width, seed).relative_to(PROJECT_ROOT)),
+                    "output_dir": f"checkpoints/experiments/j11_w{width}_s{seed}",
+                }
+                for width in WIDTHS
+                for seed in SEEDS
+            ],
+        }
+
         if args.dry_run:
             print("\n  --dry-run: nothing was executed.")
+            if args.output_json is not None:
+                write_manifest(args.output_json, manifest)
             return 0
+
+        if args.output_json is not None:
+            write_manifest(args.output_json, manifest)
 
         for command in commands:
             print(f"\n=== {' '.join(command)}")
             completed = subprocess.run(command, cwd=PROJECT_ROOT)
+            if completed.returncode == 0:
+                # The SHA goes NEXT TO the checkpoints, not only in the launch
+                # manifest: a manifest can be moved or lost, and then the weights
+                # are unattributable. This file cannot be separated from them.
+                config_file = Path(command[-1])
+                width = int(config_file.stem.split("_")[1][1:])
+                seed = int(config_file.stem.split("_")[2][1:])
+                run_dir = PROJECT_ROOT / "checkpoints/experiments" / f"j11_w{width}_s{seed}"
+                if run_dir.exists():
+                    write_manifest(
+                        run_dir / "j11_provenance.json",
+                        {
+                            "schema_version": "j11-run-provenance/1",
+                            "commit": lineage["commit"],
+                            "branch": lineage["branch"],
+                            "width": width,
+                            "seed": seed,
+                            "total_updates": TOTAL_UPDATES,
+                            "warmup_updates": WARMUP_UPDATES,
+                        },
+                    )
             if completed.returncode != 0:
                 print(
                     f"REFUSED: run failed ({completed.returncode}); stopping. A partial "
