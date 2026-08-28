@@ -511,3 +511,287 @@ def test_explicit_position_ids_override_the_mask_derivation():
     # absolute positions differ -- which is the relative-position property again,
     # now observed end to end through the whole attention op.
     assert torch.allclose(derived, shifted, atol=1e-4)
+
+
+# --------------------------------------------------------------------------- #
+# J10c: integration
+#
+# The legacy configuration is not re-implemented -- it still runs through
+# nn.TransformerEncoder -- so "legacy passes the existing suite" is true by
+# construction. What needs testing is the modern path, and that the routing
+# between them cannot be entered by accident.
+# --------------------------------------------------------------------------- #
+CANONICAL_MODERN = dict(
+    position_encoding="rope",
+    norm_type="rmsnorm",
+    ffn_type="swiglu",
+    attention_bias=False,
+    ffn_bias=False,
+    norm_first=True,
+)
+
+
+def _modern(**overrides):
+    params = dict(CANONICAL_MODERN)
+    params["swiglu_hidden_dim"] = 40
+    params.update(overrides)
+    return _config(**params)
+
+
+def test_a_legacy_config_takes_the_legacy_path():
+    """Routing, asserted. If a legacy config quietly took the new block, every
+    existing checkpoint and every recorded metric would silently change meaning."""
+    from smallAntibodyGen.models.mlm import TransformerSequenceEncoder
+
+    encoder = TransformerSequenceEncoder(_config())
+    assert encoder.is_legacy_block is True
+    assert isinstance(encoder.encoder, torch.nn.TransformerEncoder)
+    assert encoder.position_embedding is not None
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"position_encoding": "rope"},
+        {"norm_type": "rmsnorm"},
+        {"ffn_type": "swiglu", "swiglu_hidden_dim": 40},
+        {"attention_bias": False},
+        {"ffn_bias": False},
+        {"encoder_n_heads": 2},
+    ],
+)
+def test_any_single_departure_takes_the_modern_path(override):
+    """
+    A block that is NEARLY the legacy one is the worst outcome -- it would differ
+    silently. One changed field is enough to leave the legacy path entirely.
+    """
+    from smallAntibodyGen.models.mlm import TransformerSequenceEncoder
+
+    encoder = TransformerSequenceEncoder(_config(**override))
+    assert encoder.is_legacy_block is False
+    assert not isinstance(encoder.encoder, torch.nn.TransformerEncoder)
+
+
+def test_a_rope_encoder_has_no_learned_positional_parameter():
+    """
+    The adopted canonical architecture removes the learned table entirely. A
+    non-parameter rotary cache is fine -- `inv_freq` is a buffer -- but no
+    PARAMETER may be a position table.
+    """
+    from smallAntibodyGen.models.mlm import TransformerSequenceEncoder
+
+    encoder = TransformerSequenceEncoder(_modern())
+    assert encoder.position_embedding is None
+    assert encoder.uses_learned_positions is False
+    names = [name for name, _ in encoder.named_parameters()]
+    assert not any("position_embedding" in name for name in names)
+    # The rotary tables exist, as buffers.
+    buffers = [name for name, _ in encoder.named_buffers()]
+    assert any("inv_freq" in name for name in buffers)
+
+
+def test_a_learned_position_modern_block_keeps_its_table():
+    """`position_encoding` and the other fields are independent: choosing RMSNorm
+    must not silently remove the learned positions as well."""
+    from smallAntibodyGen.models.mlm import TransformerSequenceEncoder
+
+    encoder = TransformerSequenceEncoder(_config(norm_type="rmsnorm"))
+    assert encoder.position_embedding is not None
+    assert encoder.uses_learned_positions is True
+
+
+def test_norm_placement_and_norm_operator_stay_independent():
+    """
+    Where the norm sits and which norm it is are orthogonal architecture
+    properties. Collapsing them would make post-norm RMSNorm unreachable, and the
+    canonical config sets both explicitly.
+    """
+    from smallAntibodyGen.models.transformer import RMSNorm as _RMSNorm
+    from smallAntibodyGen.models.mlm import TransformerSequenceEncoder
+
+    pre = TransformerSequenceEncoder(_modern(norm_first=True))
+    post = TransformerSequenceEncoder(_modern(norm_first=False))
+    assert pre.encoder.layers[0].norm_first is True
+    assert post.encoder.layers[0].norm_first is False
+    for encoder in (pre, post):
+        assert isinstance(encoder.encoder.layers[0].norm1, _RMSNorm)
+        assert isinstance(encoder.final_norm, _RMSNorm)
+
+
+def test_the_final_norm_follows_the_configured_norm_type():
+    """One normalization operator through the whole stack, including the final
+    norm -- a LayerNorm tail on an RMSNorm stack is a silent hybrid."""
+    from smallAntibodyGen.models.transformer import RMSNorm as _RMSNorm
+    from smallAntibodyGen.models.mlm import TransformerSequenceEncoder
+
+    assert isinstance(TransformerSequenceEncoder(_modern()).final_norm, _RMSNorm)
+    assert isinstance(
+        TransformerSequenceEncoder(_config()).final_norm, torch.nn.LayerNorm
+    )
+
+
+# --- behaviour of the integrated modern encoder ----------------------------- #
+def _mlm(**overrides):
+    from smallAntibodyGen.models.mlm import AntibodyMLM
+
+    return AntibodyMLM(_modern(**overrides))
+
+
+def test_modern_model_forward_and_backward_are_finite():
+    model = _mlm()
+    ids = torch.randint(3, 30, (2, 12))
+    mask = torch.ones_like(ids)
+    logits = model(ids, mask)
+    logits = logits[0] if isinstance(logits, tuple) else logits
+    assert logits.shape == (2, 12, 35)
+    logits.sum().backward()
+    assert all(
+        torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None
+    )
+
+
+def test_modern_model_is_finite_under_heavy_padding():
+    """Full masking must not produce NaN -- and one dead row must not take the
+    batch with it."""
+    model = _mlm()
+    ids = torch.randint(3, 30, (2, 8))
+    mask = torch.tensor([[1, 1, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0]])
+    out = model(ids, mask)
+    out = out[0] if isinstance(out, tuple) else out
+    assert torch.isfinite(out).all()
+    out.sum().backward()
+    assert all(
+        torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None
+    )
+
+
+def test_modern_model_padding_does_not_leak_into_real_positions():
+    model = _mlm().eval()
+    ids = torch.randint(3, 30, (1, 8))
+    mask = torch.tensor([[1, 1, 1, 1, 0, 0, 0, 0]])
+    with torch.no_grad():
+        before = model(ids, mask)
+        before = (before[0] if isinstance(before, tuple) else before)[:, :4].clone()
+        polluted = ids.clone()
+        polluted[0, 4:] = 29
+        after = model(polluted, mask)
+        after = (after[0] if isinstance(after, tuple) else after)[:, :4]
+    assert torch.allclose(before, after, atol=1e-5)
+
+
+def test_modern_model_is_not_causal():
+    model = _mlm().eval()
+    ids = torch.randint(3, 30, (1, 6))
+    mask = torch.ones_like(ids)
+    with torch.no_grad():
+        base = model(ids, mask)
+        base = (base[0] if isinstance(base, tuple) else base)[0, 0].clone()
+        changed = ids.clone()
+        changed[0, 5] = (changed[0, 5] + 7) % 30 + 3
+        after = model(changed, mask)
+        after = (after[0] if isinstance(after, tuple) else after)[0, 0]
+    assert not torch.allclose(base, after, atol=1e-6)
+
+
+def test_modern_model_eval_is_deterministic():
+    model = _mlm(dropout=0.5).eval()
+    ids = torch.randint(3, 30, (1, 6))
+    mask = torch.ones_like(ids)
+    with torch.no_grad():
+        a = model(ids, mask)
+        b = model(ids, mask)
+    a = a[0] if isinstance(a, tuple) else a
+    b = b[0] if isinstance(b, tuple) else b
+    assert torch.equal(a, b)
+
+
+def test_modern_model_saves_and_reloads_strictly():
+    """
+    Strict reload, because this repo's rule is that a parameter mismatch means
+    retrain and never a silent coercion. A rope model's state dict must round
+    trip without the missing/unexpected keys a half-wired branch would produce.
+    """
+    model = _mlm()
+    state = model.state_dict()
+    fresh = _mlm()
+    fresh.load_state_dict(state, strict=True)
+
+    model.eval()
+    fresh.eval()
+    ids = torch.randint(3, 30, (1, 10))
+    mask = torch.ones_like(ids)
+    with torch.no_grad():
+        a = model(ids, mask)
+        b = fresh(ids, mask)
+    a = a[0] if isinstance(a, tuple) else a
+    b = b[0] if isinstance(b, tuple) else b
+    assert torch.equal(a, b)
+
+
+def test_a_legacy_checkpoint_does_not_load_into_a_modern_model():
+    """
+    The two are different architectures. Loading across them must fail loudly --
+    a silent partial load would train from a half-initialized model behind an
+    ordinary-looking loss curve.
+    """
+    from smallAntibodyGen.models.mlm import AntibodyMLM
+
+    legacy_state = AntibodyMLM(_config()).state_dict()
+    with pytest.raises(RuntimeError):
+        _mlm().load_state_dict(legacy_state, strict=True)
+
+
+def test_tied_output_weights_still_tie_under_the_modern_block():
+    from smallAntibodyGen.models.mlm import AntibodyMLM
+
+    model = AntibodyMLM(_modern(tie_weights=True))
+    assert model.lm_head.weight is model.sequence_encoder.token_embedding.weight
+
+
+def test_residual_depth_scaling_reaches_the_swiglu_writer():
+    """
+    The scaled tensor must be the one that WRITES into the residual stream --
+    `down_proj` for SwiGLU. Scaling the wrong projection looks identical at init
+    and diverges over training, which is the hardest kind of thing to attribute.
+    """
+    from smallAntibodyGen.models.mlm import TransformerSequenceEncoder
+
+    scaled = TransformerSequenceEncoder(_modern(scale_residual_init=True))
+    unscaled = TransformerSequenceEncoder(_modern(scale_residual_init=False))
+    scaled_std = scaled.encoder.layers[0].ffn.down_proj.weight.std().item()
+    unscaled_std = unscaled.encoder.layers[0].ffn.down_proj.weight.std().item()
+    assert scaled_std < unscaled_std * 0.8
+    # And the INPUT-side projections are left alone.
+    assert scaled.encoder.layers[0].ffn.gate_proj.weight.std().item() == pytest.approx(
+        unscaled.encoder.layers[0].ffn.gate_proj.weight.std().item(), rel=0.25
+    )
+
+
+def test_canonical_parameter_counts_are_pinned():
+    """
+    A snapshot of the three architectures at the canonical shape, confirmed BY
+    CONSTRUCTION rather than by formula.
+
+    The two modern arms are what J11 compares. The 1,585,152 gap between them is
+    entirely the SwiGLU width: 3 x 256 x (1024 - 680) x 6 layers. Losing the
+    learned position table (289 x 256 = 73,984 rows, the +1 being the reserved
+    pad row) is why the 680 arm lands slightly BELOW legacy despite gating.
+    """
+    from smallAntibodyGen.models.mlm import AntibodyMLM
+
+    def count(config):
+        return sum(p.numel() for p in AntibodyMLM(config).parameters())
+
+    canonical = dict(
+        vocab_size=35, pad_token_id=0, max_length=288,
+        d_model=256, n_heads=8, n_layers=6, d_ff=1024, dropout=0.1,
+    )
+    legacy = count(MLMConfig(**canonical))
+    modern_680 = count(MLMConfig(**canonical, **CANONICAL_MODERN, swiglu_hidden_dim=680))
+    modern_1024 = count(MLMConfig(**canonical, **CANONICAL_MODERN, swiglu_hidden_dim=1024))
+
+    assert legacy == 4_822_530
+    assert modern_680 == 4_719_106
+    assert modern_1024 == 6_304_258
+    assert modern_1024 - modern_680 == 1_585_152 == 3 * 256 * (1024 - 680) * 6
+    assert (289 * 256) == 73_984

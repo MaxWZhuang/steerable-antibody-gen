@@ -19,6 +19,7 @@ architecture win.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import torch
@@ -399,3 +400,161 @@ class RotarySelfAttention(nn.Module):
         # AFTER the projection, not before: out_proj has a bias, so zeroing the
         # context alone would still leave a constant on a fully padded row.
         return output.masked_fill(row_is_empty[:, None, None], 0.0)
+
+
+# --------------------------------------------------------------------------- #
+# J10c: the configurable encoder block and stack
+# --------------------------------------------------------------------------- #
+LEGACY_BLOCK = {
+    "position_encoding": "learned",
+    "norm_type": "layernorm",
+    "ffn_type": "gelu",
+    "attention_bias": True,
+    "ffn_bias": True,
+    "encoder_n_heads": None,
+}
+
+
+def is_legacy_block(config) -> bool:
+    """
+    Is this exactly the pre-J10 encoder?
+
+    Used to route: a legacy configuration keeps running through
+    ``nn.TransformerEncoder`` untouched, so "the legacy config passes the entire
+    existing suite" is true by construction rather than by a parity argument. Any
+    departure -- even one that could in principle be expressed by the custom
+    block -- takes the new path, because a block that is *nearly* the old one is
+    the worst outcome: it would silently differ.
+    """
+    return all(getattr(config, key) == value for key, value in LEGACY_BLOCK.items())
+
+
+def build_norm(config, d_model: int) -> nn.Module:
+    """LayerNorm or RMSNorm, per ``config.norm_type``."""
+    if config.norm_type == "rmsnorm":
+        return RMSNorm(d_model)
+    return nn.LayerNorm(d_model)
+
+
+def build_ffn(config, d_model: int) -> nn.Module:
+    """
+    The feed-forward branch, per ``config.ffn_type``.
+
+    The SwiGLU width comes from ``swiglu_hidden_dim`` and is never derived from
+    ``d_ff`` -- see `SwiGLU`. `MLMConfig.validate` already refuses the
+    unset case; this asserts it again because building a silently mis-sized FFN
+    is worse than a crash.
+    """
+    if config.ffn_type == "swiglu":
+        if config.swiglu_hidden_dim is None:
+            raise ValueError("ffn_type='swiglu' requires swiglu_hidden_dim")
+        return SwiGLU(d_model, config.swiglu_hidden_dim, bias=config.ffn_bias)
+    activation = nn.GELU() if config.activation == "gelu" else nn.ReLU()
+    return nn.Sequential(
+        nn.Linear(d_model, config.d_ff, bias=config.ffn_bias),
+        activation,
+        nn.Linear(config.d_ff, d_model, bias=config.ffn_bias),
+    )
+
+
+class ModernEncoderLayer(nn.Module):
+    """
+    One configurable encoder layer.
+
+    Pre-norm and post-norm are both supported because ``norm_first`` and
+    ``norm_type`` are ORTHOGONAL: where the norm sits is a different decision
+    from which norm it is, and collapsing them would make one unreachable. The
+    canonical configuration sets both explicitly (``norm_first: true``,
+    ``norm_type: rmsnorm``).
+
+    Attention is always :class:`RotarySelfAttention`; when
+    ``position_encoding == "learned"`` the rotation is simply not applied, so the
+    two position schemes share one attention implementation rather than two that
+    could drift apart.
+    """
+
+    def __init__(self, config, d_model: int, n_heads: int) -> None:
+        super().__init__()
+        self.norm_first = bool(config.norm_first)
+        self.use_rope = config.position_encoding == "rope"
+        self.norm1 = build_norm(config, d_model)
+        self.norm2 = build_norm(config, d_model)
+        self.attn = RotarySelfAttention(
+            d_model=d_model,
+            n_heads=n_heads,
+            bias=config.attention_bias,
+            dropout=config.dropout,
+        )
+        self.ffn = build_ffn(config, d_model)
+        self.dropout = nn.Dropout(config.dropout)
+
+    def _attend(
+        self,
+        hidden: torch.Tensor,
+        attention_mask: torch.Tensor,
+        position_ids: torch.Tensor | None,
+    ) -> torch.Tensor:
+        # With a learned table the positions are already IN the embeddings, so
+        # applying RoPE too would encode position twice.
+        return self.attn(hidden, attention_mask, position_ids if self.use_rope else None)
+
+    def forward(
+        self,
+        hidden: torch.Tensor,
+        attention_mask: torch.Tensor,
+        position_ids: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if self.norm_first:
+            hidden = hidden + self.dropout(
+                self._attend(self.norm1(hidden), attention_mask, position_ids)
+            )
+            hidden = hidden + self.dropout(self.ffn(self.norm2(hidden)))
+            return hidden
+        hidden = self.norm1(
+            hidden + self.dropout(self._attend(hidden, attention_mask, position_ids))
+        )
+        return self.norm2(hidden + self.dropout(self.ffn(hidden)))
+
+
+class ModernEncoderStack(nn.Module):
+    """``n_layers`` configurable layers. The final norm lives on the encoder."""
+
+    def __init__(self, config, d_model: int, n_heads: int) -> None:
+        super().__init__()
+        self.layers = nn.ModuleList(
+            ModernEncoderLayer(config, d_model, n_heads) for _ in range(config.n_layers)
+        )
+
+    def forward(
+        self,
+        hidden: torch.Tensor,
+        attention_mask: torch.Tensor,
+        position_ids: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        for layer in self.layers:
+            hidden = layer(hidden, attention_mask, position_ids)
+        return hidden
+
+
+def apply_modern_residual_depth_scaling(stack: ModernEncoderStack, config) -> None:
+    """
+    The modern-stack counterpart of ``apply_residual_depth_scaling``.
+
+    Same rule, same two kinds of projection: the ones that WRITE into the
+    residual stream. For attention that is ``out_proj``; for the FFN it is
+    ``down_proj`` under SwiGLU and the second ``Linear`` under GeLU. Scaling the
+    wrong tensor here would look identical at init and diverge over training.
+    """
+    if not config.scale_residual_init:
+        return
+    scale = 1.0 / math.sqrt(2.0 * max(1, config.n_layers))
+    with torch.no_grad():
+        for layer in stack.layers:
+            layer.attn.out_proj.weight.mul_(scale)
+            ffn = layer.ffn
+            if isinstance(ffn, SwiGLU):
+                ffn.down_proj.weight.mul_(scale)
+            else:
+                # nn.Sequential(Linear, activation, Linear): the LAST Linear.
+                writers = [m for m in ffn if isinstance(m, nn.Linear)]
+                writers[-1].weight.mul_(scale)
