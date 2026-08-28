@@ -74,8 +74,15 @@ CANONICAL_SHAPE: dict[str, Any] = {
 ARM_WIDTHS = (680, 1024)
 SEEDS = (42, 31415, 271828)
 BATCH_SIZE = 16
-TOTAL_GPU_HOURS = 36.0
+# Amended 36 -> 50 GPU-hours by the owner on 2026-08-28, while still BLIND: no
+# evaluation metric had been computed or viewed, so raising the budget could not
+# have been influenced by which arm was ahead. That is what keeps the amendment
+# methodologically clean rather than a moved goalpost.
+TOTAL_GPU_HOURS = 50.0
 MIN_POST_WARMUP_UPDATES = 50_000
+#: Frozen schedule: 51,000 total updates = 1,000 warmup + 50,000 post-warmup.
+TOTAL_UPDATES = 51_000
+WARMUP_UPDATES = 1_000
 BYTES_PER_MIB = 1024 * 1024
 
 

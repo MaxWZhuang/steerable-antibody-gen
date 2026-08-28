@@ -1,6 +1,6 @@
 # J11 — SwiGLU width selection (680 vs 1024)
 
-**Status:** budget frozen from timing-only calibration. **Evidence runs not started**; see §6.
+**Status:** budget frozen and **pipeline preflight PASSED**. Evidence runs cleared to launch; see §6.
 **Predeclared:** 2026-08-28, before any quality metric was computed.
 
 ## 1. Question
@@ -53,8 +53,13 @@ the global RNG so it does not itself perturb data order.
 | Seeds | 42, 31415, 271828 |
 | Batch size | 16 |
 | Schedule | identical examples, masks, optimizer steps, and warmup — **not** equal wall-clock |
-| Total evidence budget | 36 GPU-hours across all six runs |
+| Schedule per run | **51,000** optimizer updates = 1,000 warmup + 50,000 post-warmup |
+| Total evidence budget | **50 GPU-hours** across all six runs (amended from 36 on 2026-08-28) |
 | Minimum | no selection from fewer than **50,000** post-warmup updates per arm |
+
+The budget was amended **while blind** — no evaluation metric had been computed or viewed, so
+the increase could not have been influenced by which arm was ahead. That is what separates a
+budget amendment from a moved goalpost.
 
 Wall-clock and throughput are **reported costs**, not levers on how much data each arm
 receives. Deriving the common step count from the slower arm is deliberate: giving the faster
@@ -76,25 +81,52 @@ One complete corpus epoch (2,970,227 rows → 185,640 steps) across all six runs
 **127.89 GPU-hours** against a 36-hour budget, so one epoch is out. The derived common step
 count is **52,256**, which clears the 50,000 floor by **+4.5%**.
 
-### 4.1 That margin does not survive contact with the real loop
+### 4.1 The compute-only projection was pessimistic, and here is why
 
-The calibration measures **compute only**. It executes no dataloading, no collation, no
-masking, no checkpoint writes, and no validation, so its step time is a *lower bound*.
+The calibration padded every batch to the full `max_length` of 288 and projected 52,256
+affordable steps against the old 36-hour budget — clearing the 50,000 floor by 4.5%, which any
+dataloading overhead would have erased. That reasoning contained an error worth recording,
+because it pointed the wrong way.
 
-| validation reserve \ overhead | 0% | 10% | 20% | 30% |
+**Full occupancy is not what training sees.** The unpaired OAS corpus is single-chain, so its
+sequences tokenize to ~120 tokens; `max_length: 288` is a *cap*, and the length-bucketed batch
+sampler packs each batch to its bucket rather than to the cap. Measured over the real loader,
+batch sequence lengths are **111–135 tokens, median 119**. So the synthetic figure was a
+worst-case **upper** bound on step time, not the lower bound the earlier draft of this section
+claimed. Dataloading does add overhead; bucketing removes far more.
+
+### 4.2 Pipeline-inclusive preflight (measured 2026-08-28)
+
+Production loaders, real corpus, including dataset construction, the bucketed sampler,
+collation, dynamic MLM masking, forward/backward/update, checkpoint serialization, and a
+validation traversal. **No numerical metric was retained**: validation batches were traversed
+and their per-batch counts computed — that Python-level work is a real cost — then discarded
+without aggregation, so nothing that could reveal which width is ahead was ever formed.
+
+| width | median step | checkpoint save | validation | peak allocated |
 |---|---|---|---|---|
-| 0 h | **52,256** | 47,505 ✗ | 43,547 ✗ | 40,197 ✗ |
-| 1 h | **50,804** | 46,186 ✗ | 42,337 ✗ | 39,080 ✗ |
-| 2 h | 49,353 ✗ | 44,866 ✗ | 41,127 ✗ | 37,964 ✗ |
-| 4 h | 46,450 ✗ | 42,227 ✗ | 38,708 ✗ | 35,730 ✗ |
+| 680 | **151.6 ms** | 0.07 s (54 MiB) | 73.6 ms/batch | 282 MiB |
+| 1024 | **179.9 ms** | 0.08 s (72 MiB) | 84.8 ms/batch | 335 MiB |
 
-✗ = below the 50,000-update floor, where the frozen budget forbids a selection.
+Real-loop slowdown of the wider arm is **+18.7%**, against +17.7% from the synthetic
+calibration — the absolute step time did not transfer, but the *ratio* did, which is what the
+35% promotion criterion turns on.
 
-**The 36-hour budget clears the floor only if validation reserve ≤ 1 hour and real-loop
-overhead is essentially zero.** Ten percent overhead — an ordinary figure for dataloading and
-collation — puts every cell under the floor. This is an owner decision before the six runs
-start, not something to discover at hour 30. The options are: raise the budget, lower the
-floor, shrink the per-step cost, or accept that J11 cannot conclude.
+Projected for the frozen schedule (51,000 updates x 3 seeds x 2 widths, with validation and
+checkpointing):
+
+| | per run | x3 seeds |
+|---|---|---|
+| width 680 | 2.17 h | 6.51 h |
+| width 1024 | 2.58 h | 7.74 h |
+| **total** | | **14.25 GPU-hours** |
+
+**Against a 50-hour budget, with 35.75 hours to spare.** J11 may launch.
+
+That headroom is large enough to be worth stating plainly rather than banking: it exists
+because stage-1 sequences are short, and it would not survive a move to the paired corpus
+(~236 tokens) or the antibody-antigen corpus (~232). It is not a general licence to run longer
+experiments on this card.
 
 ## 5. Promotion rule
 
@@ -129,19 +161,27 @@ of the card — so batch 16 is not merely the frozen choice, it is the only one 
 
 **Speed:** 17.7% ≤ 35%. ✓
 
-## 6. What blocks the evidence runs
+## 6. Launch status
 
-1. **The budget question in §4.1.** Running six arms that cannot legally produce a selection
-   would spend 36 GPU-hours to learn nothing.
-2. **A durable remote reference.** The owner requires the branch pushed or backed up, CI run,
-   and the training commit pinned before the evidence runs. Timing calibration was explicitly
-   permitted to remain local; the evidence runs are not.
+Both preconditions are cleared:
+
+1. **Budget.** The pipeline preflight projects 14.25 GPU-hours against 50, and the frozen
+   51,000-update schedule delivers exactly the 50,000 post-warmup updates the evidence floor
+   requires. If a rerun ever projects beyond the budget, J11 goes back to blocked — the floor
+   is not lowered and no selection is made from partial runs.
+2. **Durable remote.** `fix/cross-platform-artifacts` is pushed to `origin`; CI runs on push.
+   The training commit must be pinned before the runs and recorded with each checkpoint.
+
+One consequence of the local-only `docs/` policy, recorded because it is easy to be surprised
+by: `docs/ARCHITECTURE.md` does not travel to the public repository, so a clone has the
+dual-stream model without its integration diagram. This tracked contract does travel.
 
 ## 7. Artifacts
 
 | Artifact | Path |
 |---|---|
-| Timing calibration | `scripts/calibrate_j11_timing.py`, `outputs/j11-timing-calibration.json` |
+| Timing calibration (compute only) | `scripts/calibrate_j11_timing.py`, `outputs/j11-timing-calibration.json` |
+| Pipeline preflight | `scripts/preflight_j11_pipeline.py`, `outputs/j11-pipeline-preflight.json` |
 | Pairing mechanism | `src/smallAntibodyGen/experiments/init_parity.py` |
 | Paired arm configs | `configs/experiments/swiglu_width/arm_{680,1024}.yaml` |
 | Tests | `src/smallAntibodyGen/tests/test_j11_pairing.py` (9) |
