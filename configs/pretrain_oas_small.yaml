@@ -16,7 +16,7 @@
 # config change. (filename is historical — this is the full 3M run, not a "small" one.)
 training_stage: base
 data_path: data/processed/oas_unpaired_3m/oas_all.jsonl.gz
-output_dir: checkpoints/mlm_3m_unpaired_v4
+output_dir: checkpoints/mlm_3m_unpaired_v5
 resume_from_last: true
 
 seed: 42
@@ -24,7 +24,13 @@ batch_size: 16
 eval_batch_size: 16
 train_num_workers: 0
 eval_num_workers: 0
-max_length: 192
+# v4 -> v5: 192 -> 288 (Open Decision 1, resolved 2026-08-27). 192 truncated 100.00% of
+# paired-OAS train rows and destroyed CDR-L3 on 99.96% of them, and 75.86% of the
+# antibody-antigen rows. 288 clears BOTH corpora outright -- measured maxima are 281 (paired,
+# 2,513,626 rows) and 258 (antibody-antigen, 828,315 rows) -- so no row is truncated at all.
+# 256 was rejected: it still overflows 452 paired and 2 antigen rows.
+# Evidence: the local (untracked) J04 context-census reports under outputs/.
+max_length: 288
 bucket_width: 8
 
 mask_probability: 0.15
