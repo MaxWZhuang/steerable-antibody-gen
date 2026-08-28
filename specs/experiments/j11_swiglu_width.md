@@ -161,6 +161,35 @@ of the card — so batch 16 is not merely the frozen choice, it is the only one 
 
 **Speed:** 17.7% ≤ 35%. ✓
 
+## 5.2 Objective: canonical 0.4, not plain MLM
+
+The arm configs use `hcdr3_span_probability: 0.4`, matching
+`configs/pretrain_oas_small.yaml`. An earlier draft carried `0.0`, which would have made J11 a
+plain-MLM pilot wearing a stage-1 name.
+
+That is not only a consistency point. With no HCDR3 span deliberately masked, `hcdr3_valid_spans`
+is ~0 and span-exact recovery is NaN — so promotion criteria 3 and 6, the two the whole
+experiment turns on, would have been unmeasurable. The objective mismatch would have surfaced as
+empty metrics after six runs had already been spent.
+
+## 5.3 Execution harness
+
+The frozen design has to be what actually runs. These enforce it:
+
+| Requirement | Mechanism |
+|---|---|
+| Stop at exactly update 51,000 | `max_updates` in the trainer, counting UPDATES the optimizer applied — not batches, so AMP skips cannot shorten one arm |
+| 1,000-update warmup | `warmup_steps: 1000`; validation rejects `warmup_steps >= max_updates` |
+| Paired init before the first update | `paired_init_seed`, applied straight after construction and before any warm start |
+| Clean worktree, recorded commit | `run_j11_experiment.py launch` refuses a dirty tree, and refuses a non-`main` HEAD without `--allow-branch` |
+| Final-step metrics only | `read_final_metrics` takes the LAST validation record; best-checkpoint selection is a maximum over noise |
+| No early stopping | `TrainConfig.validate` rejects `max_updates` together with `early_stopping_patience` |
+| Refuse incomplete evidence | `collect` surveys all six runs before reading any, and reports every gap at once |
+| One axis, both directions | widths at fixed seed may differ only in `swiglu_hidden_dim`/`output_dir`; seeds at fixed width only in `seed`/`paired_init_seed`/`output_dir` |
+
+Six explicit tracked configs, `configs/experiments/swiglu_width/arm_w{680,1024}_s{42,31415,271828}.yaml`,
+written out rather than generated at launch so the executed experiment is a diffable artifact.
+
 ## 6. Launch status
 
 Both preconditions are cleared:
@@ -170,7 +199,12 @@ Both preconditions are cleared:
    requires. If a rerun ever projects beyond the budget, J11 goes back to blocked — the floor
    is not lowered and no selection is made from partial runs.
 2. **Durable remote.** `fix/cross-platform-artifacts` is pushed to `origin`; CI runs on push.
-   The training commit must be pinned before the runs and recorded with each checkpoint.
+3. **Harness (§5.3).** In place, and the launcher refuses anything that is not the frozen design.
+
+**Remaining before launch: merge this PR, then train a clean checkout of the resulting
+`origin/main` SHA** and record that SHA with every run. The launcher enforces this — it refuses
+a non-`main` HEAD unless explicitly overridden — because evidence pinned to a feature-branch
+commit is pinned to a revision that may never exist in the public history.
 
 One consequence of the local-only `docs/` policy, recorded because it is easy to be surprised
 by: `docs/ARCHITECTURE.md` does not travel to the public repository, so a clone has the
