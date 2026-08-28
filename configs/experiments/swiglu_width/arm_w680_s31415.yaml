@@ -1,0 +1,81 @@
+# J11 evidence run -- SwiGLU width 680, seed 31415.
+#
+# One of SIX explicit configs: {680, 1024} x {42, 31415, 271828}. They are written
+# out rather than generated at launch so the executed experiment is a tracked
+# artifact: a reader can diff any two and see exactly one axis move.
+#
+# Question: does ~33.6% more capacity (4,719,106 -> 6,304,258 parameters) produce a
+# non-marginal CDR3 benefit? Protocol, frozen budget, and the lexicographic
+# promotion rule: specs/experiments/j11_swiglu_width.md
+#
+# WITHIN A SEED, the two widths differ ONLY in swiglu_hidden_dim and output_dir.
+# ACROSS seeds, only seed, paired_init_seed, and output_dir differ. The launcher
+# refuses to run a set that violates either.
+#
+# Train from a clean checkout of the merged origin/main SHA, never a feature-branch
+# SHA, and record that SHA with every run.
+
+training_stage: base
+data_path: data/processed/oas_unpaired_3m/oas_all.jsonl.gz
+output_dir: checkpoints/experiments/j11_w680_s31415
+resume_from_last: false        # a pilot arm is never resumed; rerun it clean
+
+seed: 31415
+# Paired initialization. Re-derives every parameter from a seed hashed on its
+# module NAME, so a parameter's value depends on neither construction order nor
+# width -- without this the wider arm's feed-forward shifts every subsequent init
+# draw and the two arms differ in far more than width, making three seeds three
+# unrelated pairs rather than three paired observations.
+paired_init_seed: 31415
+
+# ---- the frozen schedule ----------------------------------------------------
+# Exactly 51,000 optimizer updates = 1,000 warmup + 50,000 post-warmup. `epochs`
+# is a ceiling only: one epoch of this corpus is ~185,640 updates, so max_updates
+# is what actually ends the run. Updates are counted as steps the optimizer
+# APPLIED, so AMP skips cannot silently shorten one arm.
+max_updates: 51000
+warmup_steps: 1000
+epochs: 1
+early_stopping_patience: 0     # prohibited: arms must reach the SAME step
+# -----------------------------------------------------------------------------
+
+batch_size: 16
+eval_batch_size: 16
+train_num_workers: 0
+eval_num_workers: 0
+
+max_length: 288
+bucket_width: 8
+
+# Canonical stage-1 objective. 0.4, matching configs/pretrain_oas_small.yaml --
+# NOT the 0.0 an earlier draft of these configs carried. That was a plain-MLM
+# pilot masquerading as a stage-1 one, and it would have made two of the
+# promotion criteria unmeasurable: with no HCDR3 spans deliberately masked,
+# hcdr3_valid_spans is ~0 and span-exact recovery is NaN.
+mask_probability: 0.15
+hcdr3_span_probability: 0.4
+
+learning_rate: 0.0003
+weight_decay: 0.01
+grad_clip_norm: 1.0
+
+d_model: 256
+n_heads: 8
+n_layers: 6
+d_ff: 1024
+dropout: 0.1
+
+# ---- canonical modern block -------------------------------------------------
+position_encoding: rope        # no learned position table at all
+norm_type: rmsnorm
+norm_first: true               # placement and operator are INDEPENDENT knobs
+ffn_type: swiglu
+attention_bias: false
+ffn_bias: false
+# ---- THE ONLY AXIS UNDER TEST -----------------------------------------------
+swiglu_hidden_dim: 680
+# -----------------------------------------------------------------------------
+
+use_amp: true
+show_progress: true
+device: cuda

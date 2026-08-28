@@ -298,6 +298,25 @@ class TrainConfig:
     # that is verbatim in training and the unpartitioned number is therefore
     # ~79% reachable by recall (BUGLOG AB-11).
     report_novel_hcdr3_metrics: bool = False
+
+    # ---- J11 experiment harness. Both default OFF, so an unmodified config is
+    # byte-for-byte unchanged. ------------------------------------------------
+    #
+    # Stop after exactly this many OPTIMIZER UPDATES, across epochs. 0 disables.
+    # `epochs` alone cannot express the frozen J11 schedule: one epoch of the 3M
+    # corpus is ~185,640 updates against the frozen 51,000, and a comparison that
+    # ran to a different number of updates per arm would not be the experiment
+    # that was predeclared.
+    #
+    # Counted as UPDATES, not batches: AMP skips the optimizer step on inf/NaN
+    # gradients, and a batch counter would silently let one arm take fewer real
+    # updates than the other.
+    max_updates: int = 0
+    # Apply J11's paired initialization before the first update: re-derive every
+    # parameter from a seed hashed on its module NAME, then reset the training
+    # RNG. Without it the two width arms differ in far more than width, because
+    # the wider feed-forward shifts every subsequent init draw. 0 disables.
+    paired_init_seed: int = 0
     # Learned conditional length posterior. 0.0 (default) builds NO length head
     # and adds a 0-scaled differentiable-zero term, so existing runs are
     # byte-identical. `length_head_max` must cover the corpus's HCDR3 lengths;
@@ -492,6 +511,22 @@ class TrainConfig:
             raise ValueError("antigen_encoder_type must be one of: scratch, esm")
         if self.antigen_encoder_finetune not in {"frozen", "lora"}:
             raise ValueError("antigen_encoder_finetune must be one of: frozen, lora")
+        if self.max_updates < 0:
+            raise ValueError("max_updates must be >= 0 (0 disables the limit)")
+        if self.max_updates and self.warmup_steps >= self.max_updates:
+            raise ValueError(
+                f"warmup_steps ({self.warmup_steps}) must be < max_updates "
+                f"({self.max_updates}), or the run is entirely warmup and produces "
+                "zero post-warmup updates to compare"
+            )
+        if self.paired_init_seed < 0:
+            raise ValueError("paired_init_seed must be >= 0 (0 disables pairing)")
+        if self.max_updates and self.early_stopping_patience:
+            raise ValueError(
+                "max_updates and early_stopping_patience are incompatible: a fixed-step "
+                "comparison must run to the SAME step in every arm, and early stopping "
+                "would end one arm sooner and make the arms incomparable"
+            )
         if self.antigen_max_length is not None and not (
             0 < self.antigen_max_length <= 8192
         ):
@@ -774,6 +809,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
         dest="include_strength_rows",
         action="store_false",
         default=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--max-updates",
+        type=int,
+        default=argparse.SUPPRESS,
+        help="Stop after exactly this many optimizer updates across epochs (0 = off).",
+    )
+    parser.add_argument(
+        "--paired-init-seed",
+        type=int,
+        default=argparse.SUPPRESS,
+        help="Apply J11 paired initialization with this seed before training (0 = off).",
     )
     parser.add_argument(
         "--report-novel-hcdr3-metrics",
@@ -3048,6 +3095,13 @@ def evaluate(
     return metrics
 
 
+#: Optimizer updates actually applied, across the whole run. Module-level so the
+#: epoch loop and `main` share one count without threading it through every
+#: signature. `amp_skips` is tracked beside it because a run with unexplained
+#: skips is one of J11's disqualifying conditions.
+UPDATE_COUNTER: Dict[str, int] = {"updates": 0, "amp_skips": 0}
+
+
 def train_one_epoch(
     model: torch.nn.Module,
     train_dataset: OASSequenceDataset,
@@ -3239,8 +3293,22 @@ def train_one_epoch(
         scaler.update()
         # Advance the LR warmup only when AMP did not skip the optimizer step
         # (it skips on inf/NaN grads), so warmup progress tracks real updates.
-        if scheduler is not None and scaler.get_scale() >= scale_before:
+        applied_update = scaler.get_scale() >= scale_before
+        if scheduler is not None and applied_update:
             scheduler.step()
+        # An UPDATE is a step the optimizer actually applied. Counting batches
+        # instead would let an arm that hit more AMP skips take fewer real
+        # updates than its pair while both reported the same "step".
+        if applied_update:
+            UPDATE_COUNTER["updates"] += 1
+        else:
+            UPDATE_COUNTER["amp_skips"] += 1
+
+        if cfg.max_updates and UPDATE_COUNTER["updates"] >= cfg.max_updates:
+            # Stop EXACTLY at the frozen update count. The comparison is defined
+            # at this step; running one arm past it would compare different
+            # amounts of training.
+            break
 
         # Intra-epoch checkpoint (epoch-granular resume). Save the current
         # 0-based epoch index so a resumed run re-enters this epoch from batch 0
@@ -4241,6 +4309,27 @@ def main() -> None:
                 print("[compat-baseline] " + " ".join(baseline_parts))
 
     model = build_model(tokenizer, cfg, device)
+    if cfg.paired_init_seed:
+        # J11 pairing. Applied here, right after construction, because the point
+        # is to erase the initialization difference the two arms' differing FFN
+        # widths would otherwise cause -- every parameter is re-derived from a
+        # seed hashed on its module NAME, so its value depends on neither
+        # construction order nor width. `reset_training_rng` then puts both arms
+        # on one data-order and dropout stream.
+        #
+        # This runs BEFORE any init_checkpoint load below, so warm-started
+        # weights still win where they exist; pairing only decides what the
+        # freshly-initialized parameters are.
+        from smallAntibodyGen.experiments import init_parity as _init_parity
+
+        touched = _init_parity.reinitialize_by_module_name(
+            model, build_model_config(tokenizer, cfg), seed=cfg.paired_init_seed
+        )
+        _init_parity.reset_training_rng(cfg.paired_init_seed)
+        print(
+            f"[paired-init] seed={cfg.paired_init_seed}: re-initialized {len(touched)} "
+            "modules by name and reset the training RNG"
+        )
     optimizer = build_optimizer(model, cfg)
     # The GradScaler and warmup scheduler are owned by main() and reused across
     # epochs (and persisted/restored) so their adaptive state is not reset.
@@ -4430,6 +4519,13 @@ def main() -> None:
             )
 
     for epoch in range(start_epoch, cfg.epochs):
+        if cfg.max_updates and UPDATE_COUNTER["updates"] >= cfg.max_updates:
+            print(
+                f"[max-updates] reached {UPDATE_COUNTER['updates']} optimizer updates; "
+                "stopping before epoch "
+                f"{epoch + 1}"
+            )
+            break
         train_metrics = train_one_epoch(
             model=model,
             train_dataset=train_dataset,
