@@ -201,6 +201,18 @@ WARM_START_ARCHITECTURE_KEYS: tuple[str, ...] = (
     "use_strength_head",
     "use_length_head",
     "length_head_max",
+    # Rung-1 architecture candidates (J10). `norm_type` and `ffn_type` change the
+    # parameter set; `position_encoding` does not, which makes it the dangerous
+    # one -- a rope checkpoint would load cleanly into a learned-position model
+    # and silently compute something else.
+    "position_encoding",
+    "norm_type",
+    "ffn_type",
+    "swiglu_hidden_dim",
+    "attention_bias",
+    "ffn_bias",
+    "encoder_n_heads",
+    "cross_attention_n_heads",
     "antigen_encoder_type",
     "esm_model_name",
     "antigen_max_length",

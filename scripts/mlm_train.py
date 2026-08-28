@@ -203,6 +203,15 @@ class TrainConfig:
     # The previous literal 512 default was only ever consumable by the ESM
     # path (the scratch path ignored the field entirely), and the one ESM
     # config sets it explicitly, so no checked-in config changes behavior.
+    # ---- Rung-1 architecture candidates (J10). Defaults are the legacy block.
+    position_encoding: str = "learned"
+    norm_type: str = "layernorm"
+    ffn_type: str = "gelu"
+    swiglu_hidden_dim: int | None = None
+    attention_bias: bool = True
+    ffn_bias: bool = True
+    encoder_n_heads: int | None = None
+    cross_attention_n_heads: int | None = None
     antigen_max_length: int | None = None
     antigen_encoder_finetune: str = "frozen"
     lora_r: int = 8
@@ -1713,6 +1722,14 @@ def build_model_config(tokenizer: AminoAcidTokenizer, cfg: TrainConfig) -> MLMCo
         norm_first=cfg.norm_first,
         # Carried onto the model config so the antigen stream can branch on the
         # encoder choice in Stage A. Defaults ("scratch") keep today's model.
+        position_encoding=cfg.position_encoding,
+        norm_type=cfg.norm_type,
+        ffn_type=cfg.ffn_type,
+        swiglu_hidden_dim=cfg.swiglu_hidden_dim,
+        attention_bias=cfg.attention_bias,
+        ffn_bias=cfg.ffn_bias,
+        encoder_n_heads=cfg.encoder_n_heads,
+        cross_attention_n_heads=cfg.cross_attention_n_heads,
         antigen_encoder_type=cfg.antigen_encoder_type,
         esm_model_name=cfg.esm_model_name,
         antigen_max_length=cfg.antigen_max_length,

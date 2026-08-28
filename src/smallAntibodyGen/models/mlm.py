@@ -7,6 +7,10 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from smallAntibodyGen.antigen_tokenization import resolve_antigen_encode_max_length
+from smallAntibodyGen.models.transformer import (
+    resolve_head_count,
+    validate_head_count,
+)
 
 @dataclass
 class MLMConfig: 
@@ -113,6 +117,33 @@ class MLMConfig:
     # Antigen-stream encoder selection (Direction 1: hybrid PLM antigen encoder).
     # Defaults preserve the original from-scratch dual-stream behavior, so these
     # fields are inert until AntibodyAntigenCrossAttention branches on them.
+    # ---- Rung-1 architecture candidates (J10). ------------------------------
+    # EVERY default below reproduces the current model exactly, so an unmodified
+    # config builds the identical parameter set and existing checkpoints keep
+    # loading. Candidate configs opt in; nothing is inferred.
+    #
+    # These are architecture identity, so they belong in the fingerprint and in
+    # the warm-start compatibility check: `norm_type` and `ffn_type` change the
+    # parameter SET, while `position_encoding` changes what the same parameters
+    # mean. A checkpoint trained under one and loaded under another would either
+    # fail confusingly or -- worse for `position_encoding` -- load cleanly and
+    # compute something different.
+    position_encoding: str = "learned"      # learned | rope
+    norm_type: str = "layernorm"            # layernorm | rmsnorm
+    ffn_type: str = "gelu"                  # gelu | swiglu
+    # Required when ffn_type == "swiglu", and NEVER inferred from d_ff: SwiGLU
+    # has three projections, so reusing d_ff would silently build a 1.5x larger
+    # feed-forward and let the bakeoff credit the architecture for the capacity.
+    # See models/transformer.swiglu_width_matching_gelu.
+    swiglu_hidden_dim: int | None = None
+    attention_bias: bool = True
+    ffn_bias: bool = True
+    # None inherits the legacy `n_heads`. Resolved and stored SEPARATELY so the
+    # encoder's head shape can be a bakeoff axis without touching the antigen
+    # fusion, which J10 does not modernize.
+    encoder_n_heads: int | None = None
+    cross_attention_n_heads: int | None = None
+
     antigen_encoder_type: str = "scratch"
     esm_model_name: str = "facebook/esm2_t6_8M_UR50D"
     # None means "inherit max_length". Before AB-07 this defaulted to 512 and was
@@ -182,6 +213,16 @@ class MLMConfig:
     scale_residual_init: bool = True
 
     @property
+    def resolved_encoder_n_heads(self) -> int:
+        """Self-attention head count, with the legacy ``n_heads`` fallback."""
+        return resolve_head_count(self.encoder_n_heads, self.n_heads)
+
+    @property
+    def resolved_cross_attention_n_heads(self) -> int:
+        """Antigen cross-attention head count, resolved independently of the encoder's."""
+        return resolve_head_count(self.cross_attention_n_heads, self.n_heads)
+
+    @property
     def effective_antigen_max_length(self) -> int:
         """
         The antigen stream's total token budget, with the ``None`` sentinel resolved.
@@ -221,6 +262,34 @@ class MLMConfig:
             raise ValueError("norm_first must be a bool")
         if self.activation not in {"relu", "gelu"}:
             raise ValueError("activation must be either 'relu' (ReLU/Rectified Linear Unit) or 'gelu' (GELU/Gaussian Error Linear Unit)")
+        if self.position_encoding not in {"learned", "rope"}:
+            raise ValueError("position_encoding must be either 'learned' or 'rope'")
+        if self.norm_type not in {"layernorm", "rmsnorm"}:
+            raise ValueError("norm_type must be either 'layernorm' or 'rmsnorm'")
+        if self.ffn_type not in {"gelu", "swiglu"}:
+            raise ValueError("ffn_type must be either 'gelu' or 'swiglu'")
+        if self.ffn_type == "swiglu" and self.swiglu_hidden_dim is None:
+            raise ValueError(
+                "ffn_type='swiglu' requires an explicit swiglu_hidden_dim. It is not "
+                "inferred from d_ff: SwiGLU's three projections would make the "
+                "feed-forward 1.5x larger, and an architecture bakeoff would then be "
+                "comparing capacity rather than architecture. Use "
+                "models.transformer.swiglu_width_matching_gelu to pick a width and "
+                "report its residual."
+            )
+        if self.ffn_type == "gelu" and self.swiglu_hidden_dim is not None:
+            raise ValueError(
+                "swiglu_hidden_dim is set but ffn_type='gelu'; the width would be "
+                "silently ignored"
+            )
+        if self.swiglu_hidden_dim is not None and self.swiglu_hidden_dim <= 0:
+            raise ValueError("swiglu_hidden_dim must be > 0")
+        for label, value in (
+            ("encoder_n_heads", self.encoder_n_heads),
+            ("cross_attention_n_heads", self.cross_attention_n_heads),
+        ):
+            if value is not None:
+                validate_head_count(self.d_model, int(value), label)
         if self.antigen_encoder_type not in {"scratch", "esm"}:
             raise ValueError("antigen_encoder_type must be either 'scratch' or 'esm'")
         if self.antigen_encoder_finetune not in {"frozen", "lora"}:

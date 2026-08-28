@@ -73,6 +73,12 @@ REQUIRED_ARM_METRICS = (
     "throughput_sequences_per_second",
     "cache_build_seconds",
     "seeds",
+    # Both counts, because the arms differ in what TRAINS as well as in what the
+    # encoder represents: the scratch antigen encoder is trainable, the ESM
+    # backbone is frozen. Reporting only totals would hide that; reporting only
+    # trainable would hide the ESM arm's inference cost.
+    "total_parameters",
+    "trainable_parameters",
 )
 
 
@@ -418,6 +424,14 @@ def main(argv: list[str] | None = None) -> int:
         "scope": (
             "J24 selects the antigen sensor. It does not test the target-specific "
             "claim, which is a later experiment."
+        ),
+        "claim_limit": (
+            "The arms differ in training regime as well as representation: the "
+            "scratch antigen encoder trains while the ESM backbone is frozen. The "
+            "result therefore says which ENCODER PACKAGE works better under the "
+            "intended training regime. It does not isolate the effect of "
+            "pretraining alone -- that would need a trainable-ESM or "
+            "frozen-scratch arm, which J24 deliberately does not run."
         ),
         "margins": {
             "auprc": args.auprc_margin,
