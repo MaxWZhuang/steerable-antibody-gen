@@ -85,6 +85,17 @@ swiglu_hidden_dim: 680
 # and AMP off peaks at 1200 MiB of 4096 (29%), against 834 MiB at the old 192 -- so the known-
 # good setting still fits with room to spare and is kept rather than perturbed alongside the
 # context change. One axis at a time.
-use_amp: false            # matches the known-good prior paired run. Flip to true for speed if stable.
+# MEASURED 2026-08-29, one axis, this config, modern block, batch 32:
+#   use_amp: false   235.9 ms/step   1430 MiB reserved
+#   use_amp: true    674.0 ms/step    818 MiB reserved
+# AMP is 2.9x SLOWER here. An earlier version of this line read "Flip to true for
+# speed if stable" -- that advice was backwards on this card and is why it is
+# replaced with the measurement rather than reworded. The GTX 1650 SUPER is
+# Turing TU116: compute capability 7.5 but NO Tensor Cores, so fp16 autocast pays
+# cast overhead and buys no matmul speedup. AMP here is a MEMORY tool, not a speed
+# one -- and memory is not the constraint at this stage (65% headroom at AMP off).
+# Do not flip this for speed on this hardware. On a Tensor Core card the trade
+# reverses and this must be re-measured, not assumed.
+use_amp: false            # matches the known-good prior paired run, and is the FASTER setting.
 show_progress: true
 device: cuda

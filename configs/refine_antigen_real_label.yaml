@@ -122,6 +122,15 @@ swiglu_hidden_dim: 680
 # antibody max_length. At 1024, 0.69% of training and 3.58% of validation antigens are still
 # truncated (measured p50 610 / max 2042); 2048 would reach 0% but see the header note on
 # headroom. The ESM variant uses the SAME 1024 so the arms differ on one axis.
+# MEASURED 2026-08-29: AMP is REQUIRED here, and for memory, not speed.
+# Dual-stream 288/1024 batch 16, one axis:
+#   use_amp: true    2390 MiB reserved of 4095.7 -> 41.6% headroom
+#   use_amp: false   3316 MiB reserved          -> 19.0% headroom, BELOW the 25% floor
+# Stages 1-2 were flipped to `use_amp: false` on 2026-08-29 because this card
+# (Turing TU116, no Tensor Cores) runs fp16 autocast ~2.7-2.9x SLOWER. Do NOT
+# propagate that flip here: the antigen stream is what makes memory bind, and
+# without AMP this stage fails the headroom floor J11's criterion 1 sets.
+# The speed cost is real and is being paid deliberately to fit the card.
 use_amp: true
 show_progress: true
 device: cuda
