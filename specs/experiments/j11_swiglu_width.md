@@ -223,17 +223,39 @@ dual-stream model without its integration diagram. This tracked contract does tr
 ## 8. Verdict — width 680 selected (2026-08-28)
 
 **Emitted by `python scripts/run_j11_experiment.py compare`**, not by hand.
-Report: `outputs/j11-comparison.json` (`schema_version: j11-comparison/1`), bound to all
-six runs' fingerprint hashes, their shared training commit `561312b`, and a hash of the
-exact final metrics record each number came from.
+Report: **`specs/evidence/j11-comparison.json`** (`schema_version: j11-comparison/1`), bound
+to all six runs' fingerprint hashes, their shared training commit `561312b`, and a hash of
+the exact final metrics record each number came from.
+
+The report is tracked, deliberately. It was first written to `outputs/`, which
+`.gitignore` excludes — so the six fingerprint and metrics hashes, the entire point of
+emitting them, vanished in a fresh clone. It carries no absolute paths: evidence sources are
+serialized repo-relative POSIX, so two machines comparing the same evidence produce the same
+bytes and no home directory leaks into a tracked file.
 
 Everything above this section is **byte-identical** to the version hashed into all six run
 fingerprints as `specs/experiments/j11_swiglu_width.md` →
 `ee760b4a57d4f3838abaadc8eae1dbbe5a80d1142c15f41e31b452573b3128fe`. That hash is the
-predeclaration proof, and it is now stale by construction: §8 and §9 are appended below it.
-Recover the predeclared text with
-`git show 561312b:specs/experiments/j11_swiglu_width.md`, and confirm the diff is
-append-only.
+predeclaration proof; it is stale by construction now that §8 and §9 are appended below it.
+
+Verify it exactly — **the recorded hash is of the CRLF form, 12,006 bytes**, which is what the
+fingerprint read off the Windows working tree. `git show` yields the LF form and hashes to
+`13ee222d…` instead, so hashing the git blob directly will look like a mismatch when nothing
+is wrong:
+
+```python
+import hashlib, subprocess
+orig = subprocess.run(["git", "show", "561312b:specs/experiments/j11_swiglu_width.md"],
+                      capture_output=True).stdout
+orig = orig.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")        # 12,006 bytes
+assert hashlib.sha256(orig).hexdigest().startswith("ee760b4a")     # the recorded hash
+assert open("specs/experiments/j11_swiglu_width.md", "rb").read().startswith(orig)
+```
+
+The second assertion is the one that matters: the predeclared text is a **prefix** of this
+file, so §8 and §9 could only be appended, never edited into it. (Do not hash "everything
+above §8" — that is 12,008 bytes, two more than the original, because the append added a
+blank separator line.)
 
 ### 8.1 Paired results, final step 51,000
 
@@ -310,6 +332,43 @@ mask. The true experimental unit is closer to the paired seed, of which there ar
 A supporting practical argument, beyond the rule: 680 retains ~10 pp more reserved headroom
 at the dual-stream shape — the stage where this card actually binds — and headroom is the
 safety margin given the measured driver-spill behaviour.
+
+### 8.5 The harness that produced this verdict was hardened after it first ran
+
+Recorded because the sequence matters. The verdict in §8.2 was first emitted by a comparator
+whose evidence binding **failed open** in four ways, found in review on 2026-08-28. The
+selection did not change — it was re-verified under every check below, and criterion 3 fails
+by a factor of 3.3 regardless — but a report that advertises provenance it did not verify is
+the most expensive shape of wrong, because the artifact asserts the very property it lost.
+
+| Failed open | Now |
+|---|---|
+| A missing `run_fingerprint.json` was recorded as `null` | Refused — a null hash is a hole shaped like a binding |
+| Six empty commit strings passed the "one shared commit" check, because they are all equal | Refused — each commit must be a 40-char hex SHA before equality is tested |
+| Provenance `width`/`seed`/schedule were never compared to the run they sat beside | Refused on any disagreement with the directory or with the frozen 51,000/1,000 |
+| The fingerprint's own `manifests.source.commit` was never cross-checked | Refused on disagreement with `j11_provenance.json`; a dirty `worktree_dirty` is refused too |
+
+Two further gaps closed at the same time:
+
+- **Paired masks are enforced, not quoted.** The report copied the 680 arm's
+  `hcdr3_target_tokens` and `hcdr3_valid_spans` into the table without ever comparing them to
+  the 1024 arm. An unpaired comparison would have produced a confident verdict under a
+  paired-looking table. Unequal masks at any seed now refuse. (They are equal here:
+  772,352 / 771,937 / 771,724, verified rather than assumed — `paired_masks_verified: true`.)
+- **Criterion 1's probe must prove what it measured.** Shape alone is insufficient: a
+  288/1024 batch-16 probe of the single-stream model, of the legacy block, or without AMP
+  measures a different thing. A probe is now read only when every arm records
+  `model_kind: antibody_antigen`, `ffn_type: swiglu`, `norm_type: rmsnorm`,
+  `position_encoding: rope`, `use_amp: true`, the full 288/1024/batch-16 shape, a positive
+  `total_parameters` that is larger for the 1024 arm, and one shared `device_total_mib`; and
+  only when the two rows differ off-axis in nothing. Anything else is `not_auditable`, never
+  a pass. Driver spill is a `fail`, not a downgrade — on this box CUDA falls back to system
+  RAM instead of raising, so a spilling config that "ran fine" is precisely what this
+  criterion exists to catch.
+
+Criterion 7 stays `not_auditable` for these six runs permanently. Persisting `amp_skips`
+fixes future experiments; it cannot retroactively instrument a completed one, and re-running
+the six arms to recover it is not warranted when criterion 3 already determines the result.
 
 ## 9. Errata against §1–§7
 

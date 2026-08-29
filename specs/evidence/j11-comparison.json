@@ -1,0 +1,220 @@
+{
+  "claim": "width 1024 showed a consistent but practically insufficient gain (+0.306 pp mean HCDR3 token recovery, 3/3 paired seeds, against a +1.0 pp bar)",
+  "claim_limit": "Measured at the frozen 51,000-update schedule, a fraction of one training epoch over the stage-1 corpus. This does NOT establish asymptotic equivalence after full training: it is a practical negative on paying for extra width at this budget, not a scientific negative on capacity.",
+  "commit": "561312b62f3af82013886ce9f1756c955128ef33",
+  "criteria": [
+    {
+      "number": 1,
+      "reason": "no dual-stream memory probe artifact; the figures in the protocol were measured but never retained, so nothing binds them to these runs",
+      "source": "outputs/j11-dual-stream-memory.json",
+      "statement": "Full 288/1024 dual-stream at batch 16 retains >=25% reserved headroom with no driver spill",
+      "verdict": "not_auditable"
+    },
+    {
+      "measured": 0.1870263894700641,
+      "median_step_seconds": {
+        "1024": 0.1799313000010443,
+        "680": 0.15158154999517137
+      },
+      "number": 2,
+      "reason": "",
+      "source": "outputs/j11-pipeline-preflight.json",
+      "source_sha256": "8ddb4fc4e3ac0d26590425d96931f364c5a4f880a34a1778a24d457ce7465b76",
+      "statement": "Stage-1 median step time is <=35% slower than 680",
+      "threshold": 0.35,
+      "verdict": "pass"
+    },
+    {
+      "measured": 0.3061079755820299,
+      "number": 3,
+      "reason": "HCDR3 token recovery gain 0.306 pp < required 1.0 pp",
+      "statement": "Mean fixed-mask HCDR3 token recovery improves by >=+1.0 absolute percentage points",
+      "threshold": 1.0,
+      "verdict": "fail"
+    },
+    {
+      "measured": 3,
+      "number": 4,
+      "reason": "",
+      "seeds_favouring_1024": [
+        42,
+        31415,
+        271828
+      ],
+      "statement": "All three paired seeds favour 1024 on HCDR3 token recovery",
+      "threshold": 3,
+      "verdict": "pass"
+    },
+    {
+      "measured": -0.0027470105642079337,
+      "number": 5,
+      "reason": "",
+      "statement": "Mean validation MLM loss does not regress by more than 0.01 nats",
+      "threshold": 0.01,
+      "verdict": "pass"
+    },
+    {
+      "measured": 0.2032497252992306,
+      "note": "Reported for completeness: on ~496 valid spans the unpaired binomial noise on this rate is wider than the margin itself, and the retained aggregates cannot support the paired analysis that would be appropriate. Treat this clause as under-instrumented.",
+      "number": 6,
+      "reason": "",
+      "statement": "HCDR3 span-exact recovery does not regress by more than 0.25 percentage points",
+      "threshold": 0.25,
+      "verdict": "pass"
+    },
+    {
+      "amp_skips": {
+        "w1024_s271828": null,
+        "w1024_s31415": null,
+        "w1024_s42": null,
+        "w680_s271828": null,
+        "w680_s31415": null,
+        "w680_s42": null
+      },
+      "metrics_finite": true,
+      "number": 7,
+      "reason": "every retained metric is finite, but amp_skips was not persisted for 6 run(s) (w1024_s271828, w1024_s31415, w1024_s42, w680_s271828, w680_s31415, w680_s42); the counter exists in the trainer and never reaches metrics.jsonl, the checkpoint, or any retained log",
+      "statement": "Neither arm shows NaNs, unexplained AMP skips, or instability",
+      "verdict": "not_auditable"
+    }
+  ],
+  "criteria_audited": 5,
+  "criteria_not_auditable": [
+    1,
+    7
+  ],
+  "means": {
+    "hcdr3_span_exact_1024": 0.011251946042652713,
+    "hcdr3_span_exact_680": 0.01328444329564502,
+    "hcdr3_token_acc_1024": 0.46502874828344143,
+    "hcdr3_token_acc_680": 0.4619676685276211,
+    "hcdr3_token_acc_gain_pp": 0.3061079755820299,
+    "mlm_loss_1024": 0.6801699177294527,
+    "mlm_loss_680": 0.6829169282936607
+  },
+  "paired_masks_verified": true,
+  "paired_seeds": [
+    42,
+    31415,
+    271828
+  ],
+  "per_seed": [
+    {
+      "favours_1024": true,
+      "hcdr3_span_exact_1024": 0.010080645161290322,
+      "hcdr3_span_exact_680": 0.014112903225806451,
+      "hcdr3_span_exact_delta_pp": -0.4032258064516129,
+      "hcdr3_target_tokens": 772352.0,
+      "hcdr3_token_acc_1024": 0.4658186940669539,
+      "hcdr3_token_acc_680": 0.4622192989724892,
+      "hcdr3_token_acc_delta_pp": 0.3599395094464719,
+      "hcdr3_valid_spans": 496.0,
+      "mlm_loss_1024": 0.6782840378130199,
+      "mlm_loss_680": 0.682423233724649,
+      "mlm_loss_delta_nats": -0.0041391959116290344,
+      "seed": 42
+    },
+    {
+      "favours_1024": true,
+      "hcdr3_span_exact_1024": 0.007707129094412331,
+      "hcdr3_span_exact_680": 0.005780346820809248,
+      "hcdr3_span_exact_delta_pp": 0.19267822736030832,
+      "hcdr3_target_tokens": 771937.0,
+      "hcdr3_token_acc_1024": 0.4644537054189655,
+      "hcdr3_token_acc_680": 0.46063474091797646,
+      "hcdr3_token_acc_delta_pp": 0.3818964500989064,
+      "hcdr3_valid_spans": 519.0,
+      "mlm_loss_1024": 0.6796543611951087,
+      "mlm_loss_680": 0.6826623911337466,
+      "mlm_loss_delta_nats": -0.003008029938637913,
+      "seed": 31415
+    },
+    {
+      "favours_1024": true,
+      "hcdr3_span_exact_1024": 0.015968063872255488,
+      "hcdr3_span_exact_680": 0.01996007984031936,
+      "hcdr3_span_exact_delta_pp": -0.39920159680638734,
+      "hcdr3_target_tokens": 771724.0,
+      "hcdr3_token_acc_1024": 0.4648138453644049,
+      "hcdr3_token_acc_680": 0.4630489656923978,
+      "hcdr3_token_acc_delta_pp": 0.17648796720071136,
+      "hcdr3_valid_spans": 501.0,
+      "mlm_loss_1024": 0.6825713541802296,
+      "mlm_loss_680": 0.6836651600225865,
+      "mlm_loss_delta_nats": -0.0010938058423568542,
+      "seed": 271828
+    }
+  ],
+  "primary_reason": "HCDR3 token recovery gain 0.306 pp < required 1.0 pp (criterion 3)",
+  "runs": [
+    {
+      "branch": "main",
+      "commit": "561312b62f3af82013886ce9f1756c955128ef33",
+      "final_metrics_sha256": "a44c147bb153a69ad9ca93423810b19551b383750c33c1347b3b296871e38717",
+      "run": "j11_w680_s42",
+      "run_fingerprint_sha256": "45c79c6c0c606ff96656a84772f71f77884ca88d7b60038c314d6fd0421db25e",
+      "run_hash": "8a31611bdc871dfec7e1279990e098edeec7aa919fac6ab8c977229d7802af99",
+      "seed": 42,
+      "width": 680
+    },
+    {
+      "branch": "main",
+      "commit": "561312b62f3af82013886ce9f1756c955128ef33",
+      "final_metrics_sha256": "37c55a9c4e4fe5002fb4c23ff8f6714b4652b1e33ba1b4ea3240f3718032ace1",
+      "run": "j11_w680_s31415",
+      "run_fingerprint_sha256": "fa647798214985eb1de9999fbaa93a0fd12d93870be733f2101433318fdc84ec",
+      "run_hash": "84c3d9e4d2503081219a674654e843e10dcc43cab5a6513a464fcfecaea586f0",
+      "seed": 31415,
+      "width": 680
+    },
+    {
+      "branch": "main",
+      "commit": "561312b62f3af82013886ce9f1756c955128ef33",
+      "final_metrics_sha256": "e8bf263e28e5940798177a9665c742d20aa726387a7a8f8eb99d691bba83a7ae",
+      "run": "j11_w680_s271828",
+      "run_fingerprint_sha256": "b7cd1869521169ea5f1d1a56ae8af1434ba214e349dcfd384d3e730121186851",
+      "run_hash": "2cec76ba8d0aec81a0b3f688058bd78b732ff5baff1980d1481a8f6a547a4b3e",
+      "seed": 271828,
+      "width": 680
+    },
+    {
+      "branch": "main",
+      "commit": "561312b62f3af82013886ce9f1756c955128ef33",
+      "final_metrics_sha256": "4e5fe846265548ce5c41f5a51b03875937ba01caeb523638a9e255954bdc7f14",
+      "run": "j11_w1024_s42",
+      "run_fingerprint_sha256": "297297cfda487753bb970ec0a118fd9e3f3db342d90da6c102712440d0b66c6f",
+      "run_hash": "5120b6a8d07566356ce1b2caefa9cab917b2724b73527ae210189e67ed5e13ba",
+      "seed": 42,
+      "width": 1024
+    },
+    {
+      "branch": "main",
+      "commit": "561312b62f3af82013886ce9f1756c955128ef33",
+      "final_metrics_sha256": "f4c70bc1214ea7dffa792a21ed999bb46cab7e2847f2fb5f7da88d461a4318b1",
+      "run": "j11_w1024_s31415",
+      "run_fingerprint_sha256": "b87adf50cfde3a1935ef7691520bee0cc918880ec4039380b7bdb60c85a90f37",
+      "run_hash": "e3e317a7d691058b9cc36b75da6eac0528118bbfa73ee2e895e60b85152823df",
+      "seed": 31415,
+      "width": 1024
+    },
+    {
+      "branch": "main",
+      "commit": "561312b62f3af82013886ce9f1756c955128ef33",
+      "final_metrics_sha256": "7b1427d5e64a41ec50e46062b32b51d2bfcdac2b90be4e514d4e67f7793ad9b5",
+      "run": "j11_w1024_s271828",
+      "run_fingerprint_sha256": "da6b0bb8338efaaede9d469388cbc466edf33706e74853c92b0453b135c82895",
+      "run_hash": "c3ae016e0f59407b87bce67b48a284e229b09dc3d41322dba08bc036f54e0d1d",
+      "seed": 271828,
+      "width": 1024
+    }
+  ],
+  "schedule": {
+    "post_warmup_updates": 50000,
+    "total_updates": 51000,
+    "warmup_updates": 1000
+  },
+  "schema_version": "j11-comparison/1",
+  "scope": "Selects the canonical SwiGLU width for the v5 lineage. It does not measure depth, d_model, the block recipe (adopted by owner decision), or any antigen-conditioning behaviour.",
+  "selected_width": 680,
+  "width_1024_promoted": false
+}

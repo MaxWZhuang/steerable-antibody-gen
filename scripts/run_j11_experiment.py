@@ -66,6 +66,31 @@ MIN_MEMORY_HEADROOM = 0.25
 #: is accepted only when it says it measured THIS shape without spilling.
 DUAL_STREAM_SHAPE = {"max_length": 288, "antigen_max_length": 1024, "batch_size": 16}
 
+#: ...and WHICH MODEL, in WHAT numeric regime. Shape alone is insufficient: a
+#: 288/1024 batch-16 probe of the single-stream model, of the legacy block, or
+#: without AMP each measures a different thing and would answer criterion 1 with
+#: a number that does not describe the arms under test.
+DUAL_STREAM_PROBE_MODEL = {
+    "model_kind": "antibody_antigen",
+    "ffn_type": "swiglu",
+    "norm_type": "rmsnorm",
+    "position_encoding": "rope",
+    "use_amp": True,
+}
+#: Every descriptor a probe row must carry AND match before it is read at all.
+DUAL_STREAM_PROBE_REQUIREMENTS = {**DUAL_STREAM_SHAPE, **DUAL_STREAM_PROBE_MODEL}
+#: Columns that are RESULTS of the probe, so they may differ between the arms.
+#: Anything else differing means the probe moved a second axis (Rule 3, applied
+#: to the measurement rather than to the training run).
+PROBE_MEASURED_KEYS = frozenset({
+    "peak_reserved_mib", "peak_allocated_mib", "total_parameters",
+    "fits_without_driver_spill", "loss_finite", "seed",
+})
+#: A shared fact about the card, not a per-arm result: headroom is a fraction of
+#: a specific device, so two rows measured against different totals are not one
+#: comparison.
+PROBE_SHARED_KEYS = frozenset({"device_total_mib"})
+
 #: Three verdicts, not two. `not_auditable` is the honest state of a criterion
 #: whose measurement was never retained; collapsing it into `pass` would let an
 #: unmeasured clause pay for a measured failure, and collapsing it into `fail`
@@ -298,6 +323,26 @@ def file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def portable_path(path: Path | None) -> str | None:
+    """
+    Name a path without leaking where this checkout lives.
+
+    `str(path)` embeds the absolute location and therefore the local username,
+    which makes the report differ between two machines comparing identical
+    evidence -- and leaks a home directory into a tracked artifact. Inside the
+    repository a path becomes its repo-relative POSIX form; outside it, only the
+    file name survives, because nothing outside the checkout can be named
+    portably at all.
+    """
+    if path is None:
+        return None
+    resolved = Path(path).resolve()
+    try:
+        return resolved.relative_to(PROJECT_ROOT).as_posix()
+    except ValueError:
+        return resolved.name
+
+
 def read_provenance(run_dir: Path) -> dict[str, Any]:
     """
     Read the SHA the launcher wrote next to the weights.
@@ -317,14 +362,33 @@ def read_provenance(run_dir: Path) -> dict[str, Any]:
     return load(path)
 
 
+def _valid_commit(value: Any) -> bool:
+    """A 40-character hex SHA, and nothing else."""
+    return (
+        isinstance(value, str)
+        and len(value) == 40
+        and all(char in "0123456789abcdef" for char in value.lower())
+    )
+
+
 def bind_runs(results_root: Path, runs: dict[tuple[int, int], dict[str, Any]]) -> list[dict]:
     """
     Bind each run to its fingerprint, training commit, and final record.
 
+    Every check here fails CLOSED. An earlier version accepted a missing
+    fingerprint as `null`, six empty commit strings as "one shared commit" (they
+    are all equal, so an equality test alone passes them), and never compared the
+    provenance's width/seed/schedule against the run it sat beside. Each of those
+    lets unattributable or mislabelled evidence reach a verdict while the report
+    still looks fully bound -- the most expensive shape of wrong, because the
+    artifact advertises the very property it lost.
+
     Raises:
-        LaunchRefused: the six runs do not share one commit. Six runs from two
-            revisions are two experiments, and averaging across them hides which
-            code produced which number.
+        LaunchRefused: a fingerprint or provenance file is missing; a commit is
+            absent, empty, or not a SHA; the provenance disagrees with its own
+            directory or with the frozen schedule; the fingerprint's recorded
+            commit disagrees with the provenance's; the run was trained from a
+            dirty worktree; or the six runs do not share one commit.
     """
     bound: list[dict[str, Any]] = []
     commits: dict[str, list[str]] = {}
@@ -332,9 +396,60 @@ def bind_runs(results_root: Path, runs: dict[tuple[int, int], dict[str, Any]]) -
         for seed in SEEDS:
             run_dir = results_root / f"j11_w{width}_s{seed}"
             provenance = read_provenance(run_dir)
-            commit = str(provenance.get("commit", ""))
+
+            fingerprint_path = run_dir / "run_fingerprint.json"
+            if not fingerprint_path.exists():
+                raise LaunchRefused(
+                    f"{run_dir.name}: no run_fingerprint.json. A null hash in the "
+                    "report is not a binding, it is a hole shaped like one."
+                )
+            fingerprint = load(fingerprint_path)
+
+            commit = provenance.get("commit")
+            if not _valid_commit(commit):
+                raise LaunchRefused(
+                    f"{run_dir.name}: j11_provenance.json has no usable commit "
+                    f"({commit!r}). Six empty strings are all equal and would pass "
+                    "as one shared commit; unattributable evidence stops here."
+                )
+
+            for field, expected in (("width", width), ("seed", seed)):
+                if provenance.get(field) != expected:
+                    raise LaunchRefused(
+                        f"{run_dir.name}: provenance {field}="
+                        f"{provenance.get(field)!r} disagrees with the run "
+                        f"directory ({expected}). One of them is wrong and this "
+                        "cannot tell which, so the arm may be mislabelled."
+                    )
+
+            for field, expected in (
+                ("total_updates", TOTAL_UPDATES),
+                ("warmup_updates", WARMUP_UPDATES),
+            ):
+                if provenance.get(field) != expected:
+                    raise LaunchRefused(
+                        f"{run_dir.name}: provenance {field}="
+                        f"{provenance.get(field)!r}, not the frozen "
+                        f"{expected:,}. A run that stopped at a different step is "
+                        "not part of this experiment."
+                    )
+
+            recorded = (fingerprint.get("manifests", {}).get("source", {}) or {}).get("commit")
+            if recorded != commit:
+                raise LaunchRefused(
+                    f"{run_dir.name}: the run fingerprint and j11_provenance.json "
+                    f"disagree about the commit ({recorded!r} vs {commit!r}). They "
+                    "are written independently, so disagreement means one of them "
+                    "was copied from another run."
+                )
+            if fingerprint.get("worktree_dirty"):
+                raise LaunchRefused(
+                    f"{run_dir.name}: trained from a dirty worktree, so the "
+                    f"recorded commit {commit[:7]} does not describe the code that "
+                    "produced these weights."
+                )
+
             commits.setdefault(commit, []).append(run_dir.name)
-            fingerprint = run_dir / "run_fingerprint.json"
             bound.append(
                 {
                     "width": width,
@@ -342,15 +457,15 @@ def bind_runs(results_root: Path, runs: dict[tuple[int, int], dict[str, Any]]) -
                     "run": run_dir.name,
                     "commit": commit,
                     "branch": provenance.get("branch"),
-                    "run_fingerprint_sha256": (
-                        file_sha256(fingerprint) if fingerprint.exists() else None
-                    ),
+                    "run_fingerprint_sha256": file_sha256(fingerprint_path),
+                    "run_hash": fingerprint.get("run_hash"),
                     "final_metrics_sha256": canonical_sha256(runs[(width, seed)]),
                 }
             )
+
     if len(commits) > 1:
         detail = "; ".join(
-            f"{commit or '<empty>'}: {', '.join(sorted(names))}"
+            f"{commit}: {', '.join(sorted(names))}"
             for commit, names in sorted(commits.items())
         )
         raise LaunchRefused(
@@ -394,6 +509,21 @@ def paired_rows(runs: dict[tuple[int, int], dict[str, Any]]) -> list[dict[str, A
     for seed in SEEDS:
         narrow = runs[(680, seed)]["val"]
         wide = runs[(1024, seed)]["val"]
+
+        # ENFORCED, not merely quoted. The whole pairing argument is that both
+        # widths saw the same validation mask at a seed; an earlier version
+        # copied the 680 arm's denominators into the report without ever
+        # comparing them to 1024, so an unpaired comparison would have produced a
+        # confident verdict under a paired-looking table.
+        for field in ("hcdr3_target_tokens", "hcdr3_valid_spans"):
+            if narrow[field] != wide[field]:
+                raise LaunchRefused(
+                    f"seed {seed}: {field} differs between the arms "
+                    f"({narrow[field]} at width 680 vs {wide[field]} at 1024), so "
+                    "they did not see the same validation mask. The paired "
+                    "comparison this experiment rests on does not hold."
+                )
+
         rows.append(
             {
                 "seed": seed,
@@ -445,30 +575,76 @@ def evaluate_memory(path: Path | None) -> dict[str, Any]:
                 "protocol were measured but never retained, so nothing binds "
                 "them to these runs"
             ),
-            source=str(path) if path is not None else None,
+            source=portable_path(path),
         )
 
     payload = load(path)
     rows = payload.get("results", payload if isinstance(payload, list) else [])
-    arms: dict[int, dict[str, Any]] = {}
-    for row in rows:
-        if all(row.get(key) == value for key, value in DUAL_STREAM_SHAPE.items()):
-            arms[row.get("swiglu_hidden_dim")] = row
+    arms = {row.get("swiglu_hidden_dim"): row for row in rows}
+    source = {"source": portable_path(path), "source_sha256": file_sha256(path)}
+
+    def unauditable(reason: str) -> dict[str, Any]:
+        return _criterion(1, statement, VERDICT_NOT_AUDITABLE, reason=reason, **source)
 
     missing = [width for width in WIDTHS if width not in arms]
     if missing:
-        return _criterion(
-            1, statement, VERDICT_NOT_AUDITABLE,
-            reason=(
-                f"the probe has no row for width(s) {missing} at the canonical "
-                f"{DUAL_STREAM_SHAPE['max_length']}/"
-                f"{DUAL_STREAM_SHAPE['antigen_max_length']} batch "
-                f"{DUAL_STREAM_SHAPE['batch_size']} shape"
-            ),
-            source=str(path),
-            source_sha256=file_sha256(path),
+        return unauditable(f"the probe has no row for width(s) {missing}")
+
+    # 1. Each arm must SAY what it measured, and say the right thing. An absent
+    #    descriptor is not an implicit match.
+    mismatches = []
+    for width in WIDTHS:
+        for key, expected in DUAL_STREAM_PROBE_REQUIREMENTS.items():
+            if key not in arms[width]:
+                mismatches.append(f"width {width} does not record {key}")
+            elif arms[width][key] != expected:
+                mismatches.append(
+                    f"width {width} has {key}={arms[width][key]!r}, expected {expected!r}"
+                )
+    if mismatches:
+        return unauditable(
+            "the probe did not measure the arms under test: " + "; ".join(mismatches)
         )
 
+    # 2. The card is a shared fact, not a per-arm result.
+    for key in sorted(PROBE_SHARED_KEYS):
+        values = {arms[width].get(key) for width in WIDTHS}
+        if len(values) != 1 or None in values:
+            return unauditable(
+                f"the arms report different {key} ({sorted(map(str, values))}); "
+                "headroom is a fraction of one device, so these are not one "
+                "comparison"
+            )
+
+    # 3. Rule 3 applied to the measurement: the rows may differ in the width under
+    #    test and in what was measured, nothing else.
+    off_axis = sorted(
+        key
+        for key in set(arms[680]) | set(arms[1024])
+        if key not in DUAL_STREAM_PROBE_REQUIREMENTS
+        and key not in PROBE_MEASURED_KEYS
+        and key not in PROBE_SHARED_KEYS
+        and key != "swiglu_hidden_dim"
+        and arms[680].get(key) != arms[1024].get(key)
+    )
+    if off_axis:
+        return unauditable(
+            f"the two probe rows differ off-axis in {off_axis}, so any headroom "
+            "gap is not attributable to width alone"
+        )
+
+    # 4. The wider arm is larger by construction; a probe that says otherwise
+    #    measured something other than these two arms.
+    params = {width: arms[width].get("total_parameters") for width in WIDTHS}
+    if not all(isinstance(value, int) and value > 0 for value in params.values()):
+        return unauditable(f"the probe does not record total_parameters ({params})")
+    if params[1024] <= params[680]:
+        return unauditable(
+            f"width 1024 reports {params[1024]:,} parameters, not more than 680's "
+            f"{params[680]:,}; the wider arm is larger by construction"
+        )
+
+    # Only now is the measurement itself read.
     headroom = {
         width: 1.0 - (arms[width]["peak_reserved_mib"] / arms[width]["device_total_mib"])
         for width in WIDTHS
@@ -484,8 +660,9 @@ def evaluate_memory(path: Path | None) -> dict[str, Any]:
         ),
         measured={str(width): headroom[width] for width in WIDTHS},
         threshold=MIN_MEMORY_HEADROOM,
-        source=str(path),
-        source_sha256=file_sha256(path),
+        total_parameters={str(width): params[width] for width in WIDTHS},
+        device_total_mib=arms[680]["device_total_mib"],
+        **source,
     )
 
 
@@ -498,7 +675,7 @@ def evaluate_step_time(path: Path | None) -> dict[str, Any]:
         return _criterion(
             2, statement, VERDICT_NOT_AUDITABLE,
             reason="no pipeline preflight artifact to read median step times from",
-            source=str(path) if path is not None else None,
+            source=portable_path(path),
         )
 
     payload = load(path)
@@ -508,7 +685,7 @@ def evaluate_step_time(path: Path | None) -> dict[str, Any]:
         return _criterion(
             2, statement, VERDICT_NOT_AUDITABLE,
             reason=f"the preflight has no arm for width(s) {missing}",
-            source=str(path),
+            source=portable_path(path),
             source_sha256=file_sha256(path),
         )
 
@@ -523,7 +700,7 @@ def evaluate_step_time(path: Path | None) -> dict[str, Any]:
         measured=slowdown,
         threshold=MAX_SLOWDOWN,
         median_step_seconds={"680": narrow, "1024": wide},
-        source=str(path),
+        source=portable_path(path),
         source_sha256=file_sha256(path),
     )
 
@@ -758,6 +935,9 @@ def compare(
         "criteria_audited": len(criteria) - len(unauditable),
         "criteria_not_auditable": unauditable,
         "paired_seeds": list(SEEDS),
+        # `paired_rows` refuses unequal masks, so reaching here means it held.
+        # Recorded so the next reader does not have to re-derive it.
+        "paired_masks_verified": True,
         "per_seed": rows,
         "means": {
             "hcdr3_token_acc_680": _mean([r["hcdr3_token_acc_680"] for r in rows]),
@@ -818,7 +998,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                                      "(criterion 1). Default: "
                                      "outputs/j11-dual-stream-memory.json")
     compare_parser.add_argument("--output-json", type=Path,
-                                default=PROJECT_ROOT / "outputs/j11-comparison.json")
+                                default=PROJECT_ROOT / "specs/evidence/j11-comparison.json")
     return parser
 
 
