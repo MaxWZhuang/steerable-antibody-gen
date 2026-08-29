@@ -59,6 +59,19 @@ from smallAntibodyGen.tokenizer import AminoAcidTokenizer  # noqa: E402
 # The stage-3/stage-4 architecture as checked in. Kept here as an explicit
 # literal rather than parsed from a YAML so the probe measures ONE known shape
 # and a config edit cannot silently change what a recorded number refers to.
+#: The architecture the v5 chain actually runs. This must track
+#: `configs/pretrain_oas_small.yaml` and its three successors: a probe of a
+#: different block prices a different model, and a budget derived from it is
+#: wrong in a way no one can see from the output.
+#:
+#: Until 2026-08-29 this carried only `norm_first`, i.e. the LEGACY block, while
+#: the promoted chain runs RoPE + pre-RMSNorm + SwiGLU at 680 with no biases.
+#: Any memory figure measured before that date describes the legacy model
+#: regardless of what shape it was taken at -- which is why probe rows now RECORD
+#: their block instead of leaving a reader to assume it.
+#:
+#: Agreement with the chain configs is pinned by
+#: `src/smallAntibodyGen/tests/test_v5_chain_block.py`.
 BASE_ARCHITECTURE: dict[str, Any] = {
     "d_model": 256,
     "n_heads": 8,
@@ -66,7 +79,20 @@ BASE_ARCHITECTURE: dict[str, Any] = {
     "d_ff": 1024,
     "dropout": 0.1,
     "norm_first": True,
+    "position_encoding": "rope",
+    "norm_type": "rmsnorm",
+    "ffn_type": "swiglu",
+    "attention_bias": False,
+    "ffn_bias": False,
+    "swiglu_hidden_dim": 680,
 }
+
+#: The block fields every probe row carries, so a probe file states which model
+#: it measured rather than relying on the reader to remember.
+BLOCK_DESCRIPTOR_KEYS = (
+    "position_encoding", "norm_type", "norm_first", "ffn_type",
+    "attention_bias", "ffn_bias", "swiglu_hidden_dim",
+)
 
 BYTES_PER_MIB = 1024 * 1024
 
@@ -149,6 +175,10 @@ def probe_once(
         "use_amp": use_amp,
         "antigen_encoder_type": antigen_encoder_type,
         "model_kind": model_kind,
+        # WHICH model, not just what shape. A row without these is ambiguous
+        # forever: the same 288/1024 batch-16 numbers describe the legacy block
+        # and the promoted one, and nothing in the file says which was measured.
+        **{key: BASE_ARCHITECTURE[key] for key in BLOCK_DESCRIPTOR_KEYS},
     }
 
     if device.type == "cuda":
