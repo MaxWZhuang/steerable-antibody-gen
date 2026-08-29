@@ -302,6 +302,14 @@ but both would have mattered had the quality result been close.
   Producing that probe at the canonical shape is what makes criterion 1 auditable; the
   comparator rejects a probe taken at any other shape rather than accepting a flattering
   one, because on this box the absence of an OOM is not evidence a config fits.
+
+  **Corroborated 2026-08-29, without closing the criterion.** A probe of the promoted block
+  at 288/1024 batch 16 AMP-on now measures **2380.0 MiB reserved of 4095.7 → 41.9% headroom**
+  for width 680 (`specs/evidence/v5-dual-stream-memory.json`), against the 41.6% §5.1 quoted.
+  So the protocol's figure was accurate; it was simply never retained. Criterion 1 stays
+  `not_auditable` for the J11 record regardless: the comparator needs BOTH arms, and the
+  1024 arm's dual-stream memory was never measured with descriptors either. The same probe
+  confirms §5.1's other claim — batch 32 reserves 4446 MiB and spills.
 - **Criterion 7.** `UPDATE_COUNTER["amp_skips"]` (`scripts/mlm_train.py`) is counted
   in-process and never written to `metrics.jsonl`, the checkpoint payload, or any retained
   log. The NaN half of the criterion **is** checkable and passes: every retained metric in

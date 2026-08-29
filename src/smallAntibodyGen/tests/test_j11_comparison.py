@@ -199,7 +199,7 @@ def memory_probe(tmp_path: Path):
             row = {
                 # descriptors: what model, at what shape, in what numeric regime
                 "swiglu_hidden_dim": width,
-                "model_kind": "antibody_antigen",
+                "model_kind": "dual",
                 "ffn_type": "swiglu",
                 "norm_type": "rmsnorm",
                 "position_encoding": "rope",
@@ -211,8 +211,8 @@ def memory_probe(tmp_path: Path):
                 "device_total_mib": 4095.7,
                 "peak_reserved_mib": reserved,
                 "peak_allocated_mib": reserved - 290.0,
-                "total_parameters": params,
-                "fits_without_driver_spill": True,
+                "parameters": params,
+                "fits_in_device_memory": True,
             }
             row.update(overrides.get(width, {}))
             rows.append(row)
@@ -943,7 +943,7 @@ def test_a_probe_whose_wider_arm_is_not_larger_is_not_accepted(
     otherwise measured something other than the two arms.
     """
     make_results(tmp_path, _sweep(0.015), amp_skips=_clean_skips())
-    path = memory_probe(overrides={1024: {"total_parameters": 9_120_000}})
+    path = memory_probe(overrides={1024: {"parameters": 9_120_000}})
     report = runner.compare(tmp_path, preflight(), path)
 
     criterion = _criteria(report)[1]
@@ -960,7 +960,7 @@ def test_a_probe_reporting_driver_spill_fails_rather_than_downgrades(
     exactly the failure criterion 1 exists to catch.
     """
     make_results(tmp_path, _sweep(0.015), amp_skips=_clean_skips())
-    path = memory_probe(overrides={1024: {"fits_without_driver_spill": False}})
+    path = memory_probe(overrides={1024: {"fits_in_device_memory": False}})
     report = runner.compare(tmp_path, preflight(), path)
 
     criterion = _criteria(report)[1]

@@ -126,3 +126,52 @@ def test_the_v5_generation_is_self_consistent(project_root: Path, name):
     parent = cfg.get("init_checkpoint")
     if parent is not None:
         assert "_v5/" in parent, f"{name} warm-starts outside the v5 generation: {parent}"
+
+
+def test_the_memory_probe_prices_the_block_the_chain_runs(project_root: Path):
+    """
+    One definition, two call sites. `gpu_memory_probe.py` hardcodes the
+    architecture it builds, so a chain that moves without it produces budgets
+    for a model nobody trains -- and nothing in the probe's output would say so.
+
+    This is not hypothetical: until 2026-08-29 `BASE_ARCHITECTURE` carried only
+    `norm_first`, i.e. the LEGACY block, which is why the memory figures quoted
+    in the J11 protocol could not be attributed to the arms under test.
+    """
+    import importlib.util
+    import sys
+
+    script = project_root.parents[1] / "scripts" / "gpu_memory_probe.py"
+    spec = importlib.util.spec_from_file_location("gpu_memory_probe", script)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    chain = _config(project_root, CHAIN[0])
+    for field, expected in PROMOTED_BLOCK.items():
+        assert module.BASE_ARCHITECTURE[field] == expected, (
+            f"gpu_memory_probe BASE_ARCHITECTURE.{field}="
+            f"{module.BASE_ARCHITECTURE[field]!r}, chain has {expected!r}"
+        )
+        assert chain[field] == expected
+    for field in ("d_model", "n_heads", "n_layers", "d_ff", "dropout"):
+        assert module.BASE_ARCHITECTURE[field] == chain[field], field
+
+
+def test_probe_rows_record_which_block_they_measured(project_root: Path):
+    """
+    A row without block descriptors is ambiguous forever: the same
+    288/1024 batch-16 numbers describe the legacy model and the promoted one.
+    The J11 comparator refuses such a row rather than assuming.
+    """
+    import importlib.util
+    import sys
+
+    script = project_root.parents[1] / "scripts" / "gpu_memory_probe.py"
+    spec = importlib.util.spec_from_file_location("gpu_memory_probe_desc", script)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    for field in ("position_encoding", "norm_type", "ffn_type", "swiglu_hidden_dim"):
+        assert field in module.BLOCK_DESCRIPTOR_KEYS

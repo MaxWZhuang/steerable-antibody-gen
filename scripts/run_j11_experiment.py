@@ -71,7 +71,10 @@ DUAL_STREAM_SHAPE = {"max_length": 288, "antigen_max_length": 1024, "batch_size"
 #: without AMP each measures a different thing and would answer criterion 1 with
 #: a number that does not describe the arms under test.
 DUAL_STREAM_PROBE_MODEL = {
-    "model_kind": "antibody_antigen",
+    # `dual` is `gpu_memory_probe.py`'s own vocabulary (--model-kind dual), not a
+    # name invented here. One vocabulary, owned by the writer: a reader that
+    # renames its inputs is a reader nobody can produce a valid file for.
+    "model_kind": "dual",
     "ffn_type": "swiglu",
     "norm_type": "rmsnorm",
     "position_encoding": "rope",
@@ -83,8 +86,8 @@ DUAL_STREAM_PROBE_REQUIREMENTS = {**DUAL_STREAM_SHAPE, **DUAL_STREAM_PROBE_MODEL
 #: Anything else differing means the probe moved a second axis (Rule 3, applied
 #: to the measurement rather than to the training run).
 PROBE_MEASURED_KEYS = frozenset({
-    "peak_reserved_mib", "peak_allocated_mib", "total_parameters",
-    "fits_without_driver_spill", "loss_finite", "seed",
+    "peak_reserved_mib", "peak_allocated_mib", "parameters",
+    "fits_in_device_memory", "loss_finite", "ok", "warning", "seed",
 })
 #: A shared fact about the card, not a per-arm result: headroom is a fraction of
 #: a specific device, so two rows measured against different totals are not one
@@ -635,9 +638,9 @@ def evaluate_memory(path: Path | None) -> dict[str, Any]:
 
     # 4. The wider arm is larger by construction; a probe that says otherwise
     #    measured something other than these two arms.
-    params = {width: arms[width].get("total_parameters") for width in WIDTHS}
+    params = {width: arms[width].get("parameters") for width in WIDTHS}
     if not all(isinstance(value, int) and value > 0 for value in params.values()):
-        return unauditable(f"the probe does not record total_parameters ({params})")
+        return unauditable(f"the probe does not record parameters ({params})")
     if params[1024] <= params[680]:
         return unauditable(
             f"width 1024 reports {params[1024]:,} parameters, not more than 680's "
@@ -649,7 +652,7 @@ def evaluate_memory(path: Path | None) -> dict[str, Any]:
         width: 1.0 - (arms[width]["peak_reserved_mib"] / arms[width]["device_total_mib"])
         for width in WIDTHS
     }
-    spilled = [w for w in WIDTHS if not arms[w].get("fits_without_driver_spill", False)]
+    spilled = [w for w in WIDTHS if not arms[w].get("fits_in_device_memory", False)]
     passed = not spilled and all(value >= MIN_MEMORY_HEADROOM for value in headroom.values())
     return _criterion(
         1, statement, VERDICT_PASS if passed else VERDICT_FAIL,
@@ -660,7 +663,7 @@ def evaluate_memory(path: Path | None) -> dict[str, Any]:
         ),
         measured={str(width): headroom[width] for width in WIDTHS},
         threshold=MIN_MEMORY_HEADROOM,
-        total_parameters={str(width): params[width] for width in WIDTHS},
+        parameters={str(width): params[width] for width in WIDTHS},
         device_total_mib=arms[680]["device_total_mib"],
         **source,
     )
