@@ -3,6 +3,14 @@
 # This is BY FAR the largest compute item in the chain (45 epochs over ~1.8M paired rows);
 # best.pt is checkpointed on val loss, but all 45 epochs run (no early stopping).
 #
+# v4 -> v5: TWO architecture changes, and both invalidate every earlier checkpoint.
+#   (a) max_length 192 -> 288 (Open Decision 1; see the note at max_length below).
+#   (b) the modern block -- RoPE, pre-RMSNorm, SwiGLU at 680, no attention/FFN biases --
+#       adopted 2026-08-29. The recipe is an owner decision; the WIDTH is J11's measured
+#       result (specs/experiments/j11_swiglu_width.md section 8).
+# NO v5 artifact has ever been trained -- `ls checkpoints/` has no *_v5 directory -- so this
+# edit mixes nothing. The v5 generation is DEFINED by these configs, not migrated into them.
+# The moment a v5 checkpoint exists, any further architecture change costs a v6.
 # v3 -> v4: norm_first: true (pre-LN), matching stage 1. Never warm-start this from a v3
 # checkpoint — see the generation note in configs/pretrain_oas_small.yaml.
 training_stage: paired_refine
@@ -45,6 +53,31 @@ n_layers: 6
 d_ff: 1024                # FIX: old example said 512, which fails the init-compat check against the 1024 base.
 dropout: 0.1
 norm_first: true          # v4: pre-LN. Must match stage 1 exactly or init-compat rejects the warm start.
+# ---- canonical modern block (v5) -------------------------------------------
+# Adopted 2026-08-29. The block recipe (RoPE, pre-RMSNorm, SwiGLU, no biases) is
+# an owner decision; the WIDTH is J11's measured result -- see
+# specs/experiments/j11_swiglu_width.md section 8 and the machine report
+# specs/evidence/j11-comparison.json (selected_width: 680).
+#
+# 1024 lost: +0.306 pp mean HCDR3 token recovery across 3/3 paired seeds against
+# a +1.0 pp bar, for 18.7% more step time and 33.6% more parameters. That is a
+# practical negative at this budget, NOT a demonstration that capacity cannot
+# help after full training.
+#
+# These seven values MUST be identical across stages 1-4 and the stage-4 ESM
+# ablation. Each stage warm-starts from the previous best.pt, so a difference is
+# a warm start across an architecture boundary -- caught by strict=True and the
+# fingerprint check, but only after the previous stage has finished training.
+# Pinned by src/smallAntibodyGen/tests/test_v5_chain_block.py.
+position_encoding: rope    # no learned position table at all
+norm_type: rmsnorm         # placement (norm_first) and operator are INDEPENDENT knobs
+ffn_type: swiglu
+attention_bias: false
+ffn_bias: false
+# Explicit, never inferred from d_ff: accidental capacity is precisely what J11
+# measured the cost of.
+swiglu_hidden_dim: 680
+# ----------------------------------------------------------------------------
 
 # Deliberately NOT changed to the batch-16 + AMP envelope of Open Decision 1. That envelope
 # was chosen for the ANTIGEN stages, where the second encoder dominates memory; this stage has
