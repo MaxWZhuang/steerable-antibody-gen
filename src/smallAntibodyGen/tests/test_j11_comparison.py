@@ -117,7 +117,20 @@ def make_results():
                     encoding="utf-8",
                 )
                 (run / "run_fingerprint.json").write_text(
-                    json.dumps({"components": {"source": f"src-{width}-{seed}"}}),
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "run_hash": f"run-{width}-{seed}",
+                            "worktree_dirty": False,
+                            "manifests": {
+                                "source": {
+                                    "commit": commit,
+                                    "dirty": False,
+                                    "content_hash": f"src-{width}-{seed}",
+                                }
+                            },
+                        }
+                    ),
                     encoding="utf-8",
                 )
                 (run / "j11_provenance.json").write_text(
@@ -171,20 +184,38 @@ def memory_probe(tmp_path: Path):
     absence of an OOM is not evidence a config fits (driver spill to system RAM).
     """
 
-    def _write(reserved_680: float = 2392.0, reserved_1024: float = 2808.0) -> Path:
+    def _write(
+        reserved_680: float = 2392.0,
+        reserved_1024: float = 2808.0,
+        overrides: dict | None = None,
+    ) -> Path:
+        overrides = overrides or {}
         path = tmp_path / "memory.json"
-        rows = [
-            {
+        rows = []
+        for width, reserved, params in (
+            (680, reserved_680, 9_120_000),
+            (1024, reserved_1024, 12_290_000),
+        ):
+            row = {
+                # descriptors: what model, at what shape, in what numeric regime
                 "swiglu_hidden_dim": width,
+                "model_kind": "antibody_antigen",
+                "ffn_type": "swiglu",
+                "norm_type": "rmsnorm",
+                "position_encoding": "rope",
+                "use_amp": True,
                 "max_length": 288,
                 "antigen_max_length": 1024,
                 "batch_size": 16,
+                # measurements
                 "device_total_mib": 4095.7,
                 "peak_reserved_mib": reserved,
+                "peak_allocated_mib": reserved - 290.0,
+                "total_parameters": params,
                 "fits_without_driver_spill": True,
             }
-            for width, reserved in ((680, reserved_680), (1024, reserved_1024))
-        ]
+            row.update(overrides.get(width, {}))
+            rows.append(row)
         path.write_text(
             json.dumps({"schema_version": "j11-memory-probe/1", "results": rows}),
             encoding="utf-8",
@@ -591,3 +622,347 @@ def test_compare_still_refuses_an_incomplete_evidence_set(
 
     with pytest.raises(runner.LaunchRefused, match="incomplete evidence set"):
         runner.compare(tmp_path, preflight(), memory_probe())
+
+
+# --------------------------------------------------------------------------- #
+# Provenance validation must fail CLOSED
+#
+# The first version of this comparator accepted a missing fingerprint as null,
+# six empty commit strings as "one shared commit", and never checked the
+# provenance's width/seed/schedule against the run it sat next to. Every one of
+# those is a way for unattributable or mislabelled evidence to reach a verdict
+# while the report still looks fully bound.
+# --------------------------------------------------------------------------- #
+def test_a_missing_run_fingerprint_is_refused(
+    runner, tmp_path: Path, make_results, preflight, memory_probe
+):
+    """A null hash in the report is not a binding; it is a hole shaped like one."""
+    make_results(tmp_path, _sweep(0.00306), amp_skips=_clean_skips())
+    (tmp_path / "j11_w680_s42" / "run_fingerprint.json").unlink()
+
+    with pytest.raises(runner.LaunchRefused, match="run_fingerprint"):
+        runner.compare(tmp_path, preflight(), memory_probe())
+
+
+def test_an_empty_commit_is_refused(
+    runner, tmp_path: Path, make_results, preflight, memory_probe
+):
+    """
+    Six empty strings are all equal, so an equality check alone reads them as
+    one shared commit. Unattributable evidence must stop the comparison.
+    """
+    make_results(tmp_path, _sweep(0.00306), amp_skips=_clean_skips(), commit="")
+
+    with pytest.raises(runner.LaunchRefused, match="commit"):
+        runner.compare(tmp_path, preflight(), memory_probe())
+
+
+def test_a_malformed_commit_is_refused(
+    runner, tmp_path: Path, make_results, preflight, memory_probe
+):
+    """Not a 40-character hex SHA is not a commit."""
+    make_results(tmp_path, _sweep(0.00306), amp_skips=_clean_skips(), commit="HEAD")
+
+    with pytest.raises(runner.LaunchRefused, match="commit"):
+        runner.compare(tmp_path, preflight(), memory_probe())
+
+
+def test_provenance_width_must_match_its_run_directory(
+    runner, tmp_path: Path, make_results, preflight, memory_probe
+):
+    """
+    The directory name says which arm this is; so does the provenance. If they
+    disagree, one of them is wrong and the comparator cannot know which -- so
+    the 680 column may be reading a 1024 run.
+    """
+    make_results(tmp_path, _sweep(0.00306), amp_skips=_clean_skips())
+    path = tmp_path / "j11_w680_s42" / "j11_provenance.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["width"] = 1024
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(runner.LaunchRefused, match="width"):
+        runner.compare(tmp_path, preflight(), memory_probe())
+
+
+def test_provenance_seed_must_match_its_run_directory(
+    runner, tmp_path: Path, make_results, preflight, memory_probe
+):
+    """Same argument as width: a mislabelled seed breaks the pairing silently."""
+    make_results(tmp_path, _sweep(0.00306), amp_skips=_clean_skips())
+    path = tmp_path / "j11_w1024_s31415" / "j11_provenance.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["seed"] = 42
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(runner.LaunchRefused, match="seed"):
+        runner.compare(tmp_path, preflight(), memory_probe())
+
+
+def test_provenance_schedule_must_match_the_frozen_design(
+    runner, tmp_path: Path, make_results, preflight, memory_probe
+):
+    """
+    A run that stopped at a different step is not part of this experiment. The
+    launcher records the schedule beside the weights precisely so a shortened
+    arm cannot be compared as if it were the frozen one.
+    """
+    make_results(tmp_path, _sweep(0.00306), amp_skips=_clean_skips())
+    path = tmp_path / "j11_w1024_s42" / "j11_provenance.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["total_updates"] = 40_000
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(runner.LaunchRefused, match="51,000|total_updates"):
+        runner.compare(tmp_path, preflight(), memory_probe())
+
+
+def test_the_fingerprint_commit_must_match_the_provenance_commit(
+    runner, tmp_path: Path, make_results, preflight, memory_probe
+):
+    """
+    Two independent records of the same fact. The launcher writes
+    j11_provenance.json; the trainer writes the fingerprint from its own git
+    read. Agreement is cheap to check and is the only thing that catches a
+    provenance file copied from another run.
+    """
+    make_results(tmp_path, _sweep(0.00306), amp_skips=_clean_skips())
+    path = tmp_path / "j11_w680_s31415" / "run_fingerprint.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["manifests"]["source"]["commit"] = "1" * 40
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(runner.LaunchRefused, match="disagree|fingerprint"):
+        runner.compare(tmp_path, preflight(), memory_probe())
+
+
+def test_a_run_from_a_dirty_worktree_is_refused(
+    runner, tmp_path: Path, make_results, preflight, memory_probe
+):
+    """
+    The launcher refuses to START from a dirty tree. A fingerprint that records
+    it ran dirty anyway means the recorded commit does not describe the code
+    that produced the weights.
+    """
+    make_results(tmp_path, _sweep(0.00306), amp_skips=_clean_skips())
+    path = tmp_path / "j11_w1024_s271828" / "run_fingerprint.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["worktree_dirty"] = True
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(runner.LaunchRefused, match="dirty"):
+        runner.compare(tmp_path, preflight(), memory_probe())
+
+
+# --------------------------------------------------------------------------- #
+# Paired masks are ENFORCED, not just reported
+# --------------------------------------------------------------------------- #
+def test_unequal_validation_masks_are_refused(
+    runner, tmp_path: Path, make_results, preflight, memory_probe
+):
+    """
+    The whole pairing argument is that both widths saw the SAME validation mask
+    at a seed. The report quoted the 680 arm's counts without ever comparing
+    them to 1024, so an unpaired comparison would have produced a confident
+    verdict with a paired-looking table.
+    """
+    make_results(tmp_path, _sweep(0.00306), amp_skips=_clean_skips())
+    path = tmp_path / "j11_w1024_s42" / "metrics.jsonl"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            '"hcdr3_target_tokens": 772352.0', '"hcdr3_target_tokens": 700000.0'
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(runner.LaunchRefused, match="hcdr3_target_tokens"):
+        runner.compare(tmp_path, preflight(), memory_probe())
+
+
+def test_unequal_valid_span_counts_are_refused(
+    runner, tmp_path: Path, make_results, preflight, memory_probe
+):
+    """Same argument for the span denominator criterion 6 divides by."""
+    make_results(tmp_path, _sweep(0.00306), amp_skips=_clean_skips())
+    path = tmp_path / "j11_w680_s271828" / "metrics.jsonl"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            '"hcdr3_valid_spans": 496.0', '"hcdr3_valid_spans": 512.0'
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(runner.LaunchRefused, match="hcdr3_valid_spans"):
+        runner.compare(tmp_path, preflight(), memory_probe())
+
+
+def test_the_report_records_the_paired_mask_it_verified(
+    runner, tmp_path: Path, make_results, preflight, memory_probe
+):
+    """Having checked it, say so -- otherwise the next reader re-derives it."""
+    make_results(tmp_path, _sweep(0.00306), amp_skips=_clean_skips())
+    report = runner.compare(tmp_path, preflight(), memory_probe())
+
+    assert report["paired_masks_verified"] is True
+
+
+# --------------------------------------------------------------------------- #
+# Cross-machine determinism
+# --------------------------------------------------------------------------- #
+def test_evidence_paths_are_repo_relative_and_carry_no_username(
+    runner, tmp_path: Path, make_results, preflight, memory_probe
+):
+    """
+    An absolute path embeds the local username and the checkout location, so two
+    machines comparing the same evidence produce different reports and a
+    committed artifact leaks a home directory.
+    """
+    make_results(tmp_path, _sweep(0.00306), amp_skips=_clean_skips())
+    report = runner.compare(tmp_path, preflight(), memory_probe())
+
+    blob = json.dumps(report)
+    assert "\\\\" not in blob, "no Windows path separators anywhere in the report"
+    for criterion in report["criteria"]:
+        source = criterion.get("source")
+        if source is None:
+            continue
+        assert not Path(source).is_absolute()
+        assert ":" not in source, f"drive letter leaked into {source!r}"
+
+
+def test_repo_paths_are_serialized_relative_to_the_repository_root(runner):
+    """An artifact inside the repo is named by its repo-relative POSIX path."""
+    inside = runner.PROJECT_ROOT / "outputs" / "j11-pipeline-preflight.json"
+    assert runner.portable_path(inside) == "outputs/j11-pipeline-preflight.json"
+
+
+def test_paths_outside_the_repository_keep_only_their_name(runner, tmp_path: Path):
+    """Nothing outside the checkout can be named without leaking where it lives."""
+    outside = tmp_path / "somewhere" / "probe.json"
+    assert runner.portable_path(outside) == "probe.json"
+
+
+def test_the_default_report_path_is_tracked_not_ignored(runner):
+    """
+    `outputs/` is git-ignored (.gitignore), so a report written there vanishes in
+    a fresh clone -- taking the six fingerprint and metrics hashes with it, which
+    is the entire point of emitting them. The default must land somewhere the
+    repository keeps.
+    """
+    parser = runner.build_arg_parser()
+    default = parser.parse_args(["compare"]).output_json
+    relative = default.resolve().relative_to(runner.PROJECT_ROOT).as_posix()
+
+    ignored = (runner.PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8").split()
+    assert not relative.startswith("outputs/")
+    assert relative.split("/")[0] + "/" not in ignored
+
+
+# --------------------------------------------------------------------------- #
+# Criterion 1's probe must prove WHAT it measured, not just the shape
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    "field, wrong",
+    [
+        ("model_kind", "antibody"),      # single-stream: no antigen tower at all
+        ("ffn_type", "mlp"),             # legacy block, not the promoted one
+        ("norm_type", "layernorm"),
+        ("position_encoding", "learned"),
+        ("use_amp", False),              # fp32 activations are a different memory regime
+    ],
+)
+def test_a_probe_of_the_wrong_model_is_not_accepted(
+    runner, tmp_path: Path, make_results, preflight, memory_probe, field, wrong
+):
+    """
+    Shape alone is insufficient. A 288/1024 batch-16 probe of the single-stream
+    model, or of the legacy block, or without AMP, measures a different thing and
+    would answer criterion 1 with a number that does not describe the arms.
+    """
+    make_results(tmp_path, _sweep(0.015), amp_skips=_clean_skips())
+    path = memory_probe(overrides={680: {field: wrong}, 1024: {field: wrong}})
+    report = runner.compare(tmp_path, preflight(), path)
+
+    criterion = _criteria(report)[1]
+    assert criterion["verdict"] == "not_auditable"
+    assert field in criterion["reason"]
+
+
+def test_a_probe_missing_a_required_descriptor_is_not_accepted(
+    runner, tmp_path: Path, make_results, preflight, memory_probe
+):
+    """An absent descriptor is not an implicit match."""
+    make_results(tmp_path, _sweep(0.015), amp_skips=_clean_skips())
+    path = memory_probe()
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    for row in payload["results"]:
+        del row["model_kind"]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    report = runner.compare(tmp_path, preflight(), path)
+    assert _criteria(report)[1]["verdict"] == "not_auditable"
+
+
+def test_a_probe_whose_arms_differ_off_axis_is_not_accepted(
+    runner, tmp_path: Path, make_results, preflight, memory_probe
+):
+    """
+    Rule 3 applied to the probe itself: the two rows may differ in the width
+    under test and in what was measured, nothing else. Otherwise the headroom
+    gap is attributable to whatever else moved.
+    """
+    make_results(tmp_path, _sweep(0.015), amp_skips=_clean_skips())
+    path = memory_probe(overrides={1024: {"batch_size": 8}})
+    report = runner.compare(tmp_path, preflight(), path)
+
+    criterion = _criteria(report)[1]
+    assert criterion["verdict"] == "not_auditable"
+
+
+def test_a_probe_from_a_different_device_is_not_accepted(
+    runner, tmp_path: Path, make_results, preflight, memory_probe
+):
+    """
+    Headroom is a fraction of a specific card. Two rows measured against
+    different device totals are not one comparison.
+    """
+    make_results(tmp_path, _sweep(0.015), amp_skips=_clean_skips())
+    path = memory_probe(overrides={1024: {"device_total_mib": 8192.0}})
+    report = runner.compare(tmp_path, preflight(), path)
+
+    criterion = _criteria(report)[1]
+    assert criterion["verdict"] == "not_auditable"
+    assert "device" in criterion["reason"].lower()
+
+
+def test_a_probe_whose_wider_arm_is_not_larger_is_not_accepted(
+    runner, tmp_path: Path, make_results, preflight, memory_probe
+):
+    """
+    The 1024 arm has strictly more parameters by construction. A probe that says
+    otherwise measured something other than the two arms.
+    """
+    make_results(tmp_path, _sweep(0.015), amp_skips=_clean_skips())
+    path = memory_probe(overrides={1024: {"total_parameters": 9_120_000}})
+    report = runner.compare(tmp_path, preflight(), path)
+
+    criterion = _criteria(report)[1]
+    assert criterion["verdict"] == "not_auditable"
+    assert "parameter" in criterion["reason"].lower()
+
+
+def test_a_probe_reporting_driver_spill_fails_rather_than_downgrades(
+    runner, tmp_path: Path, make_results, preflight, memory_probe
+):
+    """
+    Spill is a measurement, not a missing one: on this box CUDA falls back to
+    system RAM instead of raising, so a spilling config that "ran fine" is
+    exactly the failure criterion 1 exists to catch.
+    """
+    make_results(tmp_path, _sweep(0.015), amp_skips=_clean_skips())
+    path = memory_probe(overrides={1024: {"fits_without_driver_spill": False}})
+    report = runner.compare(tmp_path, preflight(), path)
+
+    criterion = _criteria(report)[1]
+    assert criterion["verdict"] == "fail"
+    assert report["selected_width"] == 680
