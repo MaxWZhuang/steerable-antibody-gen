@@ -92,6 +92,23 @@ ffn_bias: false
 swiglu_hidden_dim: 680
 # ----------------------------------------------------------------------------
 
-use_amp: true
+# MEASURED 2026-08-29, one axis, this config, modern block, batch 16:
+#   use_amp: false    54.8 ms/step   360 MiB   (val 38.4 ms/batch)
+#   use_amp: true    149.5 ms/step   282 MiB   (val 75.6 ms/batch)
+# AMP is 2.73x SLOWER here, so this stage costs ~8.2 h instead of ~22.2 h. The
+# GTX 1650 SUPER is Turing TU116: compute capability 7.5 but NO Tensor Cores, so
+# fp16 autocast pays cast overhead and buys no matmul speedup. Replicated at
+# stage 2 (2.86x, batch 32), so it is the hardware, not this config.
+#
+# fp32 is also the more accurate regime: no GradScaler, so no skipped optimizer
+# steps -- the very thing that made J11's criterion 7 unauditable.
+#
+# AMP is a MEMORY tool on this card, not a speed one. It stays ON for stages 3-4,
+# where it is REQUIRED: dual-stream 288/1024 batch 16 measures 2390 MiB reserved
+# with AMP and 3316 MiB without, i.e. 41.6% vs 19.0% headroom against the 25%
+# floor. Do not propagate this flip to those stages -- see their own use_amp notes.
+#
+# On a Tensor Core card the speed trade reverses. Re-measure; do not assume.
+use_amp: false
 show_progress: true
 device: cuda

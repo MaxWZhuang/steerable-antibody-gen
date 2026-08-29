@@ -1,0 +1,56 @@
+{
+  "arms": [
+    {
+      "batch_size": 32,
+      "checkpoint_mib": 54.1,
+      "checkpoint_save_seconds": 0.102,
+      "config": "refine_oas_paired.yaml",
+      "dataset_build_seconds": 101.25,
+      "device_total_mib": 4095.7,
+      "fits_without_driver_spill": true,
+      "loss_finite": true,
+      "mean_step_seconds": 0.23780931750043238,
+      "median_step_seconds": 0.23594649999722606,
+      "p90_step_seconds": 0.24673780000011902,
+      "peak_allocated_mib": 1130.0,
+      "peak_reserved_mib": 1850.0,
+      "reserved_headroom_fraction": 0.5483,
+      "seed": 42,
+      "swiglu_hidden_dim": 680,
+      "timed_steps": 40,
+      "total_parameters": 4719106,
+      "train_rows": 2261064,
+      "val_batches_timed": 20,
+      "val_rows": 252562,
+      "val_seconds_per_batch": 0.11599139000027207
+    }
+  ],
+  "note": "Pipeline-inclusive timing. Validation batches were traversed and their per-batch counts computed then discarded without aggregation; no numerical metric was retained, so J11 remains blind.",
+  "projection": {
+    "budget_gpu_hours": 50.0,
+    "fits_budget": true,
+    "headroom_hours": 39.87,
+    "meets_evidence_floor": true,
+    "per_run": [
+      {
+        "checkpoint_hours": 0.00022666666666666666,
+        "dataset_build_hours": 0.028125,
+        "swiglu_hidden_dim": 680,
+        "total_hours_per_run": 3.376082256182937,
+        "train_hours": 3.342575416627369,
+        "validation_hours": 0.005155172888900981
+      }
+    ],
+    "post_warmup_updates": 50000,
+    "projected_total_gpu_hours": 10.13,
+    "seeds": [
+      42,
+      31415,
+      271828
+    ],
+    "total_updates_per_run": 51000,
+    "validations_per_run": 8,
+    "warmup_updates": 1000
+  },
+  "schema_version": "j11-pipeline-preflight/1"
+}
