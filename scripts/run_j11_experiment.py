@@ -27,7 +27,9 @@ Non-negotiables enforced here:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 import subprocess
 import sys
 from pathlib import Path
@@ -57,6 +59,38 @@ MIN_HCDR3_TOKEN_GAIN_PP = 1.0
 MAX_MLM_LOSS_REGRESSION_NATS = 0.01
 MAX_SPAN_EXACT_REGRESSION_PP = 0.25
 MIN_MEMORY_HEADROOM = 0.25
+
+#: The shape criterion 1 governs. A stage-1 probe shows headroom the dual-stream
+#: shape does not have, and on this box the absence of an OOM is not evidence a
+#: config fits (the driver spills to system RAM instead of failing), so a probe
+#: is accepted only when it says it measured THIS shape without spilling.
+DUAL_STREAM_SHAPE = {"max_length": 288, "antigen_max_length": 1024, "batch_size": 16}
+
+#: Three verdicts, not two. `not_auditable` is the honest state of a criterion
+#: whose measurement was never retained; collapsing it into `pass` would let an
+#: unmeasured clause pay for a measured failure, and collapsing it into `fail`
+#: would report evidence of a problem where there is only absence of evidence.
+#: Promotion requires every criterion to `pass`, so it blocks promotion either
+#: way -- but the report has to say which of the two happened.
+VERDICT_PASS = "pass"
+VERDICT_FAIL = "fail"
+VERDICT_NOT_AUDITABLE = "not_auditable"
+
+#: What a J11 result does NOT license, carried in the report itself because a
+#: later reader meets the selected width without the context that produced it.
+CLAIM_LIMIT = (
+    "Measured at the frozen 51,000-update schedule, a fraction of one training "
+    "epoch over the stage-1 corpus. This does NOT establish asymptotic "
+    "equivalence after full training: it is a practical negative on paying for "
+    "extra width at this budget, not a scientific negative on capacity."
+)
+
+#: What the experiment chose, and what it did not ask.
+SCOPE = (
+    "Selects the canonical SwiGLU width for the v5 lineage. It does not measure "
+    "depth, d_model, the block recipe (adopted by owner decision), or any "
+    "antigen-conditioning behaviour."
+)
 
 
 class LaunchRefused(RuntimeError):
@@ -244,6 +278,509 @@ def collect(results_root: Path) -> dict[tuple[int, int], dict[str, Any]]:
     return runs
 
 
+# --------------------------------------------------------------------------- #
+# Evidence binding
+# --------------------------------------------------------------------------- #
+def canonical_sha256(payload: Any) -> str:
+    """
+    Hash a parsed JSON value by its canonical form.
+
+    Sorting keys and fixing separators means the hash tracks the CONTENT, not
+    the whitespace a writer happened to emit, so a report can be checked against
+    a re-serialized record.
+    """
+    text = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=True)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def file_sha256(path: Path) -> str:
+    """Hash a file's exact bytes."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def read_provenance(run_dir: Path) -> dict[str, Any]:
+    """
+    Read the SHA the launcher wrote next to the weights.
+
+    Raises:
+        LaunchRefused: the file is absent. Weights whose commit is unknown are
+            unattributable evidence -- the launcher writes this file beside the
+            checkpoints precisely so they cannot be separated.
+    """
+    path = run_dir / "j11_provenance.json"
+    if not path.exists():
+        raise LaunchRefused(
+            f"{run_dir.name}: no j11_provenance.json, so the commit that produced "
+            "these weights is unknown. A comparison of unattributable runs is not "
+            "the predeclared experiment."
+        )
+    return load(path)
+
+
+def bind_runs(results_root: Path, runs: dict[tuple[int, int], dict[str, Any]]) -> list[dict]:
+    """
+    Bind each run to its fingerprint, training commit, and final record.
+
+    Raises:
+        LaunchRefused: the six runs do not share one commit. Six runs from two
+            revisions are two experiments, and averaging across them hides which
+            code produced which number.
+    """
+    bound: list[dict[str, Any]] = []
+    commits: dict[str, list[str]] = {}
+    for width in WIDTHS:
+        for seed in SEEDS:
+            run_dir = results_root / f"j11_w{width}_s{seed}"
+            provenance = read_provenance(run_dir)
+            commit = str(provenance.get("commit", ""))
+            commits.setdefault(commit, []).append(run_dir.name)
+            fingerprint = run_dir / "run_fingerprint.json"
+            bound.append(
+                {
+                    "width": width,
+                    "seed": seed,
+                    "run": run_dir.name,
+                    "commit": commit,
+                    "branch": provenance.get("branch"),
+                    "run_fingerprint_sha256": (
+                        file_sha256(fingerprint) if fingerprint.exists() else None
+                    ),
+                    "final_metrics_sha256": canonical_sha256(runs[(width, seed)]),
+                }
+            )
+    if len(commits) > 1:
+        detail = "; ".join(
+            f"{commit or '<empty>'}: {', '.join(sorted(names))}"
+            for commit, names in sorted(commits.items())
+        )
+        raise LaunchRefused(
+            "the six runs do not share one commit, so they are not one "
+            f"experiment: {detail}"
+        )
+    return bound
+
+
+# --------------------------------------------------------------------------- #
+# The promotion rule, as arithmetic
+# --------------------------------------------------------------------------- #
+def _criterion(
+    number: int,
+    statement: str,
+    verdict: str,
+    *,
+    reason: str = "",
+    **fields: Any,
+) -> dict[str, Any]:
+    """One criterion's outcome, in the shape the report carries."""
+    return {
+        "number": number,
+        "statement": statement,
+        "verdict": verdict,
+        "reason": reason,
+        **fields,
+    }
+
+
+def paired_rows(runs: dict[tuple[int, int], dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    One row per seed, pairing the two widths.
+
+    The experimental unit is the paired seed, of which there are three -- not the
+    ~772,000 validation residues, which are correlated within antibodies, within
+    repeated biological families, and within a shared mask. Reporting all three
+    deltas keeps the spread visible instead of hiding it behind a mean.
+    """
+    rows = []
+    for seed in SEEDS:
+        narrow = runs[(680, seed)]["val"]
+        wide = runs[(1024, seed)]["val"]
+        rows.append(
+            {
+                "seed": seed,
+                "hcdr3_token_acc_680": narrow["hcdr3_token_acc"],
+                "hcdr3_token_acc_1024": wide["hcdr3_token_acc"],
+                "hcdr3_token_acc_delta_pp": (
+                    wide["hcdr3_token_acc"] - narrow["hcdr3_token_acc"]
+                ) * 100.0,
+                "mlm_loss_680": narrow["mlm_loss"],
+                "mlm_loss_1024": wide["mlm_loss"],
+                "mlm_loss_delta_nats": wide["mlm_loss"] - narrow["mlm_loss"],
+                "hcdr3_span_exact_680": narrow["hcdr3_span_exact_match"],
+                "hcdr3_span_exact_1024": wide["hcdr3_span_exact_match"],
+                "hcdr3_span_exact_delta_pp": (
+                    wide["hcdr3_span_exact_match"] - narrow["hcdr3_span_exact_match"]
+                ) * 100.0,
+                "hcdr3_target_tokens": narrow["hcdr3_target_tokens"],
+                "hcdr3_valid_spans": narrow["hcdr3_valid_spans"],
+                "favours_1024": wide["hcdr3_token_acc"] > narrow["hcdr3_token_acc"],
+            }
+        )
+    return rows
+
+
+def _mean(values: list[float]) -> float:
+    return sum(values) / len(values)
+
+
+def evaluate_memory(path: Path | None) -> dict[str, Any]:
+    """
+    Criterion 1: >=25% reserved headroom at the dual-stream shape, both arms.
+
+    The measurement quoted in the spec was never written to an artifact, so with
+    no probe file this is `not_auditable` rather than a pass on the prose. A
+    probe at the wrong shape is also `not_auditable`: reading a stage-1 probe as
+    if it answered this is how a memory claim silently becomes untrue.
+    """
+    statement = (
+        f"Full {DUAL_STREAM_SHAPE['max_length']}/"
+        f"{DUAL_STREAM_SHAPE['antigen_max_length']} dual-stream at batch "
+        f"{DUAL_STREAM_SHAPE['batch_size']} retains >="
+        f"{MIN_MEMORY_HEADROOM:.0%} reserved headroom with no driver spill"
+    )
+    if path is None or not path.exists():
+        return _criterion(
+            1, statement, VERDICT_NOT_AUDITABLE,
+            reason=(
+                "no dual-stream memory probe artifact; the figures in the "
+                "protocol were measured but never retained, so nothing binds "
+                "them to these runs"
+            ),
+            source=str(path) if path is not None else None,
+        )
+
+    payload = load(path)
+    rows = payload.get("results", payload if isinstance(payload, list) else [])
+    arms: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        if all(row.get(key) == value for key, value in DUAL_STREAM_SHAPE.items()):
+            arms[row.get("swiglu_hidden_dim")] = row
+
+    missing = [width for width in WIDTHS if width not in arms]
+    if missing:
+        return _criterion(
+            1, statement, VERDICT_NOT_AUDITABLE,
+            reason=(
+                f"the probe has no row for width(s) {missing} at the canonical "
+                f"{DUAL_STREAM_SHAPE['max_length']}/"
+                f"{DUAL_STREAM_SHAPE['antigen_max_length']} batch "
+                f"{DUAL_STREAM_SHAPE['batch_size']} shape"
+            ),
+            source=str(path),
+            source_sha256=file_sha256(path),
+        )
+
+    headroom = {
+        width: 1.0 - (arms[width]["peak_reserved_mib"] / arms[width]["device_total_mib"])
+        for width in WIDTHS
+    }
+    spilled = [w for w in WIDTHS if not arms[w].get("fits_without_driver_spill", False)]
+    passed = not spilled and all(value >= MIN_MEMORY_HEADROOM for value in headroom.values())
+    return _criterion(
+        1, statement, VERDICT_PASS if passed else VERDICT_FAIL,
+        reason="" if passed else (
+            f"driver spill in {spilled}" if spilled
+            else "reserved headroom below the floor: "
+                 + ", ".join(f"{w}={headroom[w]:.1%}" for w in WIDTHS)
+        ),
+        measured={str(width): headroom[width] for width in WIDTHS},
+        threshold=MIN_MEMORY_HEADROOM,
+        source=str(path),
+        source_sha256=file_sha256(path),
+    )
+
+
+def evaluate_step_time(path: Path | None) -> dict[str, Any]:
+    """
+    Criterion 2: width 1024 no more than 35% slower, from the pipeline preflight.
+    """
+    statement = f"Stage-1 median step time is <={MAX_SLOWDOWN:.0%} slower than 680"
+    if path is None or not path.exists():
+        return _criterion(
+            2, statement, VERDICT_NOT_AUDITABLE,
+            reason="no pipeline preflight artifact to read median step times from",
+            source=str(path) if path is not None else None,
+        )
+
+    payload = load(path)
+    arms = {arm.get("swiglu_hidden_dim"): arm for arm in payload.get("arms", [])}
+    missing = [width for width in WIDTHS if width not in arms]
+    if missing:
+        return _criterion(
+            2, statement, VERDICT_NOT_AUDITABLE,
+            reason=f"the preflight has no arm for width(s) {missing}",
+            source=str(path),
+            source_sha256=file_sha256(path),
+        )
+
+    narrow = arms[680]["median_step_seconds"]
+    wide = arms[1024]["median_step_seconds"]
+    slowdown = (wide / narrow) - 1.0
+    return _criterion(
+        2, statement, VERDICT_PASS if slowdown <= MAX_SLOWDOWN else VERDICT_FAIL,
+        reason="" if slowdown <= MAX_SLOWDOWN else (
+            f"width 1024 is {slowdown:.1%} slower, past the {MAX_SLOWDOWN:.0%} ceiling"
+        ),
+        measured=slowdown,
+        threshold=MAX_SLOWDOWN,
+        median_step_seconds={"680": narrow, "1024": wide},
+        source=str(path),
+        source_sha256=file_sha256(path),
+    )
+
+
+def _all_finite(payload: Any) -> bool:
+    """True when every numeric leaf in a record is finite."""
+    if isinstance(payload, bool):
+        return True
+    if isinstance(payload, (int, float)):
+        return math.isfinite(payload)
+    if isinstance(payload, dict):
+        return all(_all_finite(value) for value in payload.values())
+    if isinstance(payload, list):
+        return all(_all_finite(value) for value in payload)
+    return True
+
+
+def evaluate_stability(runs: dict[tuple[int, int], dict[str, Any]]) -> dict[str, Any]:
+    """
+    Criterion 7: no NaNs, no unexplained AMP skips, no instability.
+
+    Two claims, and only the first is checkable from what the runs retained.
+    `UPDATE_COUNTER["amp_skips"]` is counted in-process but never written to
+    `metrics.jsonl` or the checkpoint payload, and no J11 run log was kept -- so
+    for runs that predate the counter being persisted the honest verdict is
+    `not_auditable` WITH the NaN half reported, rather than one opaque shrug.
+    """
+    statement = "Neither arm shows NaNs, unexplained AMP skips, or instability"
+    finite = all(_all_finite(record) for record in runs.values())
+    skips = {
+        f"w{width}_s{seed}": runs[(width, seed)].get("amp_skips")
+        for width in WIDTHS
+        for seed in SEEDS
+    }
+    unrecorded = sorted(name for name, value in skips.items() if value is None)
+
+    if not finite:
+        return _criterion(
+            7, statement, VERDICT_FAIL,
+            reason="a final metrics record contains a non-finite value",
+            metrics_finite=False,
+            amp_skips=skips,
+        )
+    if unrecorded:
+        return _criterion(
+            7, statement, VERDICT_NOT_AUDITABLE,
+            reason=(
+                "every retained metric is finite, but amp_skips was not persisted "
+                f"for {len(unrecorded)} run(s) ({', '.join(unrecorded)}); the "
+                "counter exists in the trainer and never reaches metrics.jsonl, "
+                "the checkpoint, or any retained log"
+            ),
+            metrics_finite=True,
+            amp_skips=skips,
+        )
+    offenders = sorted(name for name, value in skips.items() if value)
+    return _criterion(
+        7, statement, VERDICT_PASS if not offenders else VERDICT_FAIL,
+        reason="" if not offenders else f"AMP skipped optimizer steps in {offenders}",
+        metrics_finite=True,
+        amp_skips=skips,
+    )
+
+
+def evaluate_quality(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Criteria 3-6, all computed from the six final validation records."""
+    token_gain = _mean([row["hcdr3_token_acc_delta_pp"] for row in rows])
+    sweep = [row["seed"] for row in rows if row["favours_1024"]]
+    loss_regression = _mean([row["mlm_loss_delta_nats"] for row in rows])
+    span_regression = -_mean([row["hcdr3_span_exact_delta_pp"] for row in rows])
+
+    return [
+        _criterion(
+            3,
+            "Mean fixed-mask HCDR3 token recovery improves by "
+            f">=+{MIN_HCDR3_TOKEN_GAIN_PP:.1f} absolute percentage points",
+            VERDICT_PASS if token_gain >= MIN_HCDR3_TOKEN_GAIN_PP else VERDICT_FAIL,
+            reason="" if token_gain >= MIN_HCDR3_TOKEN_GAIN_PP else (
+                f"HCDR3 token recovery gain {token_gain:.3f} pp < required "
+                f"{MIN_HCDR3_TOKEN_GAIN_PP:.1f} pp"
+            ),
+            measured=token_gain,
+            threshold=MIN_HCDR3_TOKEN_GAIN_PP,
+        ),
+        _criterion(
+            4,
+            "All three paired seeds favour 1024 on HCDR3 token recovery",
+            VERDICT_PASS if len(sweep) == len(SEEDS) else VERDICT_FAIL,
+            reason="" if len(sweep) == len(SEEDS) else (
+                f"only {len(sweep)}/{len(SEEDS)} paired seeds favour 1024"
+            ),
+            measured=len(sweep),
+            threshold=len(SEEDS),
+            seeds_favouring_1024=sweep,
+        ),
+        _criterion(
+            5,
+            "Mean validation MLM loss does not regress by more than "
+            f"{MAX_MLM_LOSS_REGRESSION_NATS} nats",
+            VERDICT_PASS
+            if loss_regression <= MAX_MLM_LOSS_REGRESSION_NATS
+            else VERDICT_FAIL,
+            reason="" if loss_regression <= MAX_MLM_LOSS_REGRESSION_NATS else (
+                f"MLM loss regressed by {loss_regression:.5f} nats, past the "
+                f"{MAX_MLM_LOSS_REGRESSION_NATS} margin"
+            ),
+            measured=loss_regression,
+            threshold=MAX_MLM_LOSS_REGRESSION_NATS,
+        ),
+        _criterion(
+            6,
+            "HCDR3 span-exact recovery does not regress by more than "
+            f"{MAX_SPAN_EXACT_REGRESSION_PP} percentage points",
+            VERDICT_PASS
+            if span_regression <= MAX_SPAN_EXACT_REGRESSION_PP
+            else VERDICT_FAIL,
+            reason="" if span_regression <= MAX_SPAN_EXACT_REGRESSION_PP else (
+                f"span-exact regressed by {span_regression:.3f} pp, past the "
+                f"{MAX_SPAN_EXACT_REGRESSION_PP} pp margin"
+            ),
+            measured=span_regression,
+            threshold=MAX_SPAN_EXACT_REGRESSION_PP,
+            note=(
+                "Reported for completeness: on ~"
+                f"{rows[0]['hcdr3_valid_spans']:.0f} valid spans the unpaired "
+                "binomial noise on this rate is wider than the margin itself, and "
+                "the retained aggregates cannot support the paired analysis that "
+                "would be appropriate. Treat this clause as under-instrumented."
+            ),
+        ),
+    ]
+
+
+def decide(criteria: list[dict[str, Any]], rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """
+    Apply the rule: 1024 is promoted only when EVERY criterion passes.
+
+    680 is the predeclared tie and inconclusive fallback, so a `fail` and a
+    `not_auditable` both select it -- but the reason distinguishes them, because
+    "we measured this and it lost" and "we never measured this" are different
+    facts about the experiment.
+    """
+    failed = [c for c in criteria if c["verdict"] == VERDICT_FAIL]
+    unauditable = [c for c in criteria if c["verdict"] == VERDICT_NOT_AUDITABLE]
+    promoted = not failed and not unauditable
+
+    token_gain = _mean([row["hcdr3_token_acc_delta_pp"] for row in rows])
+    sweep = sum(1 for row in rows if row["favours_1024"])
+
+    if promoted:
+        reason = (
+            f"all {len(criteria)} criteria pass; mean HCDR3 token recovery gain "
+            f"{token_gain:+.3f} pp at {sweep}/{len(rows)} paired seeds"
+        )
+    elif failed:
+        reason = failed[0]["reason"] + f" (criterion {failed[0]['number']})"
+    else:
+        numbers = ", ".join(str(c["number"]) for c in unauditable)
+        reason = (
+            f"criteria {numbers} are not auditable and promotion requires every "
+            "criterion; no measured clause failed"
+        )
+
+    if promoted:
+        claim = (
+            f"width 1024 earned promotion: {token_gain:+.3f} pp mean HCDR3 token "
+            f"recovery across {sweep}/{len(rows)} paired seeds, clearing the "
+            f"+{MIN_HCDR3_TOKEN_GAIN_PP:.1f} pp bar with no regression"
+        )
+    elif sweep == len(rows) and 0 < token_gain < MIN_HCDR3_TOKEN_GAIN_PP:
+        claim = (
+            f"width 1024 showed a consistent but practically insufficient gain "
+            f"({token_gain:+.3f} pp mean HCDR3 token recovery, {sweep}/{len(rows)} "
+            f"paired seeds, against a +{MIN_HCDR3_TOKEN_GAIN_PP:.1f} pp bar)"
+        )
+    else:
+        claim = (
+            f"width 1024 did not earn promotion: {token_gain:+.3f} pp mean HCDR3 "
+            f"token recovery at {sweep}/{len(rows)} paired seeds"
+        )
+
+    return {
+        "selected_width": 1024 if promoted else 680,
+        "width_1024_promoted": promoted,
+        "primary_reason": reason,
+        "claim": claim,
+    }
+
+
+def compare(
+    results_root: Path,
+    preflight_path: Path | None,
+    memory_probe_path: Path | None,
+) -> dict[str, Any]:
+    """
+    Read six finished runs and apply the promotion rule.
+
+    Args:
+        results_root: directory holding the six ``j11_w{width}_s{seed}`` runs.
+        preflight_path: pipeline-preflight artifact for criterion 2, or None.
+        memory_probe_path: dual-stream memory probe for criterion 1, or None.
+
+    Returns:
+        The comparison report, ready to serialize. Deterministic: same evidence
+        in, byte-identical report out, so a rerun that differs means the evidence
+        moved rather than the comparator.
+
+    Raises:
+        LaunchRefused: the evidence set is incomplete, a run has no validation
+            record, a run has no provenance, or the six runs span more than one
+            commit.
+    """
+    runs = collect(results_root)
+    bound = bind_runs(results_root, runs)
+    rows = paired_rows(runs)
+
+    criteria = [
+        evaluate_memory(memory_probe_path),
+        evaluate_step_time(preflight_path),
+        *evaluate_quality(rows),
+        evaluate_stability(runs),
+    ]
+    criteria.sort(key=lambda item: item["number"])
+    unauditable = [c["number"] for c in criteria if c["verdict"] == VERDICT_NOT_AUDITABLE]
+
+    report = {
+        "schema_version": SCHEMA_VERSION,
+        **decide(criteria, rows),
+        "scope": SCOPE,
+        "claim_limit": CLAIM_LIMIT,
+        "criteria": criteria,
+        "criteria_audited": len(criteria) - len(unauditable),
+        "criteria_not_auditable": unauditable,
+        "paired_seeds": list(SEEDS),
+        "per_seed": rows,
+        "means": {
+            "hcdr3_token_acc_680": _mean([r["hcdr3_token_acc_680"] for r in rows]),
+            "hcdr3_token_acc_1024": _mean([r["hcdr3_token_acc_1024"] for r in rows]),
+            "hcdr3_token_acc_gain_pp": _mean(
+                [r["hcdr3_token_acc_delta_pp"] for r in rows]
+            ),
+            "mlm_loss_680": _mean([r["mlm_loss_680"] for r in rows]),
+            "mlm_loss_1024": _mean([r["mlm_loss_1024"] for r in rows]),
+            "hcdr3_span_exact_680": _mean([r["hcdr3_span_exact_680"] for r in rows]),
+            "hcdr3_span_exact_1024": _mean([r["hcdr3_span_exact_1024"] for r in rows]),
+        },
+        "schedule": {
+            "total_updates": TOTAL_UPDATES,
+            "warmup_updates": WARMUP_UPDATES,
+            "post_warmup_updates": TOTAL_UPDATES - WARMUP_UPDATES,
+        },
+        "commit": bound[0]["commit"],
+        "runs": bound,
+    }
+    return report
+
+
 def write_manifest(path: Path, payload: dict[str, Any]) -> None:
     """Write a JSON manifest deterministically (sorted keys, LF, trailing newline)."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -264,11 +801,50 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="permit training a non-main SHA (discouraged).")
     launch.add_argument("--output-json", type=Path, default=None)
 
-    compare = sub.add_parser("compare", help="apply the promotion rule to six finished runs")
-    compare.add_argument("--results-root", type=Path,
-                         default=PROJECT_ROOT / "checkpoints/experiments")
-    compare.add_argument("--output-json", type=Path, default=None)
+    compare_parser = sub.add_parser(
+        "compare", help="apply the promotion rule to six finished runs"
+    )
+    compare_parser.add_argument("--results-root", type=Path,
+                                default=PROJECT_ROOT / "checkpoints/experiments")
+    # Repo-anchored, never CWD-relative (Mirror BUG-18). Left as None so an
+    # EXPLICIT path that is missing can be told apart from an absent default:
+    # the first is a user error, the second is the honest state of criterion 1
+    # and 2's evidence and downgrades the criterion instead of failing the run.
+    compare_parser.add_argument("--preflight", type=Path, default=None,
+                                help="pipeline preflight artifact (criterion 2). "
+                                     "Default: outputs/j11-pipeline-preflight.json")
+    compare_parser.add_argument("--memory-probe", type=Path, default=None,
+                                help="dual-stream memory probe at 288/1024 batch 16 "
+                                     "(criterion 1). Default: "
+                                     "outputs/j11-dual-stream-memory.json")
+    compare_parser.add_argument("--output-json", type=Path,
+                                default=PROJECT_ROOT / "outputs/j11-comparison.json")
     return parser
+
+
+def resolve_evidence_path(
+    explicit: Path | None, default: Path, label: str, parser: argparse.ArgumentParser
+) -> Path:
+    """
+    Resolve an optional evidence artifact, failing loudly only when asked to.
+
+    An explicitly named path that does not exist is a user error and stops the
+    run. An absent default is not: the criterion it feeds reports
+    `not_auditable`, which is the whole point of that verdict. Silently emitting
+    a pass in either case is what Mirror BUG-18/21 did with
+    `compatibility_score: null` -- exit 0, and nothing scored.
+    """
+    if explicit is not None:
+        if not explicit.exists():
+            parser.error(f"--{label} does not exist: {explicit}")
+        return explicit
+    if not default.exists():
+        print(
+            f"  note: no {label} artifact at {default}; the criterion it feeds "
+            "will be reported as not_auditable.",
+            file=sys.stderr,
+        )
+    return default
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -371,13 +947,52 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     # compare
+    parser = build_arg_parser()
+    preflight = resolve_evidence_path(
+        args.preflight, PROJECT_ROOT / "outputs/j11-pipeline-preflight.json",
+        "preflight", parser,
+    )
+    memory_probe = resolve_evidence_path(
+        args.memory_probe, PROJECT_ROOT / "outputs/j11-dual-stream-memory.json",
+        "memory-probe", parser,
+    )
+
     try:
-        runs = collect(args.results_root)
+        report = compare(args.results_root, preflight, memory_probe)
     except LaunchRefused as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 1
-    print(f"collected {len(runs)} runs; comparison implementation follows the "
-          "promotion rule in specs/experiments/j11_swiglu_width.md")
+
+    print(f"J11 comparison ({report['schema_version']})")
+    print(f"  commit          : {report['commit']}")
+    print(f"  paired seeds    : {', '.join(str(s) for s in report['paired_seeds'])}")
+    print()
+    print(f"  {'seed':>8}  {'tok-acc 680':>12} {'1024':>10} {'delta pp':>10}"
+          f" {'mlm delta':>11} {'span delta pp':>14}")
+    for row in report["per_seed"]:
+        print(f"  {row['seed']:>8}  {row['hcdr3_token_acc_680'] * 100:12.3f}"
+              f" {row['hcdr3_token_acc_1024'] * 100:10.3f}"
+              f" {row['hcdr3_token_acc_delta_pp']:+10.3f}"
+              f" {row['mlm_loss_delta_nats']:+11.5f}"
+              f" {row['hcdr3_span_exact_delta_pp']:+14.3f}")
+    print()
+    for criterion in report["criteria"]:
+        mark = {
+            VERDICT_PASS: "PASS", VERDICT_FAIL: "FAIL",
+            VERDICT_NOT_AUDITABLE: "N/A ",
+        }[criterion["verdict"]]
+        print(f"  {mark}  {criterion['number']}. {criterion['statement']}")
+        if criterion["reason"]:
+            print(f"        {criterion['reason']}")
+    print()
+    print(f"  SELECTED WIDTH  : {report['selected_width']}")
+    print(f"  reason          : {report['primary_reason']}")
+    print(f"  audited         : {report['criteria_audited']}/{len(report['criteria'])}"
+          f" criteria; not auditable: {report['criteria_not_auditable'] or 'none'}")
+    print(f"  claim limit     : {report['claim_limit']}")
+
+    if args.output_json is not None:
+        write_manifest(args.output_json, report)
     return 0
 
 

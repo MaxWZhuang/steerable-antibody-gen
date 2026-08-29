@@ -3,10 +3,15 @@ J11 execution harness: the frozen design must actually be what runs.
 
 The gap this closes is the dangerous kind. Every artifact looked right -- a
 predeclared spec, paired configs, a passing preflight -- while the configs
-encoded 2,000 warmup steps and a full 185,640-update epoch, the trainer had no
-way to stop at 51,000, and the normal training path never invoked the pairing
+encoded 2,000 warmup steps and a full epoch (~166,987 updates), the trainer had
+no way to stop at 51,000, and the normal training path never invoked the pairing
 mechanism. Launching would have produced six runs that were not the experiment,
 and nothing in the outputs would have said so.
+
+(That epoch size was written as ~185,640 until 2026-08-28, which divides the
+whole corpus rather than the training split; see
+specs/experiments/j11_swiglu_width.md section 9.1. The correction does not move
+anything here -- the point was always that an epoch is far more than 51,000.)
 
 So these tests check the executable form, not the intent: the schedule the
 configs carry, the trainer's ability to honour it, and the launcher's refusal to
@@ -63,7 +68,7 @@ def test_all_six_arm_configs_exist(project_root: Path):
 def test_each_config_carries_the_frozen_schedule(project_root: Path, width, seed):
     """
     51,000 updates = 1,000 warmup + 50,000 post-warmup, exactly. An earlier draft
-    carried 2,000 warmup and one full epoch (~185,640 updates), which is a
+    carried 2,000 warmup and one full epoch (~166,987 updates), which is a
     different experiment from the one that was predeclared.
     """
     cfg = yaml.safe_load(

@@ -304,9 +304,16 @@ class TrainConfig:
     #
     # Stop after exactly this many OPTIMIZER UPDATES, across epochs. 0 disables.
     # `epochs` alone cannot express the frozen J11 schedule: one epoch of the 3M
-    # corpus is ~185,640 updates against the frozen 51,000, and a comparison that
+    # corpus is ~166,987 updates against the frozen 51,000, and a comparison that
     # ran to a different number of updates per arm would not be the experiment
     # that was predeclared.
+    #
+    # 166,987 = ceil(2,671,784 / 16): the TRAINING split (2,672,808) minus the
+    # 1,024-row row-random probe, which is held out of training. An earlier note
+    # here said ~185,640, which divides the whole 2,970,227-row corpus -- i.e. it
+    # counted validation rows as part of a training epoch. Corrected 2026-08-28;
+    # the frozen 51,000 is 30.5% of an epoch, not 27.5%. See
+    # specs/experiments/j11_swiglu_width.md section 9.1.
     #
     # Counted as UPDATES, not batches: AMP skips the optimizer step on inf/NaN
     # gradients, and a batch counter would silently let one arm take fewer real

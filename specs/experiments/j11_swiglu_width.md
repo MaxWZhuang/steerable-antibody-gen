@@ -219,3 +219,143 @@ dual-stream model without its integration diagram. This tracked contract does tr
 | Pairing mechanism | `src/smallAntibodyGen/experiments/init_parity.py` |
 | Paired arm configs | `configs/experiments/swiglu_width/arm_{680,1024}.yaml` |
 | Tests | `src/smallAntibodyGen/tests/test_j11_pairing.py` (9) |
+
+## 8. Verdict — width 680 selected (2026-08-28)
+
+**Emitted by `python scripts/run_j11_experiment.py compare`**, not by hand.
+Report: `outputs/j11-comparison.json` (`schema_version: j11-comparison/1`), bound to all
+six runs' fingerprint hashes, their shared training commit `561312b`, and a hash of the
+exact final metrics record each number came from.
+
+Everything above this section is **byte-identical** to the version hashed into all six run
+fingerprints as `specs/experiments/j11_swiglu_width.md` →
+`ee760b4a57d4f3838abaadc8eae1dbbe5a80d1142c15f41e31b452573b3128fe`. That hash is the
+predeclaration proof, and it is now stale by construction: §8 and §9 are appended below it.
+Recover the predeclared text with
+`git show 561312b:specs/experiments/j11_swiglu_width.md`, and confirm the diff is
+append-only.
+
+### 8.1 Paired results, final step 51,000
+
+Validation masks are identical within a seed across widths (`hcdr3_target_tokens` matches
+exactly: 772,352 / 771,937 / 771,724), so the within-seed comparison is exact. Masks differ
+*between* seeds, so the seed-to-seed spread bundles evaluation-mask variation with
+initialization and data-order variation — do not read it as pure model noise.
+
+| seed | tok-acc 680 | tok-acc 1024 | Δ pp | MLM loss Δ nats | span-exact Δ pp |
+|---|---|---|---|---|---|
+| 42 | 46.222% | 46.582% | **+0.360** | −0.00414 | −0.403 |
+| 31415 | 46.063% | 46.445% | **+0.382** | −0.00301 | +0.193 |
+| 271828 | 46.305% | 46.481% | **+0.176** | −0.00109 | −0.399 |
+| **mean** | **46.197%** | **46.503%** | **+0.306** | −0.00275 | −0.203 |
+
+### 8.2 The rule, applied
+
+| # | Criterion | Verdict | Measured |
+|---|---|---|---|
+| 1 | ≥25% dual-stream reserved headroom | **not_auditable** | no retained probe — see §8.3 |
+| 2 | ≤35% slower | pass | **+18.70%** (preflight medians 0.15158 s / 0.17993 s) |
+| 3 | ≥+1.0 pp HCDR3 token recovery | **FAIL** | **+0.306 pp** |
+| 4 | all three paired seeds favour 1024 | pass | 3/3 |
+| 5 | MLM loss regression ≤0.01 nats | pass | −0.00275 (1024 better) |
+| 6 | span-exact regression ≤0.25 pp | pass | 0.203 pp — but see §9.2 |
+| 7 | no NaNs / AMP skips / instability | **not_auditable** | metrics finite; skip count never persisted |
+
+**Selected width: 680.** Promotion of 1024 requires **every** criterion to pass; criterion 3
+fails by a factor of 3.3, and two further criteria are unauditable. 680 is the predeclared
+tie-and-inconclusive fallback.
+
+### 8.3 Two criteria have no retained measurement
+
+Recorded because the protocol asserted both as satisfied and neither can be checked from
+what the runs left behind. Neither changes the selection — criterion 3 fails on its own —
+but both would have mattered had the quality result been close.
+
+- **Criterion 1.** §5.1 quotes 2101.7/2392.0 MiB (41.6% headroom) and 2431.8/2808.0 MiB
+  (31.4%) at the 288/1024 dual-stream shape. Those figures appear in no file under
+  `outputs/`: `gpu-memory-probe-stage2.json` is the legacy antibody-only model
+  (4,797,954 params), `-esm.json` is the ESM encoder, `-longcontext.json` is the AB-07
+  sweep at `max_length: 192`. The comparator reads
+  `outputs/j11-dual-stream-memory.json` and downgrades the criterion when it is absent.
+  Producing that probe at the canonical shape is what makes criterion 1 auditable; the
+  comparator rejects a probe taken at any other shape rather than accepting a flattering
+  one, because on this box the absence of an OOM is not evidence a config fits.
+- **Criterion 7.** `UPDATE_COUNTER["amp_skips"]` (`scripts/mlm_train.py`) is counted
+  in-process and never written to `metrics.jsonl`, the checkpoint payload, or any retained
+  log. The NaN half of the criterion **is** checkable and passes: every retained metric in
+  all six final records is finite. The skip half is not. Persisting `amp_skips` into the
+  metrics record makes this criterion auditable for future runs.
+
+`not_auditable` is a third verdict, never rewritten to `pass`. "We measured this and it
+lost" and "we never measured this" are different facts about an experiment, and a report
+that collapses them claims more verification than was performed.
+
+### 8.4 What this licenses
+
+> **Claim.** Width 1024 showed a consistent but practically insufficient early-training
+> gain: +0.306 pp mean HCDR3 token recovery across 3/3 paired seeds, against a +1.0 pp bar,
+> for 18.7% more step time and 33.6% more parameters.
+
+> **Claim limit.** Measured at the frozen 51,000-update schedule — **30.5% of one training
+> epoch** (§9.1). This does **not** establish asymptotic equivalence after full training. It
+> is a practical negative on paying for extra width at this budget, **not** a scientific
+> negative on capacity.
+
+The 3/3 sign consistency is directional evidence that 1024 genuinely learns faster early,
+and it is not established as statistically significant. The naive per-arm binomial standard
+error on token recovery (0.057 pp over ~772k residues) treats residues as independent; they
+are correlated within antibodies, within repeated biological families, and within a shared
+mask. The true experimental unit is closer to the paired seed, of which there are three.
+
+A supporting practical argument, beyond the rule: 680 retains ~10 pp more reserved headroom
+at the dual-stream shape — the stage where this card actually binds — and headroom is the
+safety margin given the measured driver-spill behaviour.
+
+## 9. Errata against §1–§7
+
+Recorded rather than edited: §1–§7 are the predeclared text (§8), and the six arm configs
+and `outputs/j11-timing-calibration.json` are frozen artifacts whose hashes are bound into
+the run fingerprints. Correcting a number *inside* them would falsify that provenance chain,
+so the corrections live here.
+
+### 9.1 One epoch is ~166,987 updates, not 185,640
+
+§4 states "One complete corpus epoch (2,970,227 rows → 185,640 steps)". That divides the
+**whole corpus** by the batch size. A training epoch traverses the **training split**:
+
+| | rows |
+|---|---|
+| corpus (`data/processed/oas_unpaired_3m/stats.json`, `records_kept`) | 2,970,227 |
+| `kept_by_split.train` | 2,672,808 |
+| minus the 1,024-row `row_random` probe, removed from training | **2,671,784** |
+
+2,671,784 / 16 = **166,987** updates per epoch (rounded up). The frozen 51,000-update
+schedule is therefore **30.54%** of one training epoch, not the 27.5% the corpus denominator
+implies. (The `known_target` probe is sampled from *retained* rows and subtracts nothing.)
+
+The figure does not change any conclusion — 51,000 was frozen as an absolute update count,
+never as a fraction — but it makes the run less under-trained than the stale number
+suggested, which matters for §8.4's claim limit.
+
+The stale value survives deliberately in: the six `configs/experiments/swiglu_width/*.yaml`
+headers, `outputs/j11-timing-calibration.json` (`steps_per_epoch`), and §4 above. It is
+corrected in `scripts/mlm_train.py` and `src/smallAntibodyGen/tests/test_j11_harness.py`,
+which are live code that would otherwise mislead future work.
+
+### 9.2 Criterion 6's threshold is narrower than its own noise
+
+Span-exact recovery is measured on ~505 valid spans per validation pass. The unpaired
+binomial standard error at the observed rate is ≈**0.51 pp**, against a 0.25 pp promotion
+margin. The criterion passed at 0.203 pp, but it could not have discriminated a real
+regression from sampling noise at that scale.
+
+This is under-instrumentation, not impossibility: because the masks are paired within a
+seed, the variance of the *paired* difference can be well below the per-arm binomial error.
+The retained artifacts store only aggregate rates, not per-span paired outcomes, so that
+analysis cannot be run after the fact.
+
+> The threshold was smaller than the unpaired sampling noise, and the stored aggregates
+> cannot support the appropriate paired analysis.
+
+Any future protocol reusing this clause should either retain per-span outcomes or set the
+margin from a measured noise band rather than from intuition.
