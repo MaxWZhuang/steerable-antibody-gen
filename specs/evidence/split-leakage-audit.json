@@ -1,0 +1,92 @@
+{
+  "corpora": {
+    "stage1_unpaired": {
+      "path": "data/processed/oas_unpaired_3m/oas_all.jsonl.gz",
+      "rows": {
+        "other": 0,
+        "train": 2672808,
+        "val": 297419
+      },
+      "sha256": "ab94139df713ec7cd4c872bdd1a0a29276fd0db2a2ae02f5a39d5d0fbfd5845b"
+    },
+    "stage2_paired": {
+      "path": "data/processed/oas_paired_all/oas_paired.jsonl.gz",
+      "rows": {
+        "other": 0,
+        "train": 2261064,
+        "val": 252562
+      },
+      "sha256": "4770e73dac69b4ce80ad5e9e9159ac8375365ac3b4fd691af913f7b0746c5c88"
+    }
+  },
+  "schema_version": "split-leakage-audit/1",
+  "stage2_val_seen_in_stage1_train": {
+    "hcdr3": {
+      "distinct_train_values": 853234,
+      "distinct_val_values": 247504,
+      "fraction": 0.027593224633951266,
+      "val_rows_seen_in_train": 6969,
+      "val_rows_with_field": 252562
+    },
+    "heavy_chain": {
+      "distinct_train_values": 2672808,
+      "distinct_val_values": 251581,
+      "fraction": 0.012828533191849923,
+      "val_rows_seen_in_train": 3240,
+      "val_rows_with_field": 252562
+    },
+    "light_chain": {
+      "distinct_train_values": 2672808,
+      "distinct_val_values": 154963,
+      "fraction": 0.2817248833949684,
+      "val_rows_seen_in_train": 71153,
+      "val_rows_with_field": 252562
+    }
+  },
+  "within_stage1": {
+    "exact_sequence": {
+      "distinct_train_values": 2672808,
+      "distinct_val_values": 297419,
+      "fraction": 0.0,
+      "val_rows_seen_in_train": 0,
+      "val_rows_with_field": 297419
+    },
+    "hcdr3": {
+      "distinct_train_values": 853234,
+      "distinct_val_values": 161465,
+      "fraction": 0.7765374774308299,
+      "val_rows_seen_in_train": 230957,
+      "val_rows_with_field": 297419
+    }
+  },
+  "within_stage2": {
+    "exact_full_pair": {
+      "distinct_train_values": 2261064,
+      "distinct_val_values": 252562,
+      "fraction": 0.0,
+      "val_rows_seen_in_train": 0,
+      "val_rows_with_field": 252562
+    },
+    "hcdr3": {
+      "distinct_train_values": 2075944,
+      "distinct_val_values": 247504,
+      "fraction": 0.12861396409594475,
+      "val_rows_seen_in_train": 32483,
+      "val_rows_with_field": 252562
+    },
+    "heavy_chain": {
+      "distinct_train_values": 2223725,
+      "distinct_val_values": 251581,
+      "fraction": 0.02755363039570482,
+      "val_rows_seen_in_train": 6959,
+      "val_rows_with_field": 252562
+    },
+    "light_chain": {
+      "distinct_train_values": 1234371,
+      "distinct_val_values": 154963,
+      "fraction": 0.48656567496297937,
+      "val_rows_seen_in_train": 122888,
+      "val_rows_with_field": 252562
+    }
+  }
+}
