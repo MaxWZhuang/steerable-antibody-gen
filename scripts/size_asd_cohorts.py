@@ -427,12 +427,106 @@ def size_target(recs: list[dict[str, Any]], exact: bool) -> dict[str, Any]:
     return out
 
 
+def write_deterministic_jsonl_gz(path: Path, lines: list[str]) -> None:
+    """
+    Write gzip with a FIXED mtime, so identical content hashes identically.
+
+    Default gzip embeds the current time, which makes a regenerated but logically
+    identical component map hash differently -- and a frozen manifest that
+    references it then stops matching for reasons unrelated to content.
+    """
+    payload = ("".join(line.rstrip("\n") + "\n" for line in lines)).encode("utf-8")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, "wb") as raw:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as handle:
+            handle.write(payload)
+    tmp.replace(path)
+
+
+def provenance_key(corpus_sha: str, canonicalizer_sha: str, code_sha: str) -> str:
+    """
+    Identity of the contract a checkpoint was produced under.
+
+    Binds the corpus, the canonicalizer, this script, the bands and EXACT_LIMIT.
+    A checkpoint from a different contract is not resumable -- reusing one would
+    silently mix two universes.
+    """
+    payload = {
+        "corpus_sha256": corpus_sha,
+        "canonicalizer_sha256": canonicalizer_sha,
+        "sizing_code_sha256": code_sha,
+        "bands_percent": list(BAND_PERCENTS),
+        "primary_band": PRIMARY_BAND,
+        "exact_limit": EXACT_LIMIT,
+        "schema_version": SCHEMA_VERSION,
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+class CheckpointConflict(RuntimeError):
+    """Checkpoints on disk disagree, or came from a different contract."""
+
+
+def load_checkpoints(directory: Path, key: str) -> dict[str, dict]:
+    """
+    Load per-target checkpoints, refusing anything not from THIS contract.
+
+    Raises:
+        CheckpointConflict: a checkpoint carries a different provenance key, or
+            two files claim the same canonical target. Both mean the directory
+            holds work from more than one universe, and silently preferring one
+            would produce an artifact nobody can attribute.
+    """
+    done: dict[str, dict] = {}
+    seen_files: dict[str, Path] = {}
+    for path in sorted(directory.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            raise CheckpointConflict(f"{path.name}: unreadable checkpoint")
+        if payload.get("provenance_key") != key:
+            raise CheckpointConflict(
+                f"{path.name}: provenance key {str(payload.get('provenance_key'))[:12]}... "
+                f"does not match this run's {key[:12]}.... Delete the directory to "
+                "restart, or restore the matching inputs; checkpoints from a "
+                "different corpus, canonicalizer or code version are not resumable."
+            )
+        target = payload["canonical_target"]
+        if target in done:
+            raise CheckpointConflict(
+                f"duplicate checkpoint for {target}: {seen_files[target].name} and {path.name}"
+            )
+        done[target] = payload
+        seen_files[target] = path
+    return done
+
+
+def write_checkpoint(directory: Path, key: str, canonical: str,
+                     sized: dict, mapping: dict | None) -> None:
+    """Write one target's result atomically, so an interrupt cannot half-write it."""
+    directory.mkdir(parents=True, exist_ok=True)
+    stem = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:24]
+    path = directory / f"{stem}.json"
+    tmp = path.with_suffix(".json.tmp")
+    with open(tmp, "w", encoding="utf-8", newline="") as handle:
+        json.dump({"provenance_key": key, "canonical_target": canonical,
+                   "sized": sized, "mapping": mapping},
+                  handle, sort_keys=True)
+    tmp.replace(path)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
     parser.add_argument("--output-json", type=Path,
                         default=PROJECT_ROOT / "specs/evidence/asd-cohort-sizing.json")
     parser.add_argument("--mapping-out", type=Path,
                         default=PROJECT_ROOT / "specs/evidence/asd-component-map.jsonl.gz")
+    parser.add_argument("--checkpoint-dir", type=Path,
+                        default=PROJECT_ROOT / "outputs/asd-sizing-checkpoints",
+                        help="resumable per-target checkpoints; bound to a "
+                             "corpus/canonicalizer/code/threshold contract")
     args = parser.parse_args()
 
     print("building the canonical identity graph (identity only, no labels read) ...")
@@ -443,23 +537,45 @@ def main() -> int:
         by_target[r["canonical"]].append(r)
     print(f"  {len(rows):,} rows -> {len(by_target):,} canonical targets")
 
+    key = provenance_key(
+        file_sha256(ASD), file_sha256(CANONICALIZER),
+        file_sha256(Path(__file__).resolve()))
+    checkpoints = load_checkpoints(args.checkpoint_dir, key) \
+        if args.checkpoint_dir.exists() else {}
+    if checkpoints:
+        print(f"  resuming: {len(checkpoints):,} target(s) already sized under "
+              f"contract {key[:12]}...")
+
     targets: dict[str, Any] = {}
     mapping_lines: list[str] = []
     oversize: list[str] = []
+    total = len(by_target)
     for n, (canonical, recs) in enumerate(sorted(by_target.items()), 1):
-        distinct = len({r["hcdr3"] for r in recs if r["hcdr3"]})
-        exact = distinct <= EXACT_LIMIT
-        if not exact:
+        cached = checkpoints.get(canonical)
+        if cached is not None:
+            sized, mapping = cached["sized"], cached["mapping"]
+        else:
+            distinct = len({r["hcdr3"] for r in recs if r["hcdr3"]})
+            sized = size_target(recs, distinct <= EXACT_LIMIT)
+            mapping = sized.pop("_mapping", None)
+            write_checkpoint(args.checkpoint_dir, key, canonical, sized, mapping)
+        if sized.get("measurement_method") != "exact":
             oversize.append(canonical)
-        sized = size_target(recs, exact)
-        mapping = sized.pop("_mapping", None)
         if mapping:
             mapping_lines.append(json.dumps(
                 {"canonical_target": canonical, "band_percent": PRIMARY_BAND,
                  "components": mapping}, sort_keys=True))
         targets[canonical] = sized
-        if n % 400 == 0:
-            print(f"  sized {n:,}/{len(by_target):,} targets ...")
+        if n % 100 == 0 or n == total:
+            print(f"  sized {n:,}/{total:,} targets ...", flush=True)
+
+    # Final evidence filenames are RESERVED until every target is done. A partial
+    # artifact that looks complete is worse than no artifact: it would be frozen,
+    # hashed, and cited as the universe.
+    if len(targets) != total:
+        print(f"REFUSED: {len(targets):,}/{total:,} targets sized; "
+              "final artifacts are written only on a complete pass.", file=sys.stderr)
+        return 1
 
     report = {
         "schema_version": SCHEMA_VERSION,
@@ -494,9 +610,7 @@ def main() -> int:
     with open(args.output_json, "w", encoding="utf-8", newline="") as handle:
         json.dump(report, handle, indent=2, sort_keys=True)
         handle.write("\n")
-    with gzip.open(args.mapping_out, "wt", encoding="utf-8", newline="") as handle:
-        for line in mapping_lines:
-            handle.write(line + "\n")
+    write_deterministic_jsonl_gz(args.mapping_out, mapping_lines)
 
     eligible = [(c, t) for c, t in targets.items()
                 if t.get("measurement_method") == "exact"
