@@ -477,3 +477,36 @@ def test_join_accepts_complete_shards_covering_every_query():
     aq.validate_shards([_header(shard_index=0), _header(shard_index=1)],
                        shard_queries=[["AAA", "BBB"], ["AAA", "BBB"]],
                        expected_queries=["AAA", "BBB"])
+
+
+def test_join_rejects_fewer_query_collections_than_shards():
+    """
+    `zip(headers, shard_queries)` truncates silently, so two headers with one
+    query collection passed validation and the surplus shard went unchecked --
+    which is the false-clean path again, one level up.
+    """
+    with pytest.raises(aq.ShardMismatch, match="query collection"):
+        aq.validate_shards([_header(shard_index=0), _header(shard_index=1)],
+                           shard_queries=[["AAA", "BBB"]],
+                           expected_queries=["AAA", "BBB"])
+
+
+def test_join_rejects_more_query_collections_than_shards():
+    with pytest.raises(aq.ShardMismatch, match="query collection"):
+        aq.validate_shards([_header(shard_index=0), _header(shard_index=1)],
+                           shard_queries=[["AAA"], ["AAA"], ["AAA"]],
+                           expected_queries=["AAA"])
+
+
+@pytest.mark.parametrize("queries,expected", [
+    ([["AAA"], ["AAA"]], None),
+    (None, ["AAA"]),
+])
+def test_completeness_arguments_must_be_supplied_together(queries, expected):
+    """
+    Passing one without the other silently skipped record-completeness checking
+    -- the very check that prevents a false-clean component.
+    """
+    with pytest.raises(aq.ShardMismatch, match="supplied together"):
+        aq.validate_shards([_header(shard_index=0), _header(shard_index=1)],
+                           shard_queries=queries, expected_queries=expected)

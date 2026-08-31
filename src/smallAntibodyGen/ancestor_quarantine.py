@@ -365,8 +365,20 @@ def validate_shards(headers: Sequence[ShardHeader],
             f"missing shard index/indices {missing} of {expected_count}; a partial "
             "scan understates contact and overstates the retained cohort")
 
-    if shard_queries is None or expected_queries is None:
+    if (shard_queries is None) != (expected_queries is None):
+        raise ShardMismatch(
+            "shard_queries and expected_queries must be supplied together; one "
+            "without the other silently skips record-completeness checking, which "
+            "is the check that prevents a false-clean component"
+        )
+    if shard_queries is None:
         return
+    if len(shard_queries) != len(headers):
+        raise ShardMismatch(
+            f"{len(shard_queries)} query collection(s) for {len(headers)} shard "
+            "header(s); zip would truncate silently and leave the surplus shards "
+            "unchecked"
+        )
     expected = set(expected_queries)
     for header, queries in zip(headers, shard_queries):
         keys = list(queries)
