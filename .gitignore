@@ -37,6 +37,11 @@ wandb/
 # Large archives
 *.zip
 *.gz
+# ...except the deterministic component map, which a frozen manifest binds
+# by hash. A hash without its artifact is not portable evidence: the map is
+# written with a fixed gzip mtime and hashed over decompressed canonical
+# content, so it is byte-reproducible and safe to track.
+!specs/evidence/asd-component-map.jsonl.gz
 *.tar
 *.pt
 *.pth
