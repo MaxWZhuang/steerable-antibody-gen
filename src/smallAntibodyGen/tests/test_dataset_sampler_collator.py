@@ -563,6 +563,64 @@ def test_collator_can_shuffle_paired_examples(tmp_path: Path, tokenizer, write_p
     assert batch["input_ids"].shape == batch["labels"].shape
 
 
+def test_shuffled_negatives_are_in_batch_swaps_that_still_carry_mlm_targets(tokenizer):
+    """
+    Characterization of what a `pair_labels == 0` row actually IS, because the
+    label alone invites two over-readings.
+
+    1. The negative's light chain is another row's light chain from the SAME
+       batch -- an unobserved pairing, not a measured incompatibility, and the
+       donor pool is whatever the sampler happened to put in the batch.
+    2. That row still contributes MLM targets. Residue recovery is supervised on
+       a heavy chain and a light chain that were never partners, which is the
+       open question recorded on `AntibodyMLM.compute_pair_loss`.
+
+    Pinned as current behavior, not as a desirable property: if the recommended
+    MLM-on-negatives ablation ever changes (2), this test is the place that says
+    so out loud.
+    """
+    from smallAntibodyGen.data.MLMCollator import OASRecord
+
+    lights = ["QQYNSYPWTFGQGTK", "AQYNSYPWTFGQGTA", "WQYNSYPWTFGQGTW", "YQYNSYPWTFGQGTY"]
+    heavies = ["CARDRSTYWGQGTLV", "CVRDRSTYWGQGTLA", "CTRDRSTYWGQGTLC", "CQRDRSTYWGQGTLD"]
+    records = [
+        OASRecord(
+            sequence=heavy, locus="PAIRED", chain_group="paired", split="train",
+            length=len(heavy) + len(light), token_length=len(heavy) + len(light) + 5,
+            sequence_heavy=heavy, sequence_light=light,
+            heavy_locus="IGH", light_locus="IGK", is_paired=True,
+        )
+        for heavy, light in zip(heavies, lights)
+    ]
+
+    def collator():
+        return MLMCollator(
+            tokenizer=tokenizer,
+            max_length=96,
+            mask_probability=0.15,
+            hcdr3_span_probability=0.0,
+            shuffle_pair_probability=1.0,
+            rng_seed=42,
+        )
+
+    effective, pair_labels, _ = collator()._build_pairing_batch(records)
+    # The fixture must actually produce negatives, or nothing below is exercised.
+    assert 0 in pair_labels, "fixture produced no shuffled rows"
+
+    for index, (record, label) in enumerate(zip(effective, pair_labels)):
+        if label == 1:
+            continue
+        assert record.sequence_heavy == heavies[index], "the heavy chain must be untouched"
+        assert record.sequence_light in lights, "donor light chain came from outside the batch"
+        assert record.sequence_light != lights[index], "a 'negative' kept its own light chain"
+
+    batch = collator()(records)
+    negatives = [i for i, label in enumerate(batch["pair_labels"].tolist()) if label == 0]
+    assert negatives, "fixture produced no shuffled rows"
+    supervised = sum(int((batch["labels"][i] != -100).sum()) for i in negatives)
+    assert supervised > 0, "MLM is not supervised on shuffled rows"
+
+
 def test_collator_returns_affinity_strength_tensors(tmp_path: Path, tokenizer, write_processed_jsonl_gz):
     records = [
         make_processed_antibody_antigen_record(

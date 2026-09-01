@@ -795,3 +795,188 @@ def test_canonical_parameter_counts_are_pinned():
     assert modern_1024 == 6_304_258
     assert modern_1024 - modern_680 == 1_585_152 == 3 * 256 * (1024 - 680) * 6
     assert (289 * 256) == 73_984
+
+
+# --------------------------------------------------------------------------- #
+# Dormant architecture controls
+#
+# Both bugs below are the same shape: a knob that VALIDATES and then does
+# nothing. Neither changes the parameter set, so neither could be caught by a
+# shape error, a strict load, or a crash -- an arm labelled "learned positions"
+# or "4 cross-attention heads" would train, converge, and be written up as an
+# architecture result for a block it never ran.
+#
+# The probes are permutation-based rather than value-based: self-attention with
+# no positional term of its own is permutation-EQUIVARIANT, so `f(Px) == P f(x)`
+# holds exactly when (and only when) no rotation is applied. Each probe is
+# paired with a power check on the opposite arm, because a probe that cannot
+# distinguish the two arms would pass against the broken code.
+# --------------------------------------------------------------------------- #
+_PERMUTATION = torch.tensor([3, 0, 5, 1, 4, 2])
+
+
+def _equivariance_gap(config) -> float:
+    """``max |f(Px) - P f(x)|`` for one `ModernEncoderLayer` on a full mask."""
+    from smallAntibodyGen.models.transformer import ModernEncoderLayer
+
+    torch.manual_seed(0)
+    layer = ModernEncoderLayer(config, config.d_model, config.n_heads).eval()
+    hidden = torch.randn(1, 6, config.d_model)
+    mask = torch.ones(1, 6, dtype=torch.long)
+    positions = torch.arange(1, 7).unsqueeze(0)
+    with torch.no_grad():
+        base = layer(hidden, mask, positions)
+        permuted = layer(hidden[:, _PERMUTATION, :], mask, positions)
+    return float((permuted - base[:, _PERMUTATION, :]).abs().max())
+
+
+def test_a_learned_position_block_does_not_also_rotate():
+    """
+    THE finding. `position_ids=None` means "derive the positions from the mask",
+    NOT "skip the rotation", so a learned-position block used to add the learned
+    table and then rotate on top of it -- two position encodings in the one
+    experiment whose purpose is to compare them.
+
+    With no positional term inside attention the block is permutation-
+    equivariant, so this gap is float noise. Under RoPE it is not (next test).
+    """
+    assert _equivariance_gap(_config(norm_type="rmsnorm")) < 1e-5
+
+
+def test_the_rope_arm_is_position_sensitive_so_the_probe_has_power():
+    """
+    Power check for the probe above, on the SAME code path with one field
+    changed. A probe that reported "no positional term" for both arms would pass
+    against the broken implementation and prove nothing.
+    """
+    gap = _equivariance_gap(_config(norm_type="rmsnorm", position_encoding="rope"))
+    assert gap > 1e-3
+
+
+def test_position_encoding_changes_what_the_modern_block_computes():
+    """
+    Stated as the property the bakeoff needs: two arms differing ONLY in
+    `position_encoding` must not be the same function. Before the fix these were
+    bit-identical -- the field selected a learned table on top and changed
+    nothing inside attention.
+    """
+    from smallAntibodyGen.models.transformer import ModernEncoderLayer
+
+    def run(config):
+        torch.manual_seed(1234)
+        layer = ModernEncoderLayer(config, config.d_model, config.n_heads).eval()
+        torch.manual_seed(7)
+        hidden = torch.randn(2, 5, config.d_model)
+        mask = torch.ones(2, 5, dtype=torch.long)
+        with torch.no_grad():
+            return layer(hidden, mask, torch.arange(1, 6).unsqueeze(0).expand(2, 5))
+
+    learned = run(_config(norm_type="rmsnorm"))
+    rope = run(_config(norm_type="rmsnorm", position_encoding="rope"))
+    # Same seed, so the weights are identical: any difference is the rotation.
+    assert not torch.allclose(learned, rope, atol=1e-6)
+
+
+def test_a_learned_position_block_builds_no_rotary_table():
+    """The even-`head_dim` requirement belongs to the rotation, so an arm that
+    does not rotate should not carry it."""
+    from smallAntibodyGen.models.transformer import ModernEncoderLayer
+
+    learned = ModernEncoderLayer(_config(norm_type="rmsnorm"), 32, 4)
+    rope = ModernEncoderLayer(_config(norm_type="rmsnorm", position_encoding="rope"), 32, 4)
+    assert learned.attn.use_rope is False and learned.attn.rotary is None
+    assert rope.attn.use_rope is True and rope.attn.rotary is not None
+
+
+def test_use_rope_false_ignores_position_ids_entirely():
+    """
+    Unit-level statement of the same contract, with its own power check.
+
+    The positions here are NOT a uniform shift, so they change the RELATIVE
+    offsets: RoPE genuinely responds to them, which is what makes "no response"
+    evidence of no rotation rather than evidence of RoPE's shift-invariance.
+    """
+    hidden = torch.randn(1, 4, 32)
+    mask = torch.ones(1, 4, dtype=torch.long)
+    scrambled = torch.tensor([[1, 5, 2, 9]])
+
+    off = RotarySelfAttention(d_model=32, n_heads=4, use_rope=False).eval()
+    with torch.no_grad():
+        assert torch.equal(off(hidden, mask), off(hidden, mask, position_ids=scrambled))
+
+    on = RotarySelfAttention(d_model=32, n_heads=4, use_rope=True).eval()
+    with torch.no_grad():
+        assert not torch.allclose(
+            on(hidden, mask), on(hidden, mask, position_ids=scrambled), atol=1e-5
+        )
+
+
+def test_the_learned_table_is_the_only_positional_signal_in_a_learned_encoder():
+    """
+    End to end through `TransformerSequenceEncoder`, so the fix is wired all the
+    way up and not only inside one layer. Zero the position table and a learned
+    encoder must become order-blind; anything left is a second position
+    encoding.
+    """
+    from smallAntibodyGen.models.mlm import TransformerSequenceEncoder
+
+    torch.manual_seed(0)
+    encoder = TransformerSequenceEncoder(_config(norm_type="rmsnorm")).eval()
+    assert encoder.position_embedding is not None, "fixture must exercise the learned path"
+    assert encoder.is_legacy_block is False, "fixture must exercise the modern block"
+    with torch.no_grad():
+        encoder.position_embedding.embedding.weight.zero_()
+        ids = torch.tensor([[4, 9, 12, 7, 5, 20]])
+        base, _ = encoder(ids)
+        permuted, _ = encoder(ids[:, _PERMUTATION])
+    assert torch.allclose(permuted, base[:, _PERMUTATION, :], atol=1e-5)
+
+
+def test_cross_attention_head_count_follows_its_own_knob():
+    """
+    `cross_attention_n_heads` validated and was then discarded for
+    `config.n_heads`. It exists precisely so the encoder's head shape can move
+    without dragging the antigen fusion along, so an arm that set it ran the
+    default fusion under a changed label.
+    """
+    from smallAntibodyGen.models.mlm import AntibodyAntigenCrossAttention
+
+    config = _config(d_model=32, n_heads=4, cross_attention_n_heads=2)
+    # The fixture must actually differ from the fallback, or it proves nothing.
+    assert config.cross_attention_n_heads != config.n_heads
+    model = AntibodyAntigenCrossAttention(config)
+    assert model.antibody_to_antigen.num_heads == 2
+    assert model.antigen_to_antibody.num_heads == 2
+    # The ENCODER is untouched: the two head counts resolve independently.
+    assert model.antibody_encoder.encoder.layers[0].self_attn.num_heads == 4
+
+
+def test_cross_attention_head_count_defaults_to_n_heads():
+    """`None` inherits `n_heads`, which is what every canonical config sets, so
+    the v5 chain builds exactly what it built before the knob was honored."""
+    from smallAntibodyGen.models.mlm import AntibodyAntigenCrossAttention
+
+    config = _modern(d_model=32, n_heads=4)
+    assert config.cross_attention_n_heads is None
+    model = AntibodyAntigenCrossAttention(config)
+    assert model.antibody_to_antigen.num_heads == 4
+    assert model.antigen_to_antibody.num_heads == 4
+
+
+def test_the_cross_attention_head_count_leaves_no_trace_in_the_state_dict():
+    """
+    Why the dormant knob was silent, pinned as a fact rather than a footnote.
+
+    `nn.MultiheadAttention` packs all heads into one `in_proj_weight`, so the
+    head count changes no parameter name and no shape: a checkpoint trained at
+    eight heads loads cleanly into a two-head model and computes something else.
+    Only the architecture fingerprint stands between that and a silent result --
+    which is why `cross_attention_n_heads` is a fingerprint key.
+    """
+    from smallAntibodyGen.models.mlm import AntibodyAntigenCrossAttention
+
+    def signature(**overrides):
+        model = AntibodyAntigenCrossAttention(_config(d_model=32, n_heads=4, **overrides))
+        return sorted((k, tuple(v.shape)) for k, v in model.state_dict().items())
+
+    assert signature() == signature(cross_attention_n_heads=2)

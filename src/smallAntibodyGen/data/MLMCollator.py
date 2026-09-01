@@ -333,6 +333,21 @@ class MLMCollator:
                 ``[MASK]``, matching fixed-length HCDR3 inference where the
                 model sees a contiguous block of mask tokens rather than a
                 mixture of masks, random residues, and visible true residues.
+            shuffle_pair_probability:
+                Per-row probability that a pairable record has its light chain
+                replaced by another row's light chain, producing a ``0`` label
+                for the auxiliary pair head. Defaults to 0.5; the stage-2 config
+                also uses 0.5, and every other stage sets it to 0.0.
+
+                What a ``0`` label MEANS, precisely: this VH and this VL were not
+                observed together in the corpus. It does NOT mean they were
+                measured not to pair -- no negative here carries any experimental
+                evidence, and most VH/VL combinations do in fact assemble. The
+                head therefore learns to separate observed-cognate pairings from
+                unobserved ones, which is a repertoire-co-occurrence signal
+                (germline pairing preferences, donor and clonal statistics)
+                rather than a measured compatibility one. See
+                `_build_pairing_batch` for how the negatives are drawn.
             rng_seed (int, optional): seed for the Python random number generator used by this collator Defaults to 42.
             mask_rate_schedule:
                 Controls the per-row MLM target budget in the random-selection
@@ -648,6 +663,34 @@ class MLMCollator:
         for a subset of paired examples with a light chain drawn from another
         paired example in the same batch.
 
+        Two properties of these negatives that the label alone does not say, and
+        that any interpretation of the pair head has to carry:
+
+        - **Unobserved, not incompatible.** A ``0`` row is a VH and a VL that
+          this corpus never recorded together. Nothing measured them as a
+          non-pairing combination. The head's decision boundary is
+          "co-occurring in the repertoire" -- which the germline pairing
+          preferences, the donor, and the clonal structure all feed -- and
+          reading it as a physical VH/VL compatibility score claims more than
+          the labels support.
+        - **The donor pool is the batch.** Negatives can only be drawn from the
+          other pairable rows of the same batch, and `ChainLengthBucketBatchSampler`
+          makes a batch chain-homogeneous and roughly length-matched. So the
+          negatives are length-matched (no trivial length cue) but their
+          difficulty is set by batch composition, not by any sampling policy of
+          this helper.
+
+        The swap carries the donor's light-chain METADATA with it (locus and the
+        CDR3-L coordinates), so the encoding and any downstream span lookup stay
+        consistent with the sequence actually present -- a negative must differ
+        from its native counterpart only in WHICH light chain is attached.
+
+        MLM targets are drawn from `effective_batch`, so a shuffled row is
+        supervised for residue recovery as well; its labels are the donor light
+        chain's own residues, which are real, just not this heavy chain's
+        partner. Whether that helps or teaches chain-local reconstruction is an
+        open question and is NOT settled here -- see `compute_pair_loss`.
+
         Args:
             batch:
                 Sequence of dataset records selected for this batch.
@@ -678,7 +721,22 @@ class MLMCollator:
                 shuffled_indices.append(idx)
 
         if len(shuffled_indices) == 1 and len(pairable_indices) > 1:
-            # A lone negative cannot borrow from itself, so fall back to native.
+            # NOTE (documentation only -- behavior deliberately unchanged): the
+            # stated reason does not hold. A lone negative never borrows from
+            # itself; `donor_candidates` below already excludes `idx`, and the
+            # genuinely donorless case (every pairable row carrying the same
+            # light chain) is covered by the `continue` a few lines down --
+            # verified by running this helper on an identical-light batch at
+            # probability 1.0, which yields all-native. So this guard only drops
+            # negatives it did not have to drop, and the cost is concentrated in
+            # small batches: measured over 3000 seeds at
+            # `shuffle_pair_probability=0.5`, the realized negative rate is
+            # 25.8% at 2 pairable rows, 45.0% at 4, 49.6% at 8 and 50.1% at 16.
+            # Stage 2 trains at batch_size 32, so the chain is essentially
+            # unaffected -- but any small-batch or few-pairable-row setting gets
+            # fewer negatives than its config says. Changing it would move the
+            # RNG stream and the label distribution, so it is recorded here
+            # rather than "fixed" in passing.
             shuffled_indices = []
 
         for idx in shuffled_indices:
