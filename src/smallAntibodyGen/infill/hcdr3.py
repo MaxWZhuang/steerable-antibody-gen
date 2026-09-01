@@ -504,14 +504,16 @@ class FixedLengthHCDR3Infiller:
         _guidance_base_max_length = (
             guidance_max_length if guidance_max_length is not None else max_length
         )
-        self._guidance_antigen_encode_max_length = (
-            _guidance_base_max_length
-            if guidance_antigen_encoder_type == "scratch"
-            else (
-                guidance_antigen_max_length
-                if guidance_antigen_max_length is not None
-                else _guidance_base_max_length
-            )
+        # AB-07, fourth call site. The guidance seam landed one commit BEFORE the
+        # AB-07 fix and carried its own copy of the pre-AB-07 expression, whose
+        # `scratch` branch clamped the antigen to the guidance model's ANTIBODY
+        # budget and made `guidance_antigen_max_length` inert -- so a guidance
+        # checkpoint trained at max_length 288 / antigen_max_length 1024 steered on
+        # a 288-token antigen while generation and scoring both saw 1024. Route it
+        # through the SAME resolver as the other three sites: the resolved budget
+        # does not depend on the encoder type.
+        self._guidance_antigen_encode_max_length = resolve_antigen_encode_max_length(
+            guidance_antigen_max_length, _guidance_base_max_length
         )
         # Antibody-state length ceiling for the guidance model. Unlike the scorer
         # (which truncates antigens with only a warning), the guidance model must

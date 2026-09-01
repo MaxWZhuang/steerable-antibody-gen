@@ -58,6 +58,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     compatibility head. This is distinct from ``--score-checkpoint``, which only
     attaches a post-hoc compatibility score for reporting and never influences
     sampling.
+
+    Guidance additionally refuses to run when the head supplying the binder term
+    was trained with ``compatibility_loss_weight: 0`` — the shipped stage-4
+    setting — unless ``--allow-untrained-guidance-head`` is passed. See
+    ``assert_guidance_head_was_trained`` for what that guard does and does not
+    establish.
     """
     parser = argparse.ArgumentParser(description="Generate antigen-conditioned HCDR3 infill candidates.")
     parser.add_argument("--checkpoint", required=True, type=str)
@@ -107,6 +113,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Optional separately trained guidance classifier (a dual-stream "
         "checkpoint) whose compatibility head supplies the binder term instead "
         "of the generation model's own head. Requires --guidance-strength > 0.",
+    )
+    parser.add_argument(
+        "--allow-untrained-guidance-head",
+        action="store_true",
+        help="Steer with a compatibility head that received compatibility_loss_weight "
+        "== 0 in the run that produced its checkpoint. Off by default: such a head is "
+        "frozen at whatever the PREVIOUS stage left while the representation feeding "
+        "it kept training, so its binder term is not a validated classifier signal. "
+        "Use only for a deliberate negative control, and say so in the writeup.",
     )
     parser.add_argument("--score-checkpoint", type=str, default=None)
     parser.add_argument("--no-score", action="store_true")
@@ -308,6 +323,78 @@ def candidate_to_json(
     }
 
 
+def assert_guidance_head_was_trained(
+    binder_cfg: TrainConfig,
+    *,
+    checkpoint_path: Path,
+    is_external: bool,
+    allow_untrained: bool,
+) -> None:
+    """
+    Refuse to steer with a compatibility head that was given zero loss weight.
+
+    Guidance multiplies ``gamma`` by ``log p(binder | x[pos := a])`` read off one
+    checkpoint's compatibility head. Whether that number means anything is an
+    assumption this CLI can partly check: if the run that produced the checkpoint
+    set ``compatibility_loss_weight: 0``, the head received NO gradient in that
+    run while the encoder feeding it kept training on the MLM objective. The head
+    is then frozen at whatever the previous stage left it, reading a
+    representation that has since moved — so the binder term is a stale readout,
+    not a validated classifier signal, and a gamma sweep against it cannot
+    distinguish "steering does not help" from "the steerer is not a classifier".
+
+    This is the shipped default for the chain's own stage 4
+    (``configs/refine_antigen_hcdr3_infill.yaml`` sets
+    ``compatibility_loss_weight: 0.0``, and ``mlm_train.py`` forces the same
+    default for that stage), which is exactly the checkpoint the README's guided
+    example passes to ``--checkpoint``. Refusing loudly follows the same
+    fail-on-explicit rule as the ``--score-checkpoint`` guard below: the user
+    explicitly asked for guidance, so a silently meaningless binder term is worse
+    than an error.
+
+    This checks the ONE thing that is mechanically knowable from the checkpoint.
+    It does NOT establish that the head is a good classifier on the states
+    guidance queries — guidance evaluates it on partially filled HCDR3 spans and
+    on ~19 counterfactual residue substitutions per position, whereas stage 3
+    trained it under ordinary ~10% corruption and stage 4 under ``full_span``
+    masking. Training a head on that state distribution is what
+    ``hcdr3_mask_mode: partial_span`` exists for; measuring whether gamma can move
+    anything is what ``scripts/probe_steering_reachability.py`` is for. Neither is
+    implied by passing this guard.
+
+    Args:
+        binder_cfg: Config of the checkpoint whose head supplies the binder term.
+        checkpoint_path: That checkpoint's path, for the error message.
+        is_external: Whether it came from ``--guidance-checkpoint``.
+        allow_untrained: ``--allow-untrained-guidance-head`` escape hatch.
+
+    Raises:
+        SystemExit: If the head's loss weight was zero and no override was given.
+    """
+    if allow_untrained or binder_cfg.compatibility_loss_weight != 0:
+        return
+    which = (
+        "--guidance-checkpoint" if is_external else "--checkpoint (its own head)"
+    )
+    raise SystemExit(
+        f"refusing to guide with the compatibility head from {which}: "
+        f"{checkpoint_path} was trained with compatibility_loss_weight = 0 "
+        f"(training_stage = {binder_cfg.training_stage!r}), so that head got no "
+        "gradient in the run that produced it while the representation feeding it "
+        "kept training. Its binder term is a stale readout, not a validated "
+        "classifier, and a gamma sweep against it cannot separate 'steering does "
+        "not help' from 'the steerer is not a classifier'.\n"
+        "Fix one of: pass --guidance-checkpoint pointing at a checkpoint whose "
+        "compatibility head was actually trained (the stage-3 real-label run has "
+        "compatibility_loss_weight: 1.0); or re-run the infill stage with a "
+        "non-zero compatibility_loss_weight (ideally with "
+        "hcdr3_mask_mode: partial_span, which trains the head on the partially "
+        "filled states guidance queries); or pass "
+        "--allow-untrained-guidance-head to proceed deliberately as a negative "
+        "control."
+    )
+
+
 def assert_generated_any(rows: Sequence[dict[str, Any]], *, skipped_count: int) -> None:
     """
     Guard against a silent no-op generation run.
@@ -390,6 +477,20 @@ def main(argv: Sequence[str] | None = None) -> None:
         # + max_length) by build_infiller.
         guidance_model, guidance_cfg = load_dual_stream_model(
             guidance_path, data_path=args.data_path, device=device
+        )
+
+    if args.guidance_strength > 0:
+        # Checked on whichever checkpoint actually supplies the binder term, so
+        # routing a stale head in through --guidance-checkpoint is not a way
+        # around the guard. Only reachable at gamma > 0: at gamma == 0 no
+        # classifier is consulted, so the head's provenance is irrelevant.
+        assert_guidance_head_was_trained(
+            guidance_cfg if guidance_cfg is not None else cfg,
+            checkpoint_path=Path(
+                args.guidance_checkpoint if guidance_cfg is not None else args.checkpoint
+            ),
+            is_external=guidance_cfg is not None,
+            allow_untrained=args.allow_untrained_guidance_head,
         )
 
     infiller = build_infiller(
