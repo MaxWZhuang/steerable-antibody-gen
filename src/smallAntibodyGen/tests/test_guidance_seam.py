@@ -290,7 +290,13 @@ def test_guidance_antigen_encoding_uses_the_guidance_tokenizer(
     tokenizer, heavy_seq, heavy_cdr3
 ):
     """The guidance model tokenizes antigens with ITS OWN effective max length,
-    not the generation model's."""
+    not the generation model's.
+
+    Scope note: this varies only ``guidance_max_length``, i.e. it pins the
+    "``guidance_antigen_max_length`` is None, so inherit the guidance ANTIBODY
+    budget" half of the rule. The ``guidance_antigen_max_length`` knob itself is
+    covered by the two AB-07 tests below -- this one passes either way.
+    """
     record = _span_record(tokenizer, heavy_seq, heavy_cdr3, ANTIGEN)
     model = _dual_model(tokenizer)
     infiller = _infiller(
@@ -300,6 +306,79 @@ def test_guidance_antigen_encoding_uses_the_guidance_tokenizer(
     guide_ids, _ = infiller._encode_guidance_antigen(record)
     assert guide_ids.size(1) <= 16
     assert gen_ids.size(1) != guide_ids.size(1)
+
+
+# A long antigen, so every budget under test actually truncates and the observed
+# token count is the budget rather than the sequence length.
+LONG_ANTIGEN = ANTIGEN * 8  # 288 residues -> 290 tokens
+
+
+def test_guidance_antigen_budget_is_honoured_for_a_scratch_encoder(
+    tokenizer, heavy_seq, heavy_cdr3
+):
+    """AB-07 at its fourth call site.
+
+    The guidance seam landed one commit before the AB-07 fix and kept a private
+    copy of the pre-AB-07 expression, whose ``scratch`` branch clamped the antigen
+    to the guidance model's ANTIBODY budget -- making
+    ``guidance_antigen_max_length`` inert exactly where the shipped chain sets it
+    (max_length 288, antigen_max_length 1024). The resolved budget must not depend
+    on the encoder type.
+    """
+    record = _span_record(tokenizer, heavy_seq, heavy_cdr3, LONG_ANTIGEN)
+    model = _dual_model(tokenizer)
+    infiller = _infiller(
+        tokenizer,
+        model,
+        guidance_model=copy.deepcopy(model),
+        guidance_antigen_encoder_type="scratch",
+        guidance_max_length=160,
+        guidance_antigen_max_length=96,
+    )
+    # Pre-fix both of these were 160 -- the guidance ANTIBODY budget.
+    assert infiller._guidance_antigen_encode_max_length == 96
+    guide_ids, _ = infiller._encode_guidance_antigen(record)
+    assert guide_ids.size(1) == 96
+
+
+def test_guided_decoding_feeds_the_guidance_model_its_own_antigen_budget(
+    tokenizer, heavy_seq, heavy_cdr3
+):
+    """The budget must survive to the enumeration forward, not just to the
+    private encode helper.
+
+    ``guided_infill`` builds the ~20-way enumeration antigen state once from the
+    guidance antigen stream, so a budget clamped back to the antibody length
+    silently truncates the antigen behind EVERY steering decision -- with no
+    error and no shape mismatch, because the guidance encoder's positional table
+    is larger, not smaller.
+    """
+    record = _span_record(tokenizer, heavy_seq, heavy_cdr3, LONG_ANTIGEN)
+    model = _dual_model(tokenizer, seed=11)
+    guide = _dual_model(tokenizer, seed=4242)
+
+    seen_antigen_lengths: list[int] = []
+    original_encode_antigen = guide.encode_antigen
+
+    def spy(antigen_input_ids, *args, **kwargs):
+        seen_antigen_lengths.append(int(antigen_input_ids.size(1)))
+        return original_encode_antigen(antigen_input_ids, *args, **kwargs)
+
+    guide.encode_antigen = spy
+    infiller = _infiller(
+        tokenizer,
+        model,
+        guidance_model=guide,
+        guidance_antigen_encoder_type="scratch",
+        guidance_max_length=192,
+        guidance_antigen_max_length=64,
+    )
+    infiller.guided_infill(
+        record, num_samples=1, guidance_strength=1.0, order="left_to_right"
+    )
+    # One enumeration state per guided_infill call, at the guidance ANTIGEN
+    # budget. Pre-fix this was [192] -- the guidance antibody budget.
+    assert seen_antigen_lengths == [64]
 
 
 # ------------------------------------------------- amortized antigen encoding
@@ -469,3 +548,149 @@ def test_candidate_row_records_the_guidance_checkpoint(project_root: Path, token
         guidance_checkpoint="checkpoints/guide/best.pt",
     )
     assert off["guidance_checkpoint"] is None
+
+
+# ------------------------------------------ stale-compat-head guidance guard
+
+
+def _stage4_checkpoint(hcdr3_infill, tmp_path, *, compatibility_loss_weight, name):
+    """
+    Write a real, strictly-loadable dual-stream checkpoint for the infill stage.
+
+    Built through the CLI's OWN ``build_model``/``TrainConfig`` so the saved
+    state dict is exactly what ``load_dual_stream_model`` reconstructs; the guard
+    under test runs after that load, so a hand-rolled state dict would fail
+    earlier for an unrelated reason.
+    """
+    from dataclasses import asdict
+
+    merged = hcdr3_infill._train_config_defaults()
+    merged.update(
+        training_stage="antigen_hcdr3_infill_refine",
+        data_path="unused.jsonl.gz",
+        # The stage validator requires a warm-start source; never read here.
+        init_checkpoint="unused_stage3.pt",
+        max_length=64,
+        d_model=32,
+        n_heads=4,
+        n_layers=1,
+        d_ff=64,
+        dropout=0.0,
+        compatibility_loss_weight=compatibility_loss_weight,
+    )
+    cfg = hcdr3_infill.TrainConfig(**merged)
+    model = hcdr3_infill.build_model(
+        hcdr3_infill.build_tokenizer(), cfg, torch.device("cpu")
+    )
+    path = tmp_path / name
+    torch.save({"model_state_dict": model.state_dict(), "train_config": asdict(cfg)}, path)
+    return path
+
+
+def _run_guided_cli(hcdr3_infill, checkpoint, *extra):
+    """Invoke the CLI far enough to reach the guard, returning the raised error."""
+    with pytest.raises(BaseException) as excinfo:
+        hcdr3_infill.main(
+            [
+                "--checkpoint",
+                str(checkpoint),
+                "--data-path",
+                "no_such_dataset.jsonl.gz",
+                "--guidance-strength",
+                "1.0",
+                "--no-score",
+                *extra,
+            ]
+        )
+    return str(excinfo.value)
+
+
+def test_guidance_refuses_a_compat_head_that_got_zero_loss_weight(
+    project_root: Path, tmp_path: Path
+):
+    """The shipped stage-4 config sets compatibility_loss_weight: 0.0, so that
+    checkpoint's compat head received no gradient while the encoder feeding it
+    kept training. Steering by it silently produces a stale readout, and a gamma
+    sweep against it cannot separate 'guidance does not help' from 'the steerer
+    is not a classifier'. Refuse rather than emit the numbers."""
+    hcdr3_infill = _load_hcdr3_infill(project_root)
+    stale = _stage4_checkpoint(
+        hcdr3_infill, tmp_path, compatibility_loss_weight=0.0, name="stage4_stale.pt"
+    )
+    message = _run_guided_cli(hcdr3_infill, stale)
+    assert "compatibility_loss_weight = 0" in message
+    assert "--allow-untrained-guidance-head" in message
+
+
+def test_guidance_guard_passes_when_the_compat_head_was_trained(
+    project_root: Path, tmp_path: Path
+):
+    """Positive control: the guard must be keyed on the loss weight, not on
+    'guidance is on'. A head that was actually trained gets through, and the run
+    proceeds to fail on the (deliberately missing) dataset instead."""
+    hcdr3_infill = _load_hcdr3_infill(project_root)
+    trained = _stage4_checkpoint(
+        hcdr3_infill, tmp_path, compatibility_loss_weight=1.0, name="stage4_trained.pt"
+    )
+    message = _run_guided_cli(hcdr3_infill, trained)
+    assert "refusing to guide" not in message
+
+
+def test_guidance_guard_is_overridable_for_a_deliberate_negative_control(
+    project_root: Path, tmp_path: Path
+):
+    """The override exists so a negative control is still runnable; without it the
+    guard would be a wall rather than a speed bump."""
+    hcdr3_infill = _load_hcdr3_infill(project_root)
+    stale = _stage4_checkpoint(
+        hcdr3_infill, tmp_path, compatibility_loss_weight=0.0, name="stage4_override.pt"
+    )
+    message = _run_guided_cli(
+        hcdr3_infill, stale, "--allow-untrained-guidance-head"
+    )
+    assert "refusing to guide" not in message
+
+
+def test_guidance_guard_is_not_consulted_at_gamma_zero(
+    project_root: Path, tmp_path: Path
+):
+    """At gamma == 0 no classifier is consulted, so the head's provenance is
+    irrelevant and the guard must not fire -- otherwise the zero-weight stage-4
+    checkpoint could not be used for ordinary unguided infilling at all."""
+    hcdr3_infill = _load_hcdr3_infill(project_root)
+    stale = _stage4_checkpoint(
+        hcdr3_infill, tmp_path, compatibility_loss_weight=0.0, name="stage4_gamma0.pt"
+    )
+    with pytest.raises(BaseException) as excinfo:
+        hcdr3_infill.main(
+            [
+                "--checkpoint",
+                str(stale),
+                "--data-path",
+                "no_such_dataset.jsonl.gz",
+                "--guidance-strength",
+                "0",
+                "--no-score",
+            ]
+        )
+    assert "refusing to guide" not in str(excinfo.value)
+
+
+def test_guidance_guard_also_covers_an_external_guidance_checkpoint(
+    project_root: Path, tmp_path: Path
+):
+    """The guard is keyed on the checkpoint that actually supplies the binder
+    term, so routing a zero-weight head in through --guidance-checkpoint is not a
+    way around it."""
+    hcdr3_infill = _load_hcdr3_infill(project_root)
+    trained = _stage4_checkpoint(
+        hcdr3_infill, tmp_path, compatibility_loss_weight=1.0, name="gen_trained.pt"
+    )
+    stale_guide = _stage4_checkpoint(
+        hcdr3_infill, tmp_path, compatibility_loss_weight=0.0, name="guide_stale.pt"
+    )
+    message = _run_guided_cli(
+        hcdr3_infill, trained, "--guidance-checkpoint", str(stale_guide)
+    )
+    assert "--guidance-checkpoint" in message
+    assert "compatibility_loss_weight = 0" in message
