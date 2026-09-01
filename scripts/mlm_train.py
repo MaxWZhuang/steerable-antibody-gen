@@ -1536,6 +1536,133 @@ def format_baseline_summary(
     )
 
 
+def report_shortcut_baselines(
+    train_dataset: OASSequenceDataset | RecordSubsetDataset,
+    val_dataset: OASSequenceDataset | RecordSubsetDataset,
+    known_target_probe: RecordSubsetDataset | None,
+    row_random_probe: RecordSubsetDataset | None,
+    tokenizer: AminoAcidTokenizer,
+    cfg: TrainConfig,
+) -> list[str]:
+    """
+    Print the group-majority shortcut baselines for EVERY antigen stage.
+
+    These are the FLOOR that change-control Rule 4 requires beside any
+    compatibility claim: the accuracy a trivial strategy reaches on the same
+    split (always-positive, and per-group majority vote on target family,
+    dataset, antibody format, antigen-length bucket).
+
+    Why this function exists at all: the three helpers it calls have always been
+    gated on `is_antigen_stage`, but the CALL SITE in `main` was gated on
+    `cfg.training_stage == "antigen_refine"` -- the synthetic shuffled-negative
+    stage, added before `antigen_real_label_refine` existed and never widened
+    when it did. No checked-in config uses `antigen_refine`, so in practice the
+    floor printed for no run at all. The stage gate now lives HERE, inside the
+    function, so a test can drive the real decision instead of a copy of it.
+
+    Nothing about the baselines themselves changed: same fit sample, same
+    splits, same order, same metrics, same log-line format.
+
+    RNG, and why this is additive rather than behavior-changing: the helpers
+    iterate DataLoaders, and creating a DataLoader ITERATOR draws once from the
+    global torch RNG (`_BaseDataLoaderIter.__init__` seeds `_base_seed` from it),
+    with num_workers=0 included. This runs BEFORE `build_model`, so on a stage
+    that did not previously reach it those extra draws would shift every
+    freshly-initialized antigen-side parameter and the whole dropout stream -- a
+    read-only diagnostic silently changing what gets trained. The global RNG is
+    therefore snapshotted and restored around the entire computation, so
+    enabling the baselines leaves the training run byte-identical.
+
+    Args:
+        train_dataset:
+            The dataset the optimizer will train on (probe rows already removed).
+        val_dataset:
+            The validation split.
+        known_target_probe:
+            Same-target probe carved out of the training rows, or None.
+        row_random_probe:
+            Row-random held-out probe, or None.
+        tokenizer:
+            Tokenizer used to build the diagnostic eval loaders.
+        cfg:
+            Training configuration.
+
+    Returns:
+        The lines printed, in order. Empty list for a non-antigen stage.
+    """
+    if not is_antigen_stage(cfg.training_stage):
+        return []
+
+    python_rng_state = random.getstate()
+    numpy_rng_state = np.random.get_state()
+    torch_rng_state = torch.get_rng_state()
+    lines: list[str] = []
+    try:
+        baseline_fit = fit_group_majority_baselines(train_dataset, tokenizer, cfg)
+        if not baseline_fit:
+            # Graceful degradation, not silence: a stage whose training rows
+            # carry no binary compatibility label has no majority to fit, so
+            # there is no floor. Saying so is the point -- printing nothing
+            # reads as "no shortcut exists".
+            lines.append(
+                "[compat-baseline] not computable: no training row carries a binary "
+                "compatibility label, so no majority baseline can be fit. Any "
+                f"compatibility metric from stage '{cfg.training_stage}' has no floor "
+                "to be read against."
+            )
+        else:
+            lines.append(
+                "[compat-baseline-fit] "
+                f"fit_records={baseline_fit['fit_records']} "
+                f"fit_labeled={baseline_fit['fit_labeled_examples']} "
+                f"fit_pos_rate={baseline_fit['positive_rate']:.4f} "
+                f"fallback_label={baseline_fit['fallback_label']}"
+            )
+            baseline_parts: list[str] = []
+            for prefix, split_dataset in (
+                ("train", train_dataset),
+                ("known_target_probe", known_target_probe),
+                ("row_random_probe", row_random_probe),
+                ("val", val_dataset),
+            ):
+                if split_dataset is None or len(split_dataset) == 0:
+                    continue
+                split_metrics = evaluate_group_majority_baselines(
+                    split_dataset,
+                    tokenizer,
+                    cfg,
+                    baseline_fit,
+                )
+                if split_metrics:
+                    baseline_parts.append(format_baseline_summary(split_metrics, prefix))
+                else:
+                    baseline_parts.append(f"{prefix}=not_computable(no_labeled_rows)")
+            if baseline_parts:
+                lines.append("[compat-baseline] " + " ".join(baseline_parts))
+            if baseline_fit["positive_rate"] in (0.0, 1.0):
+                # The HCDR3-infill stage filters to strong binders, so every row
+                # that carries a binary label carries a 1. Accuracy against a
+                # single-class population is vacuous and AUROC/AP are undefined;
+                # a bare 1.0000 next to a model number would read as a hard floor.
+                lines.append(
+                    "[compat-baseline] WARNING: the fitted compatibility population is "
+                    f"single-class (fit_pos_rate={baseline_fit['positive_rate']:.4f}), so "
+                    "the accuracy baselines above are vacuous and AUROC/AP are undefined "
+                    f"on this stage. Stage '{cfg.training_stage}' has no usable "
+                    "compatibility floor -- do not quote its compatibility metrics."
+                )
+    finally:
+        # Restored unconditionally: a raise inside the diagnostic must not leave
+        # the training RNG advanced either.
+        random.setstate(python_rng_state)
+        np.random.set_state(numpy_rng_state)
+        torch.set_rng_state(torch_rng_state)
+
+    for line in lines:
+        print(line)
+    return lines
+
+
 def build_train_loader(
     dataset: OASSequenceDataset,
     tokenizer: AminoAcidTokenizer,
@@ -4277,43 +4404,17 @@ def main() -> None:
             f"probe_targets={probe_overlap['val_targets']} "
             f"overlap={probe_overlap['overlap']}"
         )
-    if cfg.training_stage == "antigen_refine":
-        baseline_fit = fit_group_majority_baselines(train_dataset, tokenizer, cfg)
-        if baseline_fit:
-            print(
-                "[compat-baseline-fit] "
-                f"fit_records={baseline_fit['fit_records']} "
-                f"fit_labeled={baseline_fit['fit_labeled_examples']} "
-                f"fit_pos_rate={baseline_fit['positive_rate']:.4f} "
-                f"fallback_label={baseline_fit['fallback_label']}"
-            )
-            baseline_parts = []
-            train_baseline = evaluate_group_majority_baselines(train_dataset, tokenizer, cfg, baseline_fit)
-            if train_baseline:
-                baseline_parts.append(format_baseline_summary(train_baseline, "train"))
-            if train_known_target_probe is not None and len(train_known_target_probe) > 0:
-                known_target_baseline = evaluate_group_majority_baselines(
-                    train_known_target_probe,
-                    tokenizer,
-                    cfg,
-                    baseline_fit,
-                )
-                if known_target_baseline:
-                    baseline_parts.append(format_baseline_summary(known_target_baseline, "known_target_probe"))
-            if row_random_probe is not None and len(row_random_probe) > 0:
-                row_random_baseline = evaluate_group_majority_baselines(
-                    row_random_probe,
-                    tokenizer,
-                    cfg,
-                    baseline_fit,
-                )
-                if row_random_baseline:
-                    baseline_parts.append(format_baseline_summary(row_random_baseline, "row_random_probe"))
-            val_baseline = evaluate_group_majority_baselines(val_dataset, tokenizer, cfg, baseline_fit)
-            if val_baseline:
-                baseline_parts.append(format_baseline_summary(val_baseline, "val"))
-            if baseline_parts:
-                print("[compat-baseline] " + " ".join(baseline_parts))
+    # Preflight: the Rule 4 FLOOR. Prints for every antigen stage, not just the
+    # synthetic one, and is RNG-neutral so switching it on for the production
+    # stages leaves their training results byte-identical.
+    report_shortcut_baselines(
+        train_dataset,
+        val_dataset,
+        train_known_target_probe,
+        row_random_probe,
+        tokenizer,
+        cfg,
+    )
 
     model = build_model(tokenizer, cfg, device)
     if cfg.paired_init_seed:
