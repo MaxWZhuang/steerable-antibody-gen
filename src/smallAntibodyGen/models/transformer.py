@@ -320,6 +320,13 @@ class RotarySelfAttention(nn.Module):
     would make softmax divide by zero and produce NaN, which then propagates
     through the residual stream and poisons the whole batch; such rows are
     detected and their output zeroed instead.
+
+    ``use_rope=False`` turns the rotation OFF entirely, leaving plain non-causal
+    attention with no positional term of its own. This is what a learned-position
+    block needs, and it has to be an explicit flag: ``position_ids=None`` means
+    "derive the positions from the mask", NOT "skip the rotation", so a caller
+    that tried to disable RoPE by withholding positions would get RoPE anyway --
+    on top of the learned table -- and the arm would still train.
     """
 
     def __init__(
@@ -329,6 +336,7 @@ class RotarySelfAttention(nn.Module):
         bias: bool = True,
         dropout: float = 0.0,
         rope_base: float = 10000.0,
+        use_rope: bool = True,
     ) -> None:
         super().__init__()
         validate_head_count(d_model, n_heads, "n_heads")
@@ -336,12 +344,19 @@ class RotarySelfAttention(nn.Module):
         self.n_heads = int(n_heads)
         self.head_dim = self.d_model // self.n_heads
         self.dropout = float(dropout)
+        self.use_rope = bool(use_rope)
 
         self.q_proj = nn.Linear(d_model, d_model, bias=bias)
         self.k_proj = nn.Linear(d_model, d_model, bias=bias)
         self.v_proj = nn.Linear(d_model, d_model, bias=bias)
         self.out_proj = nn.Linear(d_model, d_model, bias=bias)
-        self.rotary = RotaryEmbedding(self.head_dim, base=rope_base)
+        # Not built at all when unused: the even-``head_dim`` requirement is a
+        # property of the rotation, so it should not constrain an arm that does
+        # not rotate. `inv_freq` is a non-persistent buffer either way, so this
+        # changes no state dict.
+        self.rotary = (
+            RotaryEmbedding(self.head_dim, base=rope_base) if self.use_rope else None
+        )
 
     def _split_heads(self, x: torch.Tensor) -> torch.Tensor:
         batch, seq, _ = x.shape
@@ -358,22 +373,23 @@ class RotarySelfAttention(nn.Module):
             hidden: ``[batch, seq, d_model]``.
             attention_mask: ``[batch, seq]``, 1 for real tokens and 0 for padding.
             position_ids: optional explicit positions; derived from the mask when
-                omitted, using the same convention as the learned table.
+                omitted, using the same convention as the learned table. Ignored
+                when ``use_rope`` is False -- there is nothing to position.
         """
         if hidden.dim() != 3:
             raise ValueError("hidden must have shape [batch, seq, d_model]")
         if attention_mask.shape != hidden.shape[:2]:
             raise ValueError("attention_mask must have shape [batch, seq]")
 
-        if position_ids is None:
-            position_ids = position_ids_from_mask(attention_mask)
-
         query = self._split_heads(self.q_proj(hidden))
         key = self._split_heads(self.k_proj(hidden))
         value = self._split_heads(self.v_proj(hidden))
 
-        cos, sin = self.rotary(position_ids)
-        query, key = apply_rotary_pos_emb(query, key, cos, sin)
+        if self.use_rope:
+            if position_ids is None:
+                position_ids = position_ids_from_mask(attention_mask)
+            cos, sin = self.rotary(position_ids)
+            query, key = apply_rotary_pos_emb(query, key, cos, sin)
 
         # [batch, 1, 1, seq]; True means "may be attended to". No causal term.
         keep = attention_mask.bool()[:, None, None, :]
@@ -470,7 +486,11 @@ class ModernEncoderLayer(nn.Module):
     Attention is always :class:`RotarySelfAttention`; when
     ``position_encoding == "learned"`` the rotation is simply not applied, so the
     two position schemes share one attention implementation rather than two that
-    could drift apart.
+    could drift apart. "Not applied" is carried by the explicit ``use_rope`` flag
+    on the attention module, not by withholding ``position_ids``: withholding
+    them means "derive them from the mask", so the learned arm used to add the
+    learned table AND rotate on top of it -- two position encodings in an
+    experiment whose whole purpose is to compare one against the other.
     """
 
     def __init__(self, config, d_model: int, n_heads: int) -> None:
@@ -484,6 +504,7 @@ class ModernEncoderLayer(nn.Module):
             n_heads=n_heads,
             bias=config.attention_bias,
             dropout=config.dropout,
+            use_rope=self.use_rope,
         )
         self.ffn = build_ffn(config, d_model)
         self.dropout = nn.Dropout(config.dropout)
@@ -495,8 +516,10 @@ class ModernEncoderLayer(nn.Module):
         position_ids: torch.Tensor | None,
     ) -> torch.Tensor:
         # With a learned table the positions are already IN the embeddings, so
-        # applying RoPE too would encode position twice.
-        return self.attn(hidden, attention_mask, position_ids if self.use_rope else None)
+        # applying RoPE too would encode position twice. The attention module
+        # owns that decision through `use_rope`; passing `None` here would only
+        # have made it DERIVE the positions and rotate anyway.
+        return self.attn(hidden, attention_mask, position_ids)
 
     def forward(
         self,

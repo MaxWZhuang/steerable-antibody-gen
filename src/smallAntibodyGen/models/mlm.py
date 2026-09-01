@@ -757,6 +757,15 @@ class AntibodyMLM(nn.Module):
         """
         Predict whether each heavy/light combination is native or shuffled.
 
+        Native-vs-shuffled, and no more than that. Class 0 is a VH/VL pairing the
+        corpus never recorded together (`MLMCollator._build_pairing_batch` grafts
+        another batch row's light chain on); it is not a measured incompatibility,
+        and most VH/VL combinations do in fact assemble. So this head scores
+        repertoire CO-OCCURRENCE -- germline pairing preference, donor and clonal
+        structure -- and calling its output a compatibility score, as the
+        surrounding `compute_pair_loss` / `compute_losses` argument names do,
+        claims more than the labels carry.
+
         Args:
             cls_hidden:
                 Tensor of shape [batch_size, d_model] representing the final
@@ -880,6 +889,20 @@ class AntibodyMLM(nn.Module):
         """
         Compute native-vs-shuffled pair classification loss.
 
+        OPEN QUESTION, recorded so it is not rediscovered: the MLM loss is
+        computed over the SAME rows, shuffled ones included -- `MLMCollator`
+        draws its targets from `effective_batch`, so a row whose light chain was
+        grafted from another example still contributes residue-recovery targets
+        (its labels are the donor light chain's real residues). On a shuffled
+        row the heavy chain is not the light chain's partner, so cross-chain
+        conditioning is actively misleading for residue recovery, and the
+        gradient on those rows rewards CHAIN-LOCAL reconstruction. At the stage-2
+        setting (`shuffle_pair_probability: 0.5`) that is about half the pairable
+        rows. Whether it hurts is untested. The cheap arm is a two-way ablation
+        at fixed everything else -- MLM on all rows (today) vs MLM masked to
+        `pair_labels == 1` rows only -- read out on paired val MLM loss and on
+        pair-head accuracy. Not changed here: it moves the objective.
+
         Args:
             pair_logits:
                 Tensor of shape [batch_size, 2] containing compatibility logits.
@@ -998,15 +1021,23 @@ class AntibodyAntigenCrossAttention(nn.Module):
                 config, max_length=config.effective_antigen_max_length
             )
 
+        # `resolved_cross_attention_n_heads`, NOT `n_heads`: the resolver is what
+        # makes `cross_attention_n_heads` a real knob. Reading `n_heads` here
+        # validated the field and then ignored it, so an arm that set it would
+        # have run the DEFAULT head count under the label of a changed one --
+        # and nothing would fail, because nn.MultiheadAttention's parameter set
+        # does not depend on its head count. `None` resolves to `n_heads`, so
+        # every existing config builds exactly what it built before.
+        cross_attention_n_heads = config.resolved_cross_attention_n_heads
         self.antibody_to_antigen = nn.MultiheadAttention(
             embed_dim=config.d_model,
-            num_heads=config.n_heads,
+            num_heads=cross_attention_n_heads,
             dropout=config.dropout,
             batch_first=True,
         )
         self.antigen_to_antibody = nn.MultiheadAttention(
             embed_dim=config.d_model,
-            num_heads=config.n_heads,
+            num_heads=cross_attention_n_heads,
             dropout=config.dropout,
             batch_first=True,
         )
