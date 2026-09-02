@@ -10,6 +10,10 @@ measures is to read the file the checkpoint trained on.
 
 What it measures, per corpus and across the two:
 
+- **split-rule reproduction** -- whether every stored stage-2 split is exactly
+  what the current heavy-chain key would assign. Heavy-chain overlap is the
+  outcome invariant; this is the cheaper provenance invariant that proves the
+  artifact was actually made by the corrected producer.
 - **exact record overlap** -- a val row whose full encoded sequence appears in
   train. This is the strict definition of a leaked evaluation row.
 - **component overlap** -- a val row that SHARES a chain (heavy or light) or an
@@ -39,11 +43,18 @@ import argparse
 import gzip
 import hashlib
 import json
+import sys
 from pathlib import Path
 from typing import Any, Iterator
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_VERSION = "split-leakage-audit/1"
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from prepare_oas import deterministic_split  # noqa: E402
+
+PROJECT_ROOT = SCRIPT_DIR.parent
+SCHEMA_VERSION = "split-leakage-audit/2"
 
 UNPAIRED = PROJECT_ROOT / "data/processed/oas_unpaired_3m/oas_all.jsonl.gz"
 PAIRED = PROJECT_ROOT / "data/processed/oas_paired_all/oas_paired.jsonl.gz"
@@ -130,6 +141,63 @@ def overlap(val_values: list[bytes | None], train_set: set[bytes]) -> dict[str, 
     }
 
 
+def paired_split_reproduction(path: Path, val_percent: int = 10) -> dict[str, Any]:
+    """Compare stored paired splits with the current heavy-chain split rule.
+
+    A zero heavy-chain straddle is the semantic invariant. This check answers a
+    narrower provenance question: was each row assigned by the producer that is
+    currently on disk? An artifact made with the old ``(heavy, light)`` key can
+    agree about 82% of the time by chance at a 90/10 split, so anything short of
+    exact agreement is decisive.
+    """
+    matched = 0
+    mismatched = 0
+    missing_key = 0
+    other_split = 0
+    mismatch_examples: list[dict[str, str]] = []
+
+    for record in read_records(path):
+        stored = record.get("split")
+        if stored not in {"train", "val"}:
+            other_split += 1
+            continue
+
+        heavy_locus = record.get("heavy_locus")
+        heavy_sequence = record.get("sequence_heavy")
+        if not heavy_locus or not heavy_sequence:
+            missing_key += 1
+            continue
+
+        expected = deterministic_split(
+            f"{heavy_locus}:{heavy_sequence}", val_percent=val_percent
+        )
+        if stored == expected:
+            matched += 1
+        else:
+            mismatched += 1
+            if len(mismatch_examples) < 10:
+                mismatch_examples.append({
+                    "heavy_digest": hashlib.sha256(
+                        str(heavy_sequence).encode("utf-8")
+                    ).hexdigest()[:16],
+                    "stored": str(stored),
+                    "expected": expected,
+                })
+
+    compared = matched + mismatched
+    return {
+        "key": "heavy_locus:sequence_heavy",
+        "val_percent": val_percent,
+        "rows_compared": compared,
+        "rows_matching_current_rule": matched,
+        "rows_mismatching_current_rule": mismatched,
+        "rows_missing_key": missing_key,
+        "rows_with_other_split": other_split,
+        "fraction_matching_current_rule": (matched / compared) if compared else None,
+        "mismatch_examples": mismatch_examples,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
     parser.add_argument(
@@ -137,7 +205,16 @@ def main() -> int:
         type=Path,
         default=PROJECT_ROOT / "specs/evidence/split-leakage-audit.json",
     )
+    parser.add_argument(
+        "--paired-val-percent",
+        type=int,
+        default=10,
+        help="Validation percentage used by the paired-corpus producer (default: 10).",
+    )
     args = parser.parse_args()
+
+    if not (0 <= args.paired_val_percent <= 100):
+        parser.error("--paired-val-percent must be in [0, 100]")
 
     for path in (UNPAIRED, PAIRED):
         if not path.exists():
@@ -191,6 +268,9 @@ def main() -> int:
             "light_chain": overlap(stage2["val"]["light"], stage2["train"]["light"]),
             "hcdr3": overlap(stage2["val"]["hcdr3"], stage2["train"]["hcdr3"]),
         },
+        "stage2_split_reproduction": paired_split_reproduction(
+            PAIRED, val_percent=args.paired_val_percent
+        ),
         # Stage 1 is unsupervised, so this is not label leakage. It IS
         # contamination for any claim that a stage-2 validation antibody was
         # unseen, because stage 2 is warm-started from stage 1's weights.
@@ -215,6 +295,18 @@ def main() -> int:
          report["within_stage1"])
     show("WITHIN STAGE 2 -- val rows whose component appears in stage-2 train",
          report["within_stage2"])
+    reproduction = report["stage2_split_reproduction"]
+    reproduction_fraction = reproduction["fraction_matching_current_rule"]
+    reproduction_pct = (
+        "n/a" if reproduction_fraction is None else f"{reproduction_fraction:.2%}"
+    )
+    print("\nSTAGE 2 SPLIT -- stored assignment reproduced by current heavy key")
+    print(
+        f"  {reproduction['rows_matching_current_rule']:,} / "
+        f"{reproduction['rows_compared']:,}  {reproduction_pct}; "
+        f"mismatches={reproduction['rows_mismatching_current_rule']:,}  "
+        f"missing_key={reproduction['rows_missing_key']:,}"
+    )
     show("CROSS-STAGE -- stage-2 val components stage 1 already trained on",
          report["stage2_val_seen_in_stage1_train"])
 
@@ -222,7 +314,13 @@ def main() -> int:
     with open(args.output_json, "w", encoding="utf-8", newline="") as handle:
         json.dump(report, handle, indent=2, sort_keys=True)
         handle.write("\n")
-    print(f"\nwrote {args.output_json.relative_to(PROJECT_ROOT).as_posix()}")
+    try:
+        display_path = args.output_json.resolve().relative_to(
+            PROJECT_ROOT.resolve()
+        ).as_posix()
+    except ValueError:
+        display_path = str(args.output_json.resolve())
+    print(f"\nwrote {display_path}")
     return 0
 
 
