@@ -1,8 +1,11 @@
 """
 The acceptance contract for antigen target identity, as executable specification.
 
-This file is written BEFORE the implementation exists, and it describes the
-target behaviour, not the present behaviour. Every test names the pinned outcome
+This file was written BEFORE the implementation existed, so that the next attempt
+would be gated rather than judged afterwards. The engine landed on 2026-09-01 and
+every specification here now passes; the outcomes are unchanged from the day they
+were pinned, and §"WHY THE SPECIFICATIONS MOVED OFF THE COMMITTED RULE" records
+the only two edits and why each was forced. Every test names the pinned outcome
 it encodes and the real record it came from; the records themselves live in
 ``fixtures_target_identity`` and were distilled out of
 ``data/raw/asd-antibody-antigen`` and ``data/processed/antibody_antigen_v2`` so
@@ -24,25 +27,46 @@ THREE KINDS OF TEST LIVE HERE
    happens to get that part right. They exist because the reverted attempt broke
    two of them. Do not delete them when the new engine lands: re-point them.
 
-3. SPECIFICATIONS. Marked ``xfail(strict=True)``. They fail against the
-   committed rule -- some because the committed rule produces the wrong answer,
-   some because it has no vocabulary for the question. ``strict=True`` means
-   that the moment one starts passing, pytest reports XPASS as a FAILURE, which
-   is the forcing function: an implementer who satisfies an outcome must come
-   back here and remove its marker. The reason string on every marker says which
-   of the two kinds of failure it is.
+3. SPECIFICATIONS. These were all marked ``xfail(strict=True)`` while the
+   implementation was absent. `smallAntibodyGen.target_identity` has now landed
+   and every one of them passes, so the markers are gone. ``strict=True`` did
+   its job: it made satisfying an outcome force an edit here rather than let a
+   silent XPASS pass for progress.
 
-WHY SOME SPECIFICATIONS TEST THE COMMITTED RULE AND OTHERS TEST A MISSING MODULE
--------------------------------------------------------------------------------
-Where an outcome is expressible in the vocabulary the committed rule already has
--- "these two records must not share a canonical id" -- it is tested against
-``scripts/prepare_antibody_antigen.py`` directly, and it fails today for the real
-reason. Where an outcome needs vocabulary that does not exist -- a quarantine
-relation, a cluster report, a conflict channel, three separate ids, a
-calibration/audit split -- it is tested against the target module described in
-``CONTRACT`` below, and fails with ``ContractNotImplemented`` naming what is
-missing. Both are honest failures; conflating them would hide which outcomes are
-wrong answers and which are absent questions.
+WHY THE SPECIFICATIONS MOVED OFF THE COMMITTED RULE (2026-09-01)
+----------------------------------------------------------------
+Five of the twelve specifications were originally written against
+``scripts/prepare_antibody_antigen.py`` through the ``committed`` fixture,
+because their outcomes were expressible in the vocabulary that rule already had.
+Those five are now written against the engine instead. This was not a
+convenience: THE CONTRACT AS COMMITTED WAS UNSATISFIABLE AS A WHOLE, and here is
+the proof.
+
+``test_fixture_subset_reproduces_the_corpus_verdict`` pins, for every fixture
+record, the exact ``canonical_target_id`` the full 1,227,083-row shard set gives
+it under the committed rule. For outcome 3 that pinned value is
+``uniprot:p29460`` for BOTH ``il23a`` and ``il12b``. And
+``test_outcome_3_4grw_entities_remain_distinct_targets`` required
+``committed.canonical_id("il23a") != committed.canonical_id("il12b")``. Those two
+cannot both hold of the same object. The same contradiction exists for outcome 5
+(``wt_rbd`` and ``wt_s2`` are both pinned to ``pdb:7ch5`` and required to
+differ) and for outcome 6 (``rac1`` is pinned to ``uniprot:p63000`` and required
+not to be it).
+
+So the choice was never "edit the contract or not". It was which half to keep.
+The half kept is the corpus-fidelity test, because it records something that
+stays true forever -- what the rule that BUILT the shipped corpus did to these
+sixteen records -- and it is the evidence behind every "VIOLATED TODAY" verdict
+in the fixture module. The specifications move to the engine, which is what the
+file's own instruction to "re-point them" always meant. The committed rule is
+literally untouched by this change: `scripts/prepare_antibody_antigen.py` has not
+been edited, so the shipped corpus and every stored `canonical_target_id` still
+come from it. The engine is reached through
+`scripts/resolve_target_identity.py`, which writes no corpus.
+
+The three regression guards still run against the committed rule, unchanged and
+passing, and `test_target_identity_engine.py` carries engine-side twins of them
+so that neither rule can regress without a test noticing.
 
 CAVEAT ON WHAT THIS SUITE CANNOT SEE
 ------------------------------------
@@ -52,6 +76,19 @@ pinned outcomes hold on the six pinned records, and says nothing about the error
 rate on the other 9,558. That measurement is the calibration/audit protocol of
 contract requirement A, which this suite pins the SHAPE of (outcome-A tests) but
 cannot itself perform without the corpus.
+
+The two things this suite specifically cannot see, and where they are measured
+instead:
+
+- **Percolation.** The failure that reverted a previous attempt was a 77%
+  component on the relation the split keys on, and over 16 records the largest
+  split group is a handful. `scripts/resolve_target_identity.py` runs the engine
+  over all 9,574 and publishes the component-size distribution, the largest
+  group's share, and the high-degree bridges it refused.
+- **Error rate.** 116 labelled pairs cannot estimate one.
+  `entity_resolution.synthetic` supplies a planted population, disjoint from
+  these families by construction, so `calibration_report()` has something to
+  score that this file does not contain.
 """
 
 from __future__ import annotations
@@ -86,6 +123,9 @@ def _load_sibling(name: str):
 
 
 fx = _load_sibling("fixtures_target_identity")
+#: The re-sourced anti-percolation chain. See that module's docstring for why the
+#: original outcome-4 fixture could not be used at the shipped operating point.
+ap = _load_sibling("fixtures_anti_percolation")
 
 
 # --------------------------------------------------------------------------- #
@@ -578,47 +618,69 @@ def test_guard_identity_is_blind_to_supervision(paa):
 
 
 # =========================================================================== #
-# 3. SPECIFICATIONS -- expressible in the committed rule's own vocabulary,
-#    and wrong there today
+# 3. SPECIFICATIONS -- outcomes the committed rule answers, and answers wrongly.
+#    Re-pointed at the engine on 2026-09-01; see the module docstring for the
+#    proof that they could not stay where they were.
 # =========================================================================== #
 
-@pytest.mark.xfail(strict=True, reason=WRONG_ANSWER + " (outcome 1: the family is held together by a name, not by the sequences)")
-def test_outcome_1_family_survives_deleting_the_name(paa):
+def test_outcome_1_family_survives_deleting_the_name():
     """Pinned outcome 1. Real records: the 287-aa and 289-aa Omicron spike NTDs.
 
     The two constructs are 99.31% identical with full coverage of the shorter
     side. That, and not a curator's label, is why they are one family. This test
     deletes ``target_name`` from every row and requires the family to survive.
 
-    It fails today because the committed rule has no sequence-similarity
-    relation: strip the name and the only thing left is two different ``seq:``
-    nodes, which never touch. The same name that saves this pair is what fuses
-    four non-homologous constructs in outcome 5, so "keep the name bridge" is
-    not an available fix.
+    The committed rule fails it, and the failure is structural rather than
+    incidental: it has no sequence-similarity relation, so stripping the name
+    leaves two different ``seq:`` nodes that never touch. The same name that
+    saves this pair is what fuses four non-homologous constructs in outcome 5, so
+    "keep the name bridge" was never an available fix -- only adding a similarity
+    relation is.
     """
     case = fx.CASES_BY_OUTCOME[1]
-    nameless = CommittedPartition(paa, case.records, drop_names=True)
-    assert nameless.canonical_id("omicron_ntd_287") == nameless.canonical_id("omicron_ntd_289")
+    nameless = []
+    for record in case.records:
+        for row in record.rows():
+            metadata = dict(row["metadata"])
+            metadata["target_name"] = ""
+            nameless.append({
+                "metadata": metadata,
+                "antigen_sequence": row["antigen_sequence"],
+            })
+    module = load_target_rule()
+    resolution = module.resolve_target_identity(nameless)
+    short, long = case.record("omicron_ntd_287"), case.record("omicron_ntd_289")
+    assert resolution.construct_id(short) == resolution.construct_id(long)
+    assert resolution.biological_target_id(short) == resolution.biological_target_id(long)
+    assert resolution.split_group_id(short) == resolution.split_group_id(long)
 
 
-@pytest.mark.xfail(strict=True, reason=WRONG_ANSWER + " (outcome 3: pdb:4grw fuses two genes into one target)")
-def test_outcome_3_4grw_entities_remain_distinct_targets(committed):
+def test_outcome_3_4grw_entities_remain_distinct_targets():
     """Pinned outcome 3. Real records: IL23A (Q9NPF7) and IL12B (P29460), PDB 4GRW.
 
     A PDB entry contains multiple polymer entities, so sharing one carries no
     identity implication. These two share 4GRW, share 24.78% of their residues,
     and share no 8-mer.
 
-    It fails today because ``pdb:4grw`` is a full-strength merging node: the two
-    entities become one component named ``uniprot:p29460``, the IL12B accession,
-    silently applied to IL23A rows -- and both land in val, so any per-target
-    number computed over that slice mixes two genes.
+    Under the committed rule ``pdb:4grw`` is a full-strength merging node: the
+    two entities become one component named ``uniprot:p29460``, the IL12B
+    accession, silently applied to IL23A rows -- and both land in val, so any
+    per-target number computed over that slice mixes two genes. The engine
+    demotes PDB co-entry to quarantine, so the two stay distinct targets AND
+    still share a split group, which is the combination the committed rule could
+    not express.
     """
-    assert committed.canonical_id("il23a") != committed.canonical_id("il12b")
+    case = fx.CASES_BY_OUTCOME[3]
+    resolution = resolve(case.records)
+    il23a, il12b = case.record("il23a"), case.record("il12b")
+    assert resolution.biological_target_id(il23a) != resolution.biological_target_id(il12b)
+    assert resolution.construct_id(il23a) != resolution.construct_id(il12b)
+    assert resolution.split_group_id(il23a) == resolution.split_group_id(il12b), (
+        "demoting the container must not also discard the leakage constraint"
+    )
 
 
-@pytest.mark.xfail(strict=True, reason=WRONG_ANSWER + " (outcome 5: one name-only label fuses four non-homologous constructs)")
-def test_outcome_5_name_only_label_does_not_fuse_incompatible_constructs(committed):
+def test_outcome_5_name_only_label_does_not_fuse_incompatible_constructs():
     """Pinned outcome 5. Real records: the four ``sars-cov2_wt`` constructs.
 
     ``sars-cov2_wt`` is written on rows carrying no accession and no PDB code.
@@ -626,37 +688,53 @@ def test_outcome_5_name_only_label_does_not_fuse_incompatible_constructs(committ
     region. The RBD and the S2 share no 8-mer. A name that spans two
     non-homologous families names neither, so it must quarantine.
 
-    It fails today because a normalized name is a full-strength merging node.
+    Under the committed rule a normalized name is a full-strength merging node.
     All four constructs share one canonical id, ``pdb:7ch5`` -- and that
     component has swallowed 12 antigen sequences, 7 variant names and 11 PDB
-    codes, with a minimum pairwise identity of 20.41%. This is the percolation
-    of contract requirement 5, reached through names rather than thresholds.
+    codes, with a minimum pairwise identity of 20.41%.
     """
-    assert committed.canonical_id("wt_rbd") != committed.canonical_id("wt_s2")
+    case = fx.CASES_BY_OUTCOME[5]
+    resolution = resolve(case.records)
+    rbd, s2 = case.record("wt_rbd"), case.record("wt_s2")
+    assert resolution.biological_target_id(rbd) != resolution.biological_target_id(s2)
+    assert resolution.split_group_id(rbd) == resolution.split_group_id(s2), (
+        "an ambiguous name is still evidence of co-occurrence, so refusing the "
+        "merge must not also drop the constraint"
+    )
 
 
-@pytest.mark.xfail(strict=True, reason=WRONG_ANSWER + " (outcome 6: the loser accession is dropped, and nothing counts it)")
-def test_outcome_6_conflicting_accessions_are_not_silently_resolved(committed):
+def test_outcome_6_conflicting_accessions_are_not_silently_resolved():
     """Pinned outcome 6. Real record: 192 aa, P63000 and P63001, one sequence.
 
     Two accessions written over one byte-identical sequence is a disagreement in
     the source data, and the resolver's job is to report it, not to settle it.
 
-    It fails today twice over. ``canonical_target_id_from_nodes`` takes ``min``
-    over ``(namespace rank, node)``, so ``uniprot:p63000`` wins on lexicographic
-    order alone and P63001 vanishes; and ``TargetIdentityIndex.stats()`` has no
-    conflict counter, so the disagreement is reported nowhere. This test pins
-    both halves: the id must not be one of the disputed accessions, and the
-    stats must carry a conflict count.
+    The committed rule fails it twice over. ``canonical_target_id_from_nodes``
+    takes ``min`` over ``(namespace rank, node)``, so ``uniprot:p63000`` wins on
+    lexicographic order alone and P63001 vanishes; and
+    ``TargetIdentityIndex.stats()`` has no conflict counter, so the disagreement
+    is reported nowhere. This test pins both halves: the id must not be one of
+    the disputed accessions, and the stats must carry a conflict count.
     """
-    assert "target_accession_conflicts" in committed.stats(), (
+    case = fx.CASES_BY_OUTCOME[6]
+    resolution = resolve(case.records)
+    stats = resolution.stats()
+    assert "target_accession_conflicts" in stats, (
         "a conflict that is not counted is a conflict nobody will find"
     )
-    assert committed.canonical_id("rac1") not in ("uniprot:p63000", "uniprot:p63001")
+    assert stats["target_accession_conflicts"] == 1
+    rac1 = case.record("rac1")
+    assert resolution.biological_target_id(rac1) not in (
+        "uniprot:p63000", "uniprot:p63001"
+    )
+    conflict = resolution.accession_conflicts()[0]
+    assert conflict.accessions == ("p63000", "p63001"), (
+        "both accessions must survive into the report; dropping the loser is "
+        "the failure being tested"
+    )
 
 
-@pytest.mark.xfail(strict=True, reason=WRONG_ANSWER + " (anti-percolation: components report no diameter, so a 20%-identity target looks fine)")
-def test_component_reports_its_own_minimum_identity_and_coverage(committed):
+def test_component_reports_its_own_minimum_identity_and_coverage():
     """Contract requirement 5, on real records: the ``pdb:7ch5`` component.
 
     Thresholded similarity plus union-find is single-linkage clustering, and
@@ -665,25 +743,44 @@ def test_component_reports_its_own_minimum_identity_and_coverage(committed):
     asks for a representative or maximum-diameter constraint AND for each
     component to report its minimum pairwise identity and coverage.
 
-    It fails today because ``stats()`` reports six counts, none of them per
+    The committed rule's ``stats()`` reports six counts, none of them per
     component. Concretely, the component holding all four ``sars-cov2_wt``
     constructs has a minimum pairwise identity of 20.41% and nothing anywhere
     says so.
     """
-    stats = committed.stats()
+    resolution = resolve(fx.ALL_RECORDS)
+    stats = resolution.stats()
     assert "component_min_pairwise_identity" in stats
     assert "component_min_pairwise_coverage" in stats
+
+    # Not merely present. Two numbers are reported and they mean different
+    # things, because two different kinds of evidence build a family.
+    #
+    # Where the bounded criterion decided, its guarantee holds by construction:
+    # complete-linkage admits a merge only when every cross pair clears the
+    # operating point, so no member pair can sit below it.
+    point = resolution.operating_point
+    assert stats["criterion_min_pairwise_identity"] >= point.family_identity
+    assert stats["criterion_min_pairwise_coverage"] >= point.family_coverage
+    assert stats["criterion_max_diameter"] <= 1.0 - point.family_identity
+
+    # Where a curator's accession or an approved name decided, there is no such
+    # guarantee and the report must not pretend otherwise -- a curator asserting
+    # that two constructs are one target outranks what their residues say. What
+    # the all-components number promises is only that it is REPORTED, which is
+    # the whole of requirement 5: the committed rule's ``pdb:7ch5`` component
+    # sits at 0.2041 minimum pairwise identity with nothing anywhere saying so.
+    assert 0.0 <= stats["component_min_pairwise_identity"] <= 1.0
+    assert "component_curator_merged" in stats
+    assert stats["component_min_pairwise_identity"] > 0.2041, (
+        "the engine must not reproduce the committed rule's percolated component"
+    )
 
 
 # =========================================================================== #
 # 4. SPECIFICATIONS -- questions the committed rule has no vocabulary for
 # =========================================================================== #
 
-# Marker REINSTATED 2026-09-01: the implementation that satisfied this outcome was
-# reverted (it percolated to 77% on the relation the split actually keys on, and its
-# alignment primitive was not a correct affine Smith-Waterman). The test body is
-# untouched; this describes TARGET behaviour, not current behaviour.
-@pytest.mark.xfail(strict=True, reason=NO_VOCABULARY + " (no quarantine relation exists)")
 def test_outcome_2_fusion_overlap_is_a_quarantine_edge_not_an_identity():
     """Pinned outcome 2. Real records: the 1N8Z fusion, the HER2 ECD, IGKC.
 
@@ -715,56 +812,174 @@ def test_outcome_2_fusion_overlap_is_a_quarantine_edge_not_an_identity():
     )
 
 
-# Marker REINSTATED 2026-09-01: the implementation that satisfied this outcome was
-# reverted (it percolated to 77% on the relation the split actually keys on, and its
-# alignment primitive was not a correct affine Smith-Waterman). The test body is
-# untouched; this describes TARGET behaviour, not current behaviour.
-@pytest.mark.xfail(strict=True, reason=NO_VOCABULARY + " (no similarity relation, so no cluster criterion to evaluate)")
-# !! THIS TEST IS POWERLESS AS WRITTEN -- found independently by TWO adversarial
-# !! reviewers on 2026-09-01. At the construct-edge thresholds an implementation is
-# !! likely to choose, the three influenza-B haemagglutinins form NO construct edge at
-# !! all (measured cluster sizes 1, 1, 1), so `construct(A) != construct(C)` holds
-# !! trivially and the maximum-diameter criterion is never exercised. It passes with the
-# !! anti-percolation criterion DELETED.
-# !!
-# !! Before this outcome may be considered met, rewrite it against a fixture that
-# !! actually closes a triangle AT THE OPERATING THRESHOLDS, and assert positively that
-# !! the A~B and B~C edges exist -- i.e. prove the fixture has power, the way the rest of
-# !! this suite does. An implementation satisfying it as written has demonstrated nothing.
-def test_outcome_4_cluster_criterion_refuses_the_closing_edge():
-    """Pinned outcome 4. Real records: three influenza B haemagglutinins.
+def test_the_anti_percolation_fixture_gets_the_same_integrity_guards():
+    """The new fixture inherits the old one's guards rather than the old one's word.
 
-    A~B is 93.91% identical and B~C is 93.37%, both at over 93% reciprocal
-    coverage. A~C is 88.43%. Single-linkage merges all three at any threshold in
-    (0.8843, 0.9337]; a representative or maximum-diameter criterion does not.
-
-    The committed rule contains no similarity relation, so it passes this
-    outcome vacuously and would fail it the moment one is added naively. The
-    test therefore asks the target rule directly, and additionally requires the
-    cluster report to expose the diameter -- because a criterion whose result
-    cannot be inspected is a criterion nobody can audit.
+    `test_no_pinned_outcome_was_synthesised` reads only ``fx.SYNTHESIS_LEDGER``,
+    so when the anti-percolation chain moved into its own module it silently lost
+    every integrity check the original fixtures have -- while its docstring
+    claimed "the acceptance suite checks it". This is that check.
     """
-    case = fx.CASES_BY_OUTCOME[4]
-    resolution = resolve(case.records)
+    assert ap.SYNTHESIS_LEDGER == (), (
+        "synthetic cases present: " + ", ".join(ap.SYNTHESIS_LEDGER)
+    )
+    for record in ap.CHAIN_RECORDS:
+        assert record.annotations, f"{record.key} has no curator annotation"
+        assert record.raw_rows >= 1, f"{record.key} is backed by no shard row"
+        assert record.length == len(record.antigen_sequence)
+        assert set(record.antigen_sequence) <= set("ACDEFGHIKLMNPQRSTVWYXBZJUO*"), (
+            f"{record.key} carries characters clean_aa_sequence would not emit"
+        )
+        # The digest is the fixture's link back to the corpus. If it drifted from
+        # the sequence beside it, every downstream claim would be about a record
+        # nobody can find.
+        module = load_target_rule()
+        assert module.antigen_digest(record.antigen_sequence) == record.antigen_sha256_32
+        for name, pdb, uniprot in record.annotations:
+            assert isinstance(name, str) and isinstance(pdb, str)
+            assert isinstance(uniprot, str)
+        for row in record.rows():
+            assert set(row) == {"metadata", "antigen_sequence"}
+            assert set(row["metadata"]) == {
+                "target_name", "target_pdb", "target_uniprot"
+            }
+
+
+def test_the_anti_percolation_chain_is_a_tag_difference_and_says_so():
+    """The chain's arithmetic, checked rather than described.
+
+    Strip the trailing histidines and A is a 191-residue exact substring of C
+    while B is a 199-residue one. That is where the coverages come from, and it
+    is what makes this a construct-boundary chain rather than a divergence chain.
+    A fixture whose stated mechanism does not match its bytes is a fixture nobody
+    can reason from.
+    """
+    a, b, c = (ap.record(k).antigen_sequence for k in
+               ("rbd_199", "rbd_205", "rbd_209"))
+    assert len(a) - len(a.rstrip("H")) == 8, "the 199-mer carries an 8x His tag"
+    assert len(b) - len(b.rstrip("H")) == 6, "the 205-mer carries a 6x His tag"
+    assert not c.endswith("H"), "the 209-mer is untagged"
+
+    assert a.rstrip("H") in c and len(a.rstrip("H")) == 191
+    assert b.rstrip("H") in c and len(b.rstrip("H")) == 199
+    assert ap.edge("rbd_199", "rbd_209").cov_right == pytest.approx(191 / 209, abs=5e-7)
+    assert ap.edge("rbd_205", "rbd_209").cov_right == pytest.approx(199 / 209, abs=5e-7)
+
+
+def test_outcome_4_fixture_has_power_at_the_shipped_operating_point():
+    """Outcome 4 fixture power, in the metric the thresholds are expressed in.
+
+    The original outcome-4 fixture -- three influenza B haemagglutinins -- was
+    shipped with a warning that it was POWERLESS, found independently by two
+    adversarial reviewers. That was re-measured in the engine's own local affine
+    Smith-Waterman metric before this repair was written, and confirmed: at the
+    construct operating point all three form no edge at all, complete-linkage and
+    single-linkage agree, and ``merges_refused`` is zero. The assertion passed
+    with the anti-percolation criterion deleted.
+
+    This test is the repair's premise. It proves, positively, that the re-sourced
+    chain in ``fixtures_anti_percolation`` really does close a triangle AT the
+    shipped thresholds: both chain edges are admitted, the closing edge is
+    refused, and the separating quantity is coverage rather than identity --
+    every identity in the chain is exactly 1.0, so no identity threshold could
+    ever separate these three.
+    """
+    module = load_target_rule()
+    point = module.DEFAULT_OPERATING_POINT
+    low, high = ap.COVERAGE_WINDOW
+    assert low < point.construct_coverage <= high, (
+        "the shipped coverage threshold must sit inside the open window, or the "
+        "chain is not open where it is actually used"
+    )
+    assert high - low > 0.02, "an open window this narrow would be a knife edge"
+
+    for edge in ap.CHAIN_EDGES:
+        measured = module.align_pair(
+            ap.record(edge.left).antigen_sequence,
+            ap.record(edge.right).antigen_sequence,
+        )
+        assert measured.identity == pytest.approx(edge.identity, abs=5e-7)
+        assert measured.cov_left == pytest.approx(edge.cov_left, abs=5e-7)
+        assert measured.cov_right == pytest.approx(edge.cov_right, abs=5e-7)
+        assert measured.overlap == edge.overlap
+        admitted = (
+            measured.identity >= point.construct_identity
+            and measured.min_coverage >= point.construct_coverage
+            and measured.overlap >= point.construct_overlap
+        )
+        assert admitted == edge.admitted_at_construct_point, (
+            f"{edge.left}~{edge.right} is recorded as "
+            f"admitted={edge.admitted_at_construct_point} and measures {admitted}"
+        )
+        assert measured.identity == 1.0, (
+            "the chain must be closed in identity, or coverage is not what the "
+            "criterion is being tested on"
+        )
+        # Exact containment fails on every pair despite identity 1.0, because the
+        # purification tags differ. Same mechanism as the Omicron indel, reached
+        # from the other end.
+        left, right = (
+            ap.record(edge.left).antigen_sequence,
+            ap.record(edge.right).antigen_sequence,
+        )
+        assert left not in right and right not in left
+
+
+def test_outcome_4_cluster_criterion_refuses_the_closing_edge():
+    """Pinned outcome 4. Real records: three SARS-CoV-2 spike RBD constructs.
+
+    A 199-mer, a 205-mer and a 209-mer, nested sub-ranges of one receptor-binding
+    domain carrying three different purification tags. A~B and B~C are admitted
+    at the construct operating point; A~C is refused, on coverage, at identity
+    1.0. Single-linkage over those two admitted edges welds all three into one
+    construct; a bounded criterion does not.
+
+    ``test_outcome_4_fixture_has_power_at_the_shipped_operating_point`` proves
+    the premise, and `test_target_identity_engine.py` proves the converse by
+    fault injection: substituting single-linkage for the bounded criterion makes
+    this test fail. Without both, an implementation could satisfy this by never
+    forming an edge at all -- which is exactly how the original fixture came to
+    be powerless.
+    """
+    module = load_target_rule()
+    resolution = module.resolve_target_identity(
+        [row for record in ap.CHAIN_RECORDS for row in record.rows()]
+    )
     construct = requires_method(resolution, "construct_id")
     report = requires_method(resolution, "construct_cluster_report")
+    a, b, c = (ap.record(k) for k in ("rbd_199", "rbd_205", "rbd_209"))
 
-    a, b, c = (case.record(k) for k in ("hema_inbyb", "hema_inbte", "hema_inbvm"))
-    assert construct(a) != construct(c), (
-        "A and C are 88.43% identical; a chain through B may not merge them"
+    # Positive power: the two chain edges must actually be present, or the
+    # refusal below is about nothing.
+    assert construct(a) == construct(b), (
+        "the A~B edge must be admitted at the operating point, or the closing "
+        "edge is never offered to the criterion"
     )
+    assert construct(a) != construct(c), (
+        "A and C cover only 91.39% of each other; a chain through B may not "
+        "merge them"
+    )
+    assert resolution.stats()["target_construct_merges_refused"] >= 1, (
+        "the criterion must be recorded as having actually refused a merge"
+    )
+
+    # And all three remain ONE biological target, so refusing the construct
+    # merge costs no leakage: they still share a split group.
+    assert (
+        resolution.biological_target_id(a)
+        == resolution.biological_target_id(b)
+        == resolution.biological_target_id(c)
+    )
+    assert resolution.split_group_id(a) == resolution.split_group_id(c)
+
     for record in (a, b, c):
         cluster = report(construct(record))
         assert cluster.min_pairwise_identity >= 0.90
         assert cluster.min_pairwise_coverage >= 0.90
         assert cluster.representative is not None
+        assert cluster.max_diameter <= 1.0 - module.DEFAULT_OPERATING_POINT.construct_identity
 
 
-# Marker REINSTATED 2026-09-01: the implementation that satisfied this outcome was
-# reverted (it percolated to 77% on the relation the split actually keys on, and its
-# alignment primitive was not a correct affine Smith-Waterman). The test body is
-# untouched; this describes TARGET behaviour, not current behaviour.
-@pytest.mark.xfail(strict=True, reason=NO_VOCABULARY + " (one partition cannot express three relations)")
 def test_the_three_relations_stay_separate():
     """Contract requirement B. Real records: the 1N8Z fusion set and 4GRW.
 
@@ -801,11 +1016,6 @@ def test_the_three_relations_stay_separate():
     assert construct(her2_607) != construct(her2_564)
 
 
-# Marker REINSTATED 2026-09-01: the implementation that satisfied this outcome was
-# reverted (it percolated to 77% on the relation the split actually keys on, and its
-# alignment primitive was not a correct affine Smith-Waterman). The test body is
-# untouched; this describes TARGET behaviour, not current behaviour.
-@pytest.mark.xfail(strict=True, reason=NO_VOCABULARY + " (one split serves every claim)")
 def test_generic_and_unseen_mutant_claims_get_separate_split_contracts():
     """Claim dependence. Real records: the 287/289-aa Omicron NTD pair.
 
@@ -827,11 +1037,6 @@ def test_generic_and_unseen_mutant_claims_get_separate_split_contracts():
     assert split_group(short, claim="unseen_mutant") != split_group(long, claim="unseen_mutant")
 
 
-# Marker REINSTATED 2026-09-01: the implementation that satisfied this outcome was
-# reverted (it percolated to 77% on the relation the split actually keys on, and its
-# alignment primitive was not a correct affine Smith-Waterman). The test body is
-# untouched; this describes TARGET behaviour, not current behaviour.
-@pytest.mark.xfail(strict=True, reason=NO_VOCABULARY + " (no threshold, so no calibration or audit set)")
 def test_threshold_selection_is_audited_on_families_it_never_saw():
     """Contract requirement A. Real families: all five in the fixture set.
 
@@ -851,15 +1056,23 @@ def test_threshold_selection_is_audited_on_families_it_never_saw():
     )
     assert set(fx.LEAVE_ONE_FAMILY_OUT_AUDIT_FAMILIES) <= set(audit.families)
     for report in (calibration, audit):
-        assert report.false_merges is not None
-        assert report.false_splits is not None
+        # `is not None` on a non-Optional int is a tautology: `ErrorReport`
+        # declares both as `int` on a frozen dataclass, so the original form of
+        # this assertion passed with 99,999 errors in either column. What the
+        # requirement is about is that BOTH numbers are produced over a
+        # population that could have produced either, and that they are actually
+        # zero here.
+        assert report.pairs > 0, f"{report.name} scored no pairs"
+        assert report.positive_pairs > 0, (
+            f"{report.name} has no positive pairs, so its false-split count is free"
+        )
+        assert report.negative_pairs > 0, (
+            f"{report.name} has no negative pairs, so its false-merge count is free"
+        )
+        assert report.false_merges == 0, report.false_merge_examples
+        assert report.false_splits == 0, report.false_split_examples
 
 
-# Marker REINSTATED 2026-09-01: the implementation that satisfied this outcome was
-# reverted (it percolated to 77% on the relation the split actually keys on, and its
-# alignment primitive was not a correct affine Smith-Waterman). The test body is
-# untouched; this describes TARGET behaviour, not current behaviour.
-@pytest.mark.xfail(strict=True, reason=NO_VOCABULARY + " (no error report, so no asymmetry to honour)")
 def test_both_error_kinds_are_reported_against_the_predeclared_asymmetry():
     """Contract requirement D. All six outcomes.
 
@@ -873,15 +1086,19 @@ def test_both_error_kinds_are_reported_against_the_predeclared_asymmetry():
     resolution = resolve(fx.ALL_RECORDS)
     audit = requires_method(resolution, "audit_report")()
     assert audit.tolerated_error == fx.PREDECLARED_ERROR_ASYMMETRY
-    assert audit.false_merges is not None
-    assert audit.false_splits is not None
+    # Both kinds, counted separately, over a population that could have shown
+    # either. The two counts are `int`, so asserting they are not None asserts
+    # nothing; what the requirement needs is that the population has pairs of
+    # both signs and that the resolver got them right.
+    assert audit.positive_pairs > 0 and audit.negative_pairs > 0
+    assert audit.false_merges == 0, audit.false_merge_examples
+    assert audit.false_splits == 0, audit.false_split_examples
+    # The asymmetry is a direction, and the direction has to be legible: a false
+    # merge is the expensive error, so a design tolerating MORE merges than
+    # splits would be the wrong trade even at these counts.
+    assert fx.PREDECLARED_ERROR_ASYMMETRY == "tolerate_false_splits_over_false_merges"
 
 
-# Marker REINSTATED 2026-09-01: the implementation that satisfied this outcome was
-# reverted (it percolated to 77% on the relation the split actually keys on, and its
-# alignment primitive was not a correct affine Smith-Waterman). The test body is
-# untouched; this describes TARGET behaviour, not current behaviour.
-@pytest.mark.xfail(strict=True, reason=NO_VOCABULARY + " (names merge or do not; there is no decision to inspect)")
 def test_name_approval_is_decided_once_and_recorded():
     """Contract requirement 2, with outcome 5's record: ``sars-cov2_wt``.
 

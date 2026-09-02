@@ -10,7 +10,13 @@ from typing import Dict, List
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+# ROOT is `src/smallAntibodyGen`, so the source root is two levels up from it and
+# NOT `ROOT / "src"` -- that path does not exist, and the insert was therefore
+# dead. Every import of `smallAntibodyGen` was resolving through whatever the
+# editable install pointed at instead, which is invisible until someone runs this
+# suite against a scratch copy of the tree and silently tests the installed
+# package rather than the copy.
+sys.path.insert(0, str(ROOT.parents[1] / "src"))
 
 
 @pytest.fixture
