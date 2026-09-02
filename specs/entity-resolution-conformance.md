@@ -4,7 +4,10 @@
 requirements but NOT claimed by this repository; §8 says exactly which of their
 clauses are met anyway and which are not.
 
-**Implements:** `docs/ENTITY-RESOLUTION-AND-LEAKAGE-SAFE-EVALUATION.md` §13 step 1.
+**Implements:** `docs/ENTITY-RESOLUTION-AND-LEAKAGE-SAFE-EVALUATION.md` §13 step 1
+(local-only: `docs/` is git-ignored, so that design document is **not** in the
+published tree — the citation records provenance, and this file is the tracked
+normative statement it asks for).
 **Realised by:** `src/smallAntibodyGen/entity_resolution/`,
 `src/smallAntibodyGen/target_identity.py`,
 `specs/decisions/0002-typed-target-identity.md`.

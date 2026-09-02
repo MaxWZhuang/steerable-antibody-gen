@@ -6,6 +6,13 @@
 **Implements:** `docs/ENTITY-RESOLUTION-AND-LEAKAGE-SAFE-EVALUATION.md`, Level 1 of
 its conformance ladder, plus steps 2, 3, 4, 5, 6 and 9 of its §13.
 
+> **Note on that citation.** `docs/` is git-ignored (INTERNAL), so the design
+> document is local-only and is **not** part of the published tree. The citation
+> records provenance, not a file a reader of this repository can open. The
+> tracked normative statement of what Level 1 requires is
+> `specs/entity-resolution-conformance.md`; the same note applies to every
+> `docs/ENTITY-RESOLUTION-AND-LEAKAGE-SAFE-EVALUATION.md` reference below.
+
 ---
 
 ## 1. Context
