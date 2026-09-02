@@ -331,9 +331,19 @@ refuted. These survived, and every one of them changed the code or the words:
 
 The shadow build is expensive, and the number belongs here rather than in
 somebody's surprised console. At the shipped operating point the similarity pass
-proposes **450,381** candidate pairs over the 9,574 distinct antigens; a typical
+proposes **436,963** candidate pairs over the 9,574 distinct antigens; a typical
 pair (~420 × 430) costs about **25 ms**, so a full run is **3–4 hours** of CPU.
 The cost is per-row numpy call overhead, not cells — 7.4M DP cells/second.
+
+> **Corrected 2026-09-02.** This figure previously read 450,381. It did not
+> survive measurement: a full run over all 9,574 antigens against the code as
+> landed reports **436,963** similarity candidates, a 13,418-pair gap. The
+> candidate count is fixed by blocking before the first alignment runs and is
+> printed as the denominator of the progress line
+> (`scripts/resolve_target_identity.py:307`), so an interrupted run still
+> reports it exactly — the run behind this correction was stopped at 51,000
+> alignments and the denominator is unaffected. Observed rate was 35.8 pairs/s,
+> which puts the full pass at ~3.4 h and leaves the 3–4 hour envelope standing.
 
 Two cuts were taken and one was deliberately not:
 
@@ -342,11 +352,15 @@ Two cuts were taken and one was deliberately not:
   filter, and in a containment search they carry no length band either — between
   them they were contributing 28,719 candidates that provably cannot meet a
   30-residue overlap floor.
-- **Taken.** Containment is measured only across families. It proposed 450,381
-  pairs of its own, nearly all of them two constructs of one family that
-  genuinely contain each other — a constraint the family relation already
-  imposes, since the split closes over families. The count skipped for that
-  reason is reported, not dropped.
+- **Taken.** Containment is measured only across families. Nearly all of the
+  pairs it proposes are two constructs of one family that genuinely contain each
+  other — a constraint the family relation already imposes, since the split
+  closes over families. The count skipped for that reason is reported, not
+  dropped. **The pair count here is unverified**: it previously read 450,381,
+  byte-identical to the similarity figure above, and two independent passes
+  agreeing to the digit is a transcription error rather than a coincidence. The
+  resolver does not print this count separately, so it stays unstated until a
+  completed run reports it.
 - **Not taken.** Aligning lazily inside the agglomeration would avoid a large
   fraction of the remaining work, because most within-cluster edges turn out
   redundant. It changes the clustering loop, and changing the clustering loop
