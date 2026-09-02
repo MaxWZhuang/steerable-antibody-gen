@@ -135,6 +135,57 @@ def test_no_overlap_reports_zero_not_none(audit):
     assert stats["val_rows_seen_in_train"] == 0
 
 
+def test_paired_split_reproduction_detects_a_stale_assignment(audit, tmp_path: Path):
+    """One wrong stored side proves the artifact did not use the current key."""
+    rows = []
+    for index, heavy in enumerate(("HEAVY_A", "HEAVY_B")):
+        expected = audit.deterministic_split(f"IGH:{heavy}", val_percent=10)
+        stored = expected if index == 0 else (
+            "val" if expected == "train" else "train"
+        )
+        rows.append({
+            "split": stored,
+            "heavy_locus": "IGH",
+            "sequence_heavy": heavy,
+        })
+
+    stats = audit.paired_split_reproduction(
+        _write(tmp_path / "paired.jsonl.gz", rows)
+    )
+
+    assert stats["rows_compared"] == 2
+    assert stats["rows_matching_current_rule"] == 1
+    assert stats["rows_mismatching_current_rule"] == 1
+    assert stats["fraction_matching_current_rule"] == 0.5
+    assert (
+        stats["mismatch_examples"][0]["stored"]
+        != stats["mismatch_examples"][0]["expected"]
+    )
+
+
+def test_paired_split_reproduction_is_exact_for_current_producer_key(
+    audit, tmp_path: Path
+):
+    rows = [
+        {
+            "split": audit.deterministic_split(f"IGH:{heavy}", val_percent=10),
+            "heavy_locus": "IGH",
+            "sequence_heavy": heavy,
+        }
+        for heavy in ("HEAVY_A", "HEAVY_B", "HEAVY_C")
+    ]
+
+    stats = audit.paired_split_reproduction(
+        _write(tmp_path / "paired.jsonl.gz", rows)
+    )
+
+    assert stats["rows_compared"] == 3
+    assert stats["rows_matching_current_rule"] == 3
+    assert stats["rows_mismatching_current_rule"] == 0
+    assert stats["fraction_matching_current_rule"] == 1.0
+    assert stats["mismatch_examples"] == []
+
+
 # --------------------------------------------------------------------------- #
 # End to end on a corpus whose answer is known by construction
 # --------------------------------------------------------------------------- #
