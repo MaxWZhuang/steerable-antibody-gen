@@ -707,6 +707,51 @@ The ASD preprocessing path therefore uses target-aware split assignment, preferr
 
 This is not a perfect solution, but it is a much better default than row-wise random splitting and helps keep future validation results more honest.
 
+### Typed target identity (`smallAntibodyGen.target_identity`)
+
+The priority chain above has a known weakness: it treats every identifier as
+equally strong evidence of identity, so a shared PDB entry — which holds several
+distinct polymer chains — merges two different genes, and a single normalized
+name can merge non-homologous constructs. `smallAntibodyGen/target_identity.py`
+is an **opt-in** replacement (the producer is unedited; reach it through
+`scripts/resolve_target_identity.py`) that separates the question into three relations
+that must never be collapsed into one graph:
+
+| Relation | Question | Evidence |
+|---|---|---|
+| `construct_id` | the same concrete construct? | near-exact sequence identity with near-full reciprocal coverage |
+| `biological_target_id` | the same target? | shared accession, an approved name, or family-level similarity |
+| `quarantine_partners` | must not straddle the split? | local containment, a shared structure entry, an unapproved name |
+
+The distinction matters because the evidence types genuinely differ. Containment
+is asymmetric and identity is symmetric, so "A occurs inside B" can quarantine
+without ever meaning "A is B". Co-occurrence in one structure entry is real
+evidence about leakage and no evidence about identity. And a curator's name that
+spans a coherent set of constructs should merge them, while one that spans an
+incoherent set should quarantine them instead — deleting names outright is not
+the fix.
+
+Similarity relations are clustered with a bounded (complete-linkage) criterion
+rather than connected components, so cluster diameter is bounded by the threshold
+instead of by the longest chain through the data, and every cluster reports its
+own minimum pairwise identity and coverage. Candidate generation is treated as
+part of the correctness contract, not as an optimisation: its two filters are
+derived necessary conditions and its recall is measured against exhaustive
+all-pairs alignment.
+
+```bash
+# Run the engine over the raw shards and emit the Level-1 evidence artifacts:
+# claim manifest, split manifest, guard report, leakage line, conformance attestation.
+python scripts/resolve_target_identity.py --name asd-typed-v1
+```
+
+This writes no corpus and changes nothing about the shipped data. Every number
+produced from a split carries a **standard leakage line** stating the claim, the
+relations assessed, the relations left unassessed, the conditioning universe, and
+the population — so that what a split does *not* hold out is stated rather than
+implied. For this corpus the most important such statement is that the split
+groups on the antigen and does **not** hold out the antibody.
+
 ### Paired OAS: split key and length budget
 
 Two corpus-level defects were found and fixed in `scripts/prepare_oas.py`. **Both
