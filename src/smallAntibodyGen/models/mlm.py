@@ -177,6 +177,27 @@ class MLMConfig:
     # every residue reach the head; it is a falsification arm, not a default.
     compat_readout: str = "cls"
 
+    # Zero-initialized gate on the WHOLE fusion sublayer, so a freshly built
+    # dual-stream model reproduces its warm-start parent's logits exactly.
+    #
+    # Why the knob exists: stage 3 inherits the antibody encoder and LM head from
+    # stage 2 and then inserts `fuse` between them. That insertion perturbs the
+    # inherited representation at step ZERO, before any gradient arrives. Gating
+    # only the cross-attention branch does NOT fix it -- in pre-LN the stream is
+    # rebuilt as `fusion_out_norm(x + ctx)`, so a zero `ctx` still leaves
+    # `fusion_out_norm(x)`, a norm stage 2 never applied. (Worse, the fusion
+    # norms are hardcoded nn.LayerNorm while the v5 block ends in RMSNorm.) The
+    # gate therefore wraps the whole inserted transformation:
+    #
+    #     candidate = fusion_out_norm(x + cross_attention)
+    #     x = x + tanh(alpha) * (candidate - x)     # alpha = 0 -> exact identity
+    #
+    # False (default) keeps every existing dual-stream checkpoint loadable: the
+    # gate ADDS parameters, so a cross-mode load fails `strict=True` loudly.
+    # The gate holds only at step zero -- it does not prevent forgetting during
+    # later updates, which is a retention question, not an initialization one.
+    fusion_gate: bool = False
+
     # Graded-affinity supervision. False (default) builds NO strength head, so a
     # default model draws ZERO extra init-RNG and every existing checkpoint and
     # run is byte-identical. When True a scalar regression head is added on top
@@ -319,6 +340,8 @@ class MLMConfig:
             raise ValueError("lora_dropout must be in [0, 1)")
         if self.compat_readout not in {"cls", "mean"}:
             raise ValueError("compat_readout must be either 'cls' or 'mean'")
+        if not isinstance(self.fusion_gate, bool):
+            raise ValueError("fusion_gate must be a bool")
         if not isinstance(self.use_strength_head, bool):
             raise ValueError("use_strength_head must be a bool")
         if not isinstance(self.use_length_head, bool):
@@ -1105,6 +1128,16 @@ class AntibodyAntigenCrossAttention(nn.Module):
             self.length_head = nn.Linear(config.d_model, config.length_head_max)
             init_module_weights(self.length_head, config)
 
+        # Conditional, and constructed LAST, like the two heads above. Unlike
+        # them it consumes no init RNG at all -- `torch.zeros` draws nothing --
+        # so enabling the gate cannot shift any other parameter's draw. It is
+        # still conditional rather than always-registered so that a gate-off run
+        # keeps the historical state dict and existing dual-stream checkpoints
+        # stay loadable. One scalar per stream, mirroring the per-stream norms.
+        if config.fusion_gate:
+            self.fusion_gate_antibody = nn.Parameter(torch.zeros(()))
+            self.fusion_gate_antigen = nn.Parameter(torch.zeros(()))
+
         if config.tie_weights:
             self.lm_head.weight = self.antibody_encoder.token_embedding.weight
 
@@ -1142,6 +1175,14 @@ class AntibodyAntigenCrossAttention(nn.Module):
 
         Both branches are normalized from their own pre-attention states, so the
         two streams stay symmetric.
+
+        With ``config.fusion_gate`` the whole result above becomes a *candidate*
+        and the sublayer returns ``x + tanh(alpha) * (candidate - x)`` per
+        stream, ``alpha`` initialized to 0. At init that is byte-exactly ``x``,
+        so a stage-3 model warm-started from stage 2 reproduces its parent's
+        logits before the first update. Gating only ``crossattn`` would NOT
+        achieve this: the terminal norm sits on the residual path and survives a
+        zero branch.
         """
         if self.config.norm_first:
             antibody_query = self.fusion_norm_antibody(antibody_hidden)
@@ -1171,11 +1212,27 @@ class AntibodyAntigenCrossAttention(nn.Module):
         antigen_ctx = self.fusion_dropout(antigen_ctx)
 
         if self.config.norm_first:
-            antibody_hidden = self.fusion_out_norm_antibody(antibody_hidden + antibody_ctx)
-            antigen_hidden = self.fusion_out_norm_antigen(antigen_hidden + antigen_ctx)
+            antibody_candidate = self.fusion_out_norm_antibody(antibody_hidden + antibody_ctx)
+            antigen_candidate = self.fusion_out_norm_antigen(antigen_hidden + antigen_ctx)
         else:
-            antibody_hidden = self.fusion_norm_antibody(antibody_hidden + antibody_ctx)
-            antigen_hidden = self.fusion_norm_antigen(antigen_hidden + antigen_ctx)
+            antibody_candidate = self.fusion_norm_antibody(antibody_hidden + antibody_ctx)
+            antigen_candidate = self.fusion_norm_antigen(antigen_hidden + antigen_ctx)
+
+        if not self.config.fusion_gate:
+            return antibody_candidate, antigen_candidate
+
+        # Gate the WHOLE inserted transformation, not just the cross-attention
+        # branch. The candidate above already has the terminal norm baked into
+        # it, so interpolating between `x` and `candidate` is what makes alpha=0
+        # an EXACT identity -- gating `ctx` alone would still leave norm(x) on
+        # the stream. tanh keeps the interpolation bounded to [-1, 1] and has
+        # non-zero gradient at 0, so the gate can actually open.
+        antibody_hidden = antibody_hidden + torch.tanh(self.fusion_gate_antibody) * (
+            antibody_candidate - antibody_hidden
+        )
+        antigen_hidden = antigen_hidden + torch.tanh(self.fusion_gate_antigen) * (
+            antigen_candidate - antigen_hidden
+        )
         return antibody_hidden, antigen_hidden
 
     def joint_representation(

@@ -99,6 +99,15 @@ n_layers: 6
 d_ff: 1024
 dropout: 0.1
 norm_first: true    # v4: pre-LN. Must match stage 3 exactly or init-compat rejects the warm start.
+fusion_gate: true   # v5: zero-init tanh(alpha) gate on the WHOLE fusion sublayer, so this
+                    # stage reproduces its warm-start parent's logits exactly at step 0.
+                    # Gating only the cross-attention branch is NOT enough: in pre-LN the
+                    # stream is rebuilt as fusion_out_norm(x + ctx), so a zero ctx still
+                    # leaves a norm the parent never applied. Safe to turn on now only
+                    # because NO v5 antigen checkpoint exists; the gate adds one scalar per
+                    # fused stream, so enabling it later would cost a retrain. It fixes
+                    # step-zero perturbation ONLY -- retention during training is a
+                    # separate, still-open question.
 # ---- canonical modern block (v5) -------------------------------------------
 # Adopted 2026-08-29. The block recipe (RoPE, pre-RMSNorm, SwiGLU, no biases) is
 # an owner decision; the WIDTH is J11's measured result -- see

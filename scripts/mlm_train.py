@@ -241,6 +241,11 @@ class TrainConfig:
     # Plumbed into MLMConfig. "cls" is the historical CLS-concat readout; "mean"
     # mask-aware mean-pools both fused streams before fusion_mlp.
     compat_readout: str = "cls"
+    # Plumbed into MLMConfig. Zero-init gate on the whole fusion sublayer, so a
+    # stage-3 model reproduces its stage-2 parent's logits exactly at step zero.
+    # False is the historical build; the gate ADDS parameters, so a cross-mode
+    # load fails strict=True on its own and the check below only names it.
+    fusion_gate: bool = False
     # Multiplies the LR of the modules the antigen-stage warm-start leaves
     # randomly initialized (the set is pinned in NEW_MODULE_LR_PREFIXES and
     # verified by a test that derives it from the real translation function).
@@ -446,6 +451,13 @@ class TrainConfig:
             )
         if self.compat_readout not in {"cls", "mean"}:
             raise ValueError("compat_readout must be either 'cls' or 'mean'")
+        if not isinstance(self.fusion_gate, bool):
+            raise ValueError("fusion_gate must be a bool")
+        if self.fusion_gate and not is_antigen_stage(self.training_stage):
+            raise ValueError(
+                "fusion_gate is only meaningful for antigen stages; the "
+                "antibody-only model has no fusion sublayer to gate"
+            )
         if self.new_module_lr_multiplier <= 0:
             raise ValueError("new_module_lr_multiplier must be > 0")
         if self.new_module_lr_multiplier != 1.0 and not is_antigen_stage(self.training_stage):
@@ -1919,6 +1931,7 @@ def build_model_config(tokenizer: AminoAcidTokenizer, cfg: TrainConfig) -> MLMCo
         lora_alpha=cfg.lora_alpha,
         lora_dropout=cfg.lora_dropout,
         compat_readout=cfg.compat_readout,
+        fusion_gate=cfg.fusion_gate,
         # Single source of truth: the head exists iff its loss is weighted.
         use_strength_head=cfg.strength_loss_weight > 0,
         # Same single-source-of-truth contract as the strength head.
@@ -4130,6 +4143,19 @@ def validate_init_checkpoint_compatibility(
             "(the readouts share a parameter set, so a strict load cannot catch this; "
             "the fusion_mlp input distribution differs and the compatibility head "
             "would be read off-distribution)"
+        )
+
+    # `fusion_gate` changes the PARAMETER SET, so unlike `norm_first` and
+    # `compat_readout` a strict load already fails on its own. It is named here
+    # anyway: "fusion_gate: checkpoint=False, run=True" is a diagnosis, whereas
+    # a bare list of unexpected keys is a puzzle. Absent means False -- every
+    # dual-stream checkpoint written before the knob existed was ungated.
+    ckpt_fusion_gate = bool(train_cfg.get("fusion_gate", False))
+    if bool(cfg.fusion_gate) != ckpt_fusion_gate:
+        mismatches.append(
+            f"fusion_gate: checkpoint={ckpt_fusion_gate}, run={bool(cfg.fusion_gate)} "
+            "(the gate adds one scalar per fused stream, so the parameter sets "
+            "differ; warm-start from an ungated parent instead of resuming)"
         )
 
     # `activation` and `tie_weights` live ONLY on `MLMConfig` -- they are
