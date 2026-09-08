@@ -220,6 +220,11 @@ WARM_START_ARCHITECTURE_KEYS: tuple[str, ...] = (
     "lora_r",
     "lora_alpha",
     "lora_dropout",
+    # Zero-init gate on the fusion sublayer. It changes the parameter set, so a
+    # strict load already catches a mismatch -- it is here because the gate is
+    # part of the architecture IDENTITY, and a resume must reproduce the run that
+    # produced the weights.
+    "fusion_gate",
 )
 
 #: The subset of :data:`WARM_START_ARCHITECTURE_KEYS` that describes ONLY the
@@ -247,6 +252,13 @@ ANTIGEN_ONLY_ARCHITECTURE_KEYS: frozenset[str] = frozenset({
     "lora_r",
     "lora_alpha",
     "lora_dropout",
+    # `fusion_gate` gates the FUSION sublayer, which exists only in the
+    # dual-stream model. An antibody-only parent has no fusion to be gated, so
+    # requiring equality would make exactly the stage-2 -> stage-3 transition the
+    # gate was built for unlaunchable. Against a dual-stream parent the equality
+    # still holds, and it must: the gate changes the parameter set, and its
+    # learned alpha is what decides how much of the fused stream the model reads.
+    "fusion_gate",
 })
 
 #: Model classes that have no antigen stream. Kept as a set rather than a

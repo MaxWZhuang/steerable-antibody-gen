@@ -10,7 +10,7 @@ import sys
 from collections import Counter, defaultdict
 from dataclasses import MISSING, asdict, dataclass, fields
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -1985,6 +1985,14 @@ NEW_MODULE_LR_PREFIXES = (
     "fusion_out_norm_antigen.",
     "fusion_mlp.",
     "compatibility_head.",
+    # Leaf nn.Parameters, so no trailing dot -- the state-dict names are exactly
+    # `fusion_gate_antibody` / `fusion_gate_antigen`. Present only when
+    # `fusion_gate` is on, exactly like the pre-LN-only terminal norms above.
+    # They are warm-start-new like every other fusion parameter, so they belong
+    # in the same LR group; leaving them out gave them the BASE lr while the
+    # sublayer they gate got the multiplied one.
+    "fusion_gate_antibody",
+    "fusion_gate_antigen",
 )
 
 
@@ -4045,6 +4053,36 @@ def initialize_antigen_refine_from_checkpoint(
     return checkpoint
 
 
+#: State-dict prefixes that exist ONLY in the dual-stream model. Kept beside
+#: NEW_MODULE_LR_PREFIXES rather than derived from it: that tuple answers "what
+#: does the warm start leave uninitialized", which is a different question from
+#: "does this checkpoint already contain a fusion sublayer".
+_FUSION_STATE_PREFIXES = ("antibody_to_antigen.", "antigen_to_antibody.", "fusion_")
+
+
+def _checkpoint_has_fusion_sublayer(
+    checkpoint: Mapping[str, Any],
+    ckpt_architecture: Mapping[str, Any],
+) -> bool:
+    """
+    Does this parent checkpoint already carry a fusion sublayer?
+
+    Decided from the WEIGHTS when they are present, because that is ground truth
+    and it stays correct for a legacy checkpoint that records no fingerprint --
+    which the recorded-`model_class` route cannot do. A stage-2 parent has no
+    fusion keys at all, so enabling `fusion_gate` at stage 3 introduces the
+    sublayer rather than disagreeing with an existing one.
+
+    Falls back to the recorded model class, which fails CLOSED: an unrecognized
+    or absent class counts as having a fusion sublayer, so equality is enforced
+    rather than waved through.
+    """
+    state = checkpoint.get("model_state_dict")
+    if isinstance(state, Mapping) and state:
+        return any(key.startswith(_FUSION_STATE_PREFIXES) for key in state)
+    return experiment.parent_has_antigen_stream(ckpt_architecture)
+
+
 def validate_init_checkpoint_compatibility(
     cfg: TrainConfig,
     init_ckpt_path: Path | None,
@@ -4145,19 +4183,6 @@ def validate_init_checkpoint_compatibility(
             "would be read off-distribution)"
         )
 
-    # `fusion_gate` changes the PARAMETER SET, so unlike `norm_first` and
-    # `compat_readout` a strict load already fails on its own. It is named here
-    # anyway: "fusion_gate: checkpoint=False, run=True" is a diagnosis, whereas
-    # a bare list of unexpected keys is a puzzle. Absent means False -- every
-    # dual-stream checkpoint written before the knob existed was ungated.
-    ckpt_fusion_gate = bool(train_cfg.get("fusion_gate", False))
-    if bool(cfg.fusion_gate) != ckpt_fusion_gate:
-        mismatches.append(
-            f"fusion_gate: checkpoint={ckpt_fusion_gate}, run={bool(cfg.fusion_gate)} "
-            "(the gate adds one scalar per fused stream, so the parameter sets "
-            "differ; warm-start from an ungated parent instead of resuming)"
-        )
-
     # `activation` and `tie_weights` live ONLY on `MLMConfig` -- they are
     # hardcoded in `build_model_config` and unreachable from `TrainConfig`, so
     # no checkpoint written before J03 records them at all. They get the same
@@ -4186,6 +4211,29 @@ def validate_init_checkpoint_compatibility(
                 f"{key}: checkpoint={ckpt_value}, run={run_value} "
                 "(MLMConfig-only field; a legacy checkpoint with no recorded value is "
                 f"read as the historical {legacy_value!r})"
+            )
+
+    # `fusion_gate` gates the FUSION sublayer, which exists only in the
+    # dual-stream model, so equality is enforced ONLY against a parent that has
+    # an antigen stream. Requiring it unconditionally rejected exactly the
+    # transition the gate was built for: stage 2 is antibody-only and therefore
+    # records fusion_gate=False, while stage 3 turns it on, so every legitimate
+    # stage-2 -> stage-3 launch failed before model init. The scoping predicate
+    # is the same one `check_warm_start_fingerprint` uses, and it fails CLOSED --
+    # an unrecorded model class counts as having an antigen stream.
+    #
+    # Against a dual-stream parent this still matters even though the gate
+    # changes the parameter set and `strict=True` would catch it: a named
+    # mismatch is a diagnosis, a list of unexpected keys is a puzzle. Absent
+    # means False -- every dual-stream checkpoint written before the knob was
+    # ungated.
+    if _checkpoint_has_fusion_sublayer(checkpoint, ckpt_architecture):
+        ckpt_fusion_gate = bool(train_cfg.get("fusion_gate", False))
+        if bool(cfg.fusion_gate) != ckpt_fusion_gate:
+            mismatches.append(
+                f"fusion_gate: checkpoint={ckpt_fusion_gate}, run={bool(cfg.fusion_gate)} "
+                "(the gate adds one scalar per fused stream, so the parameter sets "
+                "differ; the parent already has a trained fusion sublayer)"
             )
 
     if mismatches:
