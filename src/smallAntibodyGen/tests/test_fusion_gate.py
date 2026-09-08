@@ -343,6 +343,85 @@ def test_fusion_gate_mismatch_is_named_by_init_compat_check(
         mlm_train.validate_init_checkpoint_compatibility(cfg, checkpoint_path)
 
 
+def test_antibody_only_parent_may_turn_the_gate_on(tmp_path: Path, project_root: Path):
+    """The stage 2 -> stage 3 launch itself.
+
+    REGRESSION: the first version of this check enforced gate equality against
+    EVERY parent. Stage 2 is antibody-only and therefore records
+    `fusion_gate=False`, so enabling the gate in the stage-3 config made the
+    launch fail before model initialization -- exactly the transition the gate
+    exists for. The parity tests never caught it because they call the weight
+    translation helper directly and skip this validator entirely.
+    """
+    mlm_train = load_mlm_train_module(project_root)
+    checkpoint_path = tmp_path / "paired_parent.pt"
+    torch.save(
+        {
+            "train_config": {"fusion_gate": False, "norm_first": True},
+            # A real antibody-only parent: `sequence_encoder.*`, no fusion keys.
+            # Detection reads the WEIGHTS, so this works with no fingerprint --
+            # which is also the legacy-checkpoint case.
+            "model_state_dict": {
+                "sequence_encoder.final_norm.weight": torch.ones(4),
+                "lm_head.weight": torch.ones(4, 4),
+            },
+        },
+        checkpoint_path,
+    )
+
+    cfg = dataclasses.replace(
+        mlm_train.parse_args(["--data-path", str(tmp_path / "tiny.jsonl.gz")]),
+        fusion_gate=True,
+        training_stage="antigen_real_label_refine",
+    )
+    # Must not raise: an antibody-only parent has no fusion sublayer to disagree.
+    mlm_train.validate_init_checkpoint_compatibility(cfg, checkpoint_path)
+
+
+def test_dual_stream_parent_must_still_match(tmp_path: Path, project_root: Path):
+    """The exemption is scoped, not a hole: a trained fusion sublayer still binds."""
+    mlm_train = load_mlm_train_module(project_root)
+    checkpoint_path = tmp_path / "antigen_parent.pt"
+    torch.save(
+        {
+            "train_config": {"fusion_gate": False, "norm_first": True},
+            # A dual-stream parent: it already HAS an ungated fusion sublayer.
+            "model_state_dict": {
+                "antibody_encoder.final_norm.weight": torch.ones(4),
+                "antibody_to_antigen.in_proj_weight": torch.ones(4, 4),
+                "fusion_norm_antibody.weight": torch.ones(4),
+            },
+        },
+        checkpoint_path,
+    )
+
+    cfg = dataclasses.replace(
+        mlm_train.parse_args(["--data-path", str(tmp_path / "tiny.jsonl.gz")]),
+        fusion_gate=True,
+        training_stage="antigen_hcdr3_infill_refine",
+    )
+    with pytest.raises(ValueError, match="fusion_gate"):
+        mlm_train.validate_init_checkpoint_compatibility(cfg, checkpoint_path)
+
+
+def test_gates_are_in_the_new_module_lr_group(project_root: Path):
+    """REGRESSION: the gates were warm-start-new but got the BASE lr.
+
+    Every other parameter the translation leaves uninitialized is routed through
+    `new_module_lr_multiplier`; the two gate scalars were not, so at a multiplier
+    of 5 the sublayer trained at 5x while the gate deciding how much of it the
+    model reads trained at 1x.
+    """
+    mlm_train = load_mlm_train_module(project_root)
+    assert "fusion_gate_antibody" in mlm_train.NEW_MODULE_LR_PREFIXES
+    assert "fusion_gate_antigen" in mlm_train.NEW_MODULE_LR_PREFIXES
+    # The names are leaf parameters, so a trailing dot would match nothing.
+    model = AntibodyAntigenCrossAttention(_model_config(fusion_gate=True))
+    for name in ("fusion_gate_antibody", "fusion_gate_antigen"):
+        assert name in dict(model.named_parameters())
+        assert name.startswith(mlm_train.NEW_MODULE_LR_PREFIXES)
+
+
 def test_legacy_checkpoint_without_the_key_is_read_as_gate_off(
     tmp_path: Path, project_root: Path
 ):

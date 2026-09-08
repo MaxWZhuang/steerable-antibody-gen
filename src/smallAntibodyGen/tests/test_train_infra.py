@@ -391,7 +391,7 @@ def _lr_knob_cfg(mlm_train, tmp_path: Path, *extra: str):
     )
 
 
-def _dual_model(mlm_train, norm_first: bool = False):
+def _dual_model(mlm_train, norm_first: bool = False, fusion_gate: bool = False):
     from smallAntibodyGen.models.mlm import AntibodyAntigenCrossAttention, MLMConfig
 
     return AntibodyAntigenCrossAttention(
@@ -405,6 +405,7 @@ def _dual_model(mlm_train, norm_first: bool = False):
             d_ff=64,
             dropout=0.0,
             norm_first=norm_first,
+            fusion_gate=fusion_gate,
         )
     )
 
@@ -434,9 +435,18 @@ def test_new_module_lr_prefixes_match_the_warm_start_missing_keys(project_root: 
 
     observed: set[str] = set()
     for norm_first in (False, True):
-        dual = _dual_model(mlm_train, norm_first=norm_first)
-        incompatible = dual.load_state_dict(translated, strict=False)
-        observed |= {key.split(".")[0] + "." for key in incompatible.missing_keys}
+        for fusion_gate in (False, True):
+            dual = _dual_model(
+                mlm_train, norm_first=norm_first, fusion_gate=fusion_gate
+            )
+            incompatible = dual.load_state_dict(translated, strict=False)
+            # The gate scalars are leaf nn.Parameters with no dot in their name,
+            # so the "first segment plus a dot" rule would invent a prefix that
+            # matches nothing. A dotless key IS its own prefix.
+            observed |= {
+                (key.split(".")[0] + ".") if "." in key else key
+                for key in incompatible.missing_keys
+            }
 
     assert observed == set(mlm_train.NEW_MODULE_LR_PREFIXES)
 
@@ -478,10 +488,13 @@ def test_multiplier_splits_four_groups_with_the_scaled_lr(
     assert grouped == sum(1 for p in model.parameters() if p.requires_grad)
 
 
-def test_multiplier_routes_exactly_the_new_modules(tmp_path: Path, project_root: Path):
+@pytest.mark.parametrize("fusion_gate", [False, True])
+def test_multiplier_routes_exactly_the_new_modules(
+    tmp_path: Path, project_root: Path, fusion_gate: bool
+):
     mlm_train = load_mlm_train_module(project_root)
     cfg = _lr_knob_cfg(mlm_train, tmp_path, "--new-module-lr-multiplier", "4.0")
-    model = _dual_model(mlm_train)
+    model = _dual_model(mlm_train, fusion_gate=fusion_gate)
     optimizer = mlm_train.build_optimizer(model, cfg)
 
     scaled_ids = {
