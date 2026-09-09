@@ -69,7 +69,7 @@ def _run(mlm_train, cfg, val_losses, *, interrupt_after=None):
     `interrupt_after=k` aborts the run once epoch k's checkpoints are on disk,
     which is what an interrupted run actually looks like. The phases before and
     after must therefore share ONE config -- including `epochs`. That is not
-    cosmetic: since J03, a resume requires an exact run-fingerprint match, and
+    cosmetic: a resume requires matching effective configuration, and
     `epochs` is result-affecting (it sets the cosine horizon through
     `total_training_steps`). Bumping `epochs` between the two phases, as this
     helper used to, is a config edit and the resume gate now rejects it.
@@ -186,3 +186,57 @@ def test_legacy_checkpoint_without_best_val_loss_warns(
          [0.9])
     out = capsys.readouterr().out
     assert "predates best_val_loss tracking" in out
+
+
+def test_provenance_edit_resumes_and_survives_checkpoint_replacement(
+    project_root: Path, tmp_path: Path, write_processed_jsonl_gz, capsys, monkeypatch
+):
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = _tiny_dataset(write_processed_jsonl_gz, tmp_path)
+    out_dir = tmp_path / 'run'
+    source_root = tmp_path / 'source-tree'
+    (source_root / 'specs').mkdir(parents=True)
+    contract = source_root / 'specs' / 'notes.md'
+    contract.write_text('# initial notes\n')
+    monkeypatch.setattr(mlm_train, 'PROJECT_ROOT', source_root)
+
+    _run(mlm_train, _cfg(mlm_train, data_path, out_dir, epochs=3, resume=False),
+         [1.0, 0.5], interrupt_after=2)
+    original = torch.load(out_dir / 'last.pt', map_location='cpu')['run_fingerprint']
+    capsys.readouterr()
+    contract.write_text('# corrected notes\n')
+
+    _run(mlm_train, _cfg(mlm_train, data_path, out_dir, epochs=3, resume=True), [0.8])
+    assert 'RESUMING WITH CHANGED PROVENANCE' in capsys.readouterr().out
+    last = torch.load(out_dir / 'last.pt', map_location='cpu')
+    current = last['run_fingerprint']
+    assert last['epoch'] == 3 and last['best_val_loss'] == pytest.approx(0.5)
+    assert current['resume_hash'] == original['resume_hash']
+    assert current['run_hash'] != original['run_hash']
+    assert current['resume_history'] == [{'checkpoint_epoch': 2, 'fingerprint': original}]
+    import json
+    assert json.loads((out_dir / 'run_fingerprint.json').read_text()) == current
+    best = torch.load(out_dir / 'best.pt', map_location='cpu')
+    assert best['epoch'] == 2 and best['val_loss'] == pytest.approx(0.5)
+
+
+def test_incompatible_resume_preserves_sidecars_and_refuses_before_loading_state(
+    project_root: Path, tmp_path: Path, write_processed_jsonl_gz, monkeypatch
+):
+    mlm_train = load_mlm_train_module(project_root)
+    data_path = _tiny_dataset(write_processed_jsonl_gz, tmp_path)
+    out_dir = tmp_path / 'run'
+    _run(mlm_train, _cfg(mlm_train, data_path, out_dir, epochs=2, resume=False),
+         [0.5], interrupt_after=1)
+    paths = [out_dir / name for name in ('last.pt', 'run_fingerprint.json', 'train_config.json')]
+    original = {p: p.read_bytes() for p in paths}
+    cfg = _cfg(mlm_train, data_path, out_dir, epochs=2, resume=True)
+    cfg.learning_rate *= 2
+
+    def must_not_load_state(**kwargs):
+        pytest.fail('incompatible resume reached state loading')
+
+    monkeypatch.setattr(mlm_train, 'load_checkpoint', must_not_load_state)
+    with pytest.raises(mlm_train.experiment.ResumeFingerprintMismatch, match='learning_rate'):
+        _run(mlm_train, cfg, [0.2])
+    assert {p: p.read_bytes() for p in paths} == original

@@ -3,6 +3,12 @@
 **Status:** scoped, **not run**. Execution is blocked; see §7.
 **Predeclared:** 2026-08-28, before any arm has been trained.
 
+**Current role (2026-09-09):** optional custom-model reference comparison, outside
+the critical path. The [pretrained-policy direction](../decisions/0003-pretrained-conditioned-policy.md)
+does not require a v5 stage-2 checkpoint or this comparison before integrating a
+pretrained antibody backbone. The original protocol below still governs any run
+reported as J24; a new backbone comparison needs its own declared protocol.
+
 ## 1. Question
 
 > Given the same pretrained antibody model, data, supervision, initialization, and

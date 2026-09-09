@@ -3774,8 +3774,9 @@ def save_checkpoint(
             The run-provenance payload from
             ``experiment.compute_run_fingerprint`` -- component hashes for
             architecture / objective / tokenizer / data / contracts / source,
-            the combined run hash, the parent checkpoint hash, and the
-            dirty-worktree indicator. ``main`` computes it once per run (it
+            the full provenance hash, the resume-compatibility hash, parent
+            lineage, prior resume segments and dirty-worktree indicator.
+            ``main`` computes it once per invocation (it
             hashes the corpus and the whole source tree) and hands the same
             object to every save. ``None`` writes a checkpoint with no
             fingerprint, which ``resume_from_last`` then refuses; that is the
@@ -4404,18 +4405,14 @@ def main() -> None:
     init_ckpt_path = validate_checkpoint_plan(cfg, output_dir)
     validate_init_checkpoint_compatibility(cfg, init_ckpt_path)
     output_dir.mkdir(parents=True, exist_ok=True)
-    with open(output_dir / "train_config.json", "w", encoding="utf-8") as f:
-        json.dump(asdict(cfg), f, indent=2)
 
     tokenizer = build_tokenizer()
 
-    # Run provenance (J03). Computed once, before any data is loaded, so a
-    # promotion refusal costs nothing; written next to the checkpoints and
-    # embedded in every one of them.
+    # Compute provenance once. Sidecars are written only after resume validation
+    # and state restoration succeed, so a refused resume preserves the old record.
     run_fingerprint = build_run_fingerprint(cfg, tokenizer, init_ckpt_path)
-    with open(output_dir / "run_fingerprint.json", "w", encoding="utf-8") as f:
-        json.dump(run_fingerprint, f, indent=2, sort_keys=True)
     print(f"[fingerprint] run_hash={run_fingerprint['run_hash']}")
+    print(f"[fingerprint] resume_hash={run_fingerprint['resume_hash']}")
     for _component, _digest in sorted(run_fingerprint["components"].items()):
         print(f"[fingerprint]   {_component}={_digest}")
     _source = run_fingerprint["manifests"]["source"]
@@ -4563,13 +4560,18 @@ def main() -> None:
         # rejected resume leaves nothing half-restored. `torch.load` here reads
         # only the fingerprint payload; no state is applied to anything.
         #
-        # An exact run-fingerprint match is required. A checkpoint with no
+        # Effective config, architecture, tokenizer and data must match. Source
+        # and contract revisions warn and remain in the provenance history.
+        # A checkpoint with no
         # fingerprint at all (every checkpoint written before J03) is a hard
         # error rather than a warning -- there is nothing to verify against, and
         # every shipped config sets `resume_from_last: true`, so a silent
         # legacy resume is exactly the accident this ticket exists to prevent.
+        stored_fingerprint = experiment.read_fingerprint(
+            torch.load(last_ckpt_path, map_location="cpu")
+        )
         experiment.check_resume_fingerprint(
-            experiment.read_fingerprint(torch.load(last_ckpt_path, map_location="cpu")),
+            stored_fingerprint,
             run_fingerprint,
             last_ckpt_path,
         )
@@ -4582,6 +4584,13 @@ def main() -> None:
             map_location=device,
         )
         start_epoch = checkpoint["epoch"]
+        run_fingerprint = experiment.record_resume_provenance(
+            stored_fingerprint, run_fingerprint, checkpoint_epoch=start_epoch,
+        )
+        print(
+            f"[fingerprint] resumed run_hash={run_fingerprint['run_hash']} "
+            f"prior_segments={len(run_fingerprint.get('resume_history', []))}"
+        )
         # Prefer the explicitly-tracked running best. `val_loss` is THIS
         # checkpoint's own score, and for `last.pt` that is the LAST epoch's, not
         # the best -- seeding best-tracking from it inflates the threshold so the
@@ -4646,6 +4655,13 @@ def main() -> None:
             print(f"[checkpoint] initialized {cfg.training_stage} model weights from init_checkpoint")
         if last_ckpt_path.exists() and not cfg.resume_from_last:
             print("[checkpoint] ignored existing last.pt because resume_from_last=False")
+
+    # Persist the accepted configuration and complete lineage, including earlier
+    # provenance segments that would otherwise disappear when last.pt is replaced.
+    with open(output_dir / "train_config.json", "w", encoding="utf-8") as f:
+        json.dump(asdict(cfg), f, indent=2)
+    with open(output_dir / "run_fingerprint.json", "w", encoding="utf-8") as f:
+        json.dump(run_fingerprint, f, indent=2, sort_keys=True)
 
     if cfg.smoke_test_only:
         smoke_loader = build_train_loader(train_dataset, tokenizer, cfg, epoch=0, device=device)

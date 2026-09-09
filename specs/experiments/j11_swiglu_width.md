@@ -1,7 +1,13 @@
 # J11 — SwiGLU width selection (680 vs 1024)
 
-**Status:** budget frozen and **pipeline preflight PASSED**. Evidence runs cleared to launch; see §6.
+**Historical result:** width 680 selected; see §8 and the errata in §9.
 **Predeclared:** 2026-08-28, before any quality metric was computed.
+
+**Current role (2026-09-09):** custom-model reference experiment. The
+[pretrained-policy direction](../decisions/0003-pretrained-conditioned-policy.md)
+supersedes the requirement to complete custom architecture work before the main
+conditioning experiment. Results and the original protocol below are retained;
+historical launch instructions are not the current project work order.
 
 ## 1. Question
 

@@ -1,8 +1,9 @@
 """Run fingerprinting and checkpoint lineage (ticket J03).
 
-The goal is narrow and blunt: **an accidental resume against edited inputs, an
-edited config, an edited tokenizer, edited approved contracts, or edited source
-code must be impossible**, and every checkpoint must say what it descended from.
+Resume compatibility requires matching architecture, effective config, tokenizer,
+and data. Source and contract revisions remain provenance: a change warns but
+does not prevent restoring an otherwise compatible interrupted run. Every
+checkpoint records the revisions and lineage that contributed to its weights.
 
 Six independent component fingerprints are computed, then combined:
 
@@ -33,10 +34,15 @@ component        what it pins
                  ``.pytest_cache``, ``*.egg-info``, ``.DS_Store``, ...) as the
                  only exclusions. The git commit and the dirty-path list are
                  recorded alongside it but do NOT enter the hash, so committing
-                 unchanged content never invalidates a resume while a one-byte
-                 edit always does. That is what makes a dirty edit identifiable
+                 unchanged content keeps the same provenance hash while a one-byte
+                 edit changes it. That makes a dirty edit identifiable
                  **by content**, not merely by a ``dirty: true`` flag.
 ===============  ==========================================================
+
+``run_hash`` retains all six components and parent lineage. ``resume_hash``
+contains only the four compatibility components. Schema-1 checkpoints have no
+resume hash; it is derived from their recorded components. Provenance snapshots
+from earlier run segments survive in ``resume_history`` when last.pt is replaced.
 
 Determinism is a hard requirement: sorted keys, relative paths only, no
 timestamps, no dict-order dependence, no absolute paths. The same inputs give
@@ -48,6 +54,7 @@ function of files, a config mapping, an ``MLMConfig``, and a tokenizer.
 from __future__ import annotations
 
 import hashlib
+from copy import deepcopy
 import json
 import os
 import subprocess
@@ -58,6 +65,7 @@ from typing import Any, Iterable, Mapping, Sequence
 __all__ = [
     "FINGERPRINT_SCHEMA_VERSION",
     "RUN_FINGERPRINT_KEY",
+    "RESUME_COMPONENTS",
     "OPERATIONAL_ONLY_CONFIG_FIELDS",
     "PATHLIKE_CONFIG_FIELDS",
     "is_absolute_on_any_platform",
@@ -95,6 +103,8 @@ __all__ = [
     "compute_run_fingerprint",
     "read_fingerprint",
     "check_resume_fingerprint",
+    "resume_compatibility_hash",
+    "record_resume_provenance",
     "check_warm_start_fingerprint",
     "warm_start_lineage_warning",
     "require_clean_worktree",
@@ -105,10 +115,15 @@ __all__ = [
 # --------------------------------------------------------------------------- #
 # Constants
 # --------------------------------------------------------------------------- #
-FINGERPRINT_SCHEMA_VERSION = 1
+FINGERPRINT_SCHEMA_VERSION = 2
 
 #: Top-level checkpoint key holding the run fingerprint payload.
 RUN_FINGERPRINT_KEY = "run_fingerprint"
+
+# Source and contract hashes identify the experiment without making every edit
+# to the repository a resume incompatibility. Keep their complete manifests.
+RESUME_COMPONENTS: tuple[str, ...] = ("architecture", "objective", "tokenizer", "data")
+PROVENANCE_COMPONENTS: tuple[str, ...] = ("source", "contracts")
 
 #: The ONLY ``TrainConfig`` fields treated as operational rather than
 #: result-affecting. Owner-approved, 2026-08-27. Everything else -- including
@@ -653,8 +668,8 @@ def source_revision(repo_root: str | Path) -> dict[str, Any]:
     sorted, non-generated regular file under :data:`SOURCE_ROOTS` and
     :data:`SOURCE_FILES`. It is the only part that feeds the ``source``
     component hash: the commit id and dirty-path list are recorded for humans
-    but excluded from the hash, so committing byte-identical content never
-    invalidates a resume while a one-character edit always does.
+    but excluded from the hash. A one-character edit changes provenance; resume
+    compatibility is decided separately from the effective run inputs.
 
     ``git`` is optional. In a non-git checkout the commit is recorded as absent
     and the content hash still fully identifies the tree.
@@ -706,6 +721,33 @@ def contracts_manifest(repo_root: str | Path) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # Combined run fingerprint
 # --------------------------------------------------------------------------- #
+def resume_compatibility_hash(fingerprint: Mapping[str, Any]) -> str:
+    """Derive compatibility from recorded components, including schema-1 payloads.
+
+    Never trust an equal cached run/resume hash when required component evidence
+    is missing. This intentionally does not hash the outer payload schema version.
+    """
+    components = fingerprint.get("components")
+    if not isinstance(components, Mapping):
+        raise ValueError("missing fingerprint components")
+    required = {}
+    for name in RESUME_COMPONENTS:
+        digest = components.get(name)
+        if (not isinstance(digest, str) or len(digest) != 64
+                or any(c not in "0123456789abcdef" for c in digest)):
+            raise ValueError(f"missing or invalid {name} component hash")
+        required[name] = digest
+    return hash_payload({"resume_schema_version": 1, "components": required})
+
+
+def _combined_run_hash(components: Mapping[str, str], parent_hash: str | None) -> str:
+    return hash_payload({
+        "schema_version": FINGERPRINT_SCHEMA_VERSION,
+        "components": components,
+        "parent_checkpoint_hash": parent_hash,
+    })
+
+
 def compute_run_fingerprint(
     *,
     config: Mapping[str, Any],
@@ -725,7 +767,9 @@ def compute_run_fingerprint(
         the six component hashes;
     ``run_hash``
         the combined hash, over the components AND the parent-checkpoint hash,
-        which is what ``resume_from_last`` must match exactly;
+        identifying full provenance, not deciding resume compatibility;
+    ``resume_hash``
+        the architecture/objective/tokenizer/data compatibility hash;
     ``parent_checkpoint`` / ``parent_checkpoint_hash``
         lineage back to the ``init_checkpoint`` this run warm-started from;
     ``worktree_dirty``
@@ -757,16 +801,13 @@ def compute_run_fingerprint(
     if parent is not None:
         parent_hash = parent.get("run_hash") or parent.get("file_sha256")
 
-    run_hash = hash_payload({
-        "schema_version": FINGERPRINT_SCHEMA_VERSION,
-        "components": components,
-        "parent_checkpoint_hash": parent_hash,
-    })
+    run_hash = _combined_run_hash(components, parent_hash)
 
     return {
         "schema_version": FINGERPRINT_SCHEMA_VERSION,
         "components": components,
         "run_hash": run_hash,
+        "resume_hash": resume_compatibility_hash({"components": components}),
         "parent_checkpoint": parent,
         "parent_checkpoint_hash": parent_hash,
         "worktree_dirty": bool(source["dirty"]),
@@ -894,11 +935,12 @@ def check_resume_fingerprint(
     checkpoint_path: str | Path,
 ) -> None:
     """
-    Require an EXACT run-fingerprint match before a resume touches any state.
+    Require compatible effective inputs before a resume touches any state.
 
     Raises :class:`LegacyCheckpointResumeError` when the checkpoint predates
     fingerprinting (owner decision: legacy checkpoints are unsupported for
-    resume), and :class:`ResumeFingerprintMismatch` when any component moved.
+    resume), and :class:`ResumeFingerprintMismatch` when a required component
+    moved or is unverifiable. Source/contract changes print a provenance warning.
     Call this BEFORE model/optimizer/scaler/scheduler state is loaded.
     """
     path = Path(checkpoint_path).as_posix()
@@ -906,26 +948,86 @@ def check_resume_fingerprint(
         raise LegacyCheckpointResumeError(
             f"Refusing to resume from {path}: the checkpoint carries no "
             f"'{RUN_FINGERPRINT_KEY}' payload, so there is no way to verify that this "
-            "run's config, data, tokenizer, architecture, approved contracts and "
-            "source revision match the ones that produced it.\n"
+            "run's config, data, tokenizer and architecture match the ones that "
+            "produced it.\n"
             "This checkpoint predates run fingerprinting (J03). Legacy checkpoints are "
             "supported for warm start (--init-checkpoint) but NOT for resume.\n"
             "Either start a fresh run with --no-resume-from-last, or warm-start from "
             f"this checkpoint with --init-checkpoint {path} and a new --output-dir."
         )
 
-    if stored.get("run_hash") == current.get("run_hash"):
-        return
+    compatibility = []
+    for label, payload in (("checkpoint", stored), ("current run", current)):
+        if payload.get("schema_version") not in (1, FINGERPRINT_SCHEMA_VERSION):
+            raise ResumeFingerprintMismatch(
+                f"Refusing to resume from {path}: unsupported {label} fingerprint "
+                f"schema_version={payload.get('schema_version')!r}."
+            )
+        try:
+            digest = resume_compatibility_hash(payload)
+        except ValueError as exc:
+            raise ResumeFingerprintMismatch(
+                f"Refusing to resume from {path}: {label} has {exc}."
+            ) from exc
+        if payload.get("resume_hash") not in (None, digest):
+            raise ResumeFingerprintMismatch(
+                f"Refusing to resume from {path}: {label} resume_hash disagrees "
+                "with its recorded compatibility components."
+            )
+        compatibility.append(digest)
 
-    raise ResumeFingerprintMismatch(
-        f"Refusing to resume from {path}: the run fingerprint does not match.\n"
-        f"  checkpoint run_hash={stored.get('run_hash')}\n"
-        f"  current    run_hash={current.get('run_hash')}\n"
-        "Differences (checkpoint -> this run):\n"
-        + describe_fingerprint_mismatch(stored, current)
-        + "\nA resume must reproduce the interrupted run exactly. Revert the change, or "
-        "start a new run with a new --output-dir and --no-resume-from-last."
+    if compatibility[0] != compatibility[1]:
+        raise ResumeFingerprintMismatch(
+            f"Refusing to resume from {path}: resume compatibility does not match.\n"
+            "Differences (checkpoint -> this run):\n"
+            + describe_fingerprint_mismatch(stored, current, RESUME_COMPONENTS)
+            + "\nA resume requires matching architecture, effective config, tokenizer "
+            "and data. Revert those changes, or start a new run with a new "
+            "--output-dir and --no-resume-from-last."
+        )
+
+    changed = [name for name in PROVENANCE_COMPONENTS
+               if stored["components"].get(name) != current["components"].get(name)]
+    parent_changed = stored.get("parent_checkpoint_hash") != current.get("parent_checkpoint_hash")
+    if changed or parent_changed:
+        details = describe_fingerprint_mismatch(stored, current, changed) if changed else ""
+        if parent_changed:
+            details += "\n  init-checkpoint provenance changed; resume retains the original parent lineage."
+        print(
+            f"[warn] RESUMING WITH CHANGED PROVENANCE from {path}.\n"
+            "Architecture, effective config, tokenizer and data match.\n"
+            + details
+            + "\nSource/contract equality is not required for resume. Implementation "
+            "changes may still change results; this is not a claim of scientific "
+            "equivalence. Changed source/contract segments are retained in resume_history."
+        )
+
+
+def record_resume_provenance(
+    stored: Mapping[str, Any],
+    current: Mapping[str, Any],
+    *,
+    checkpoint_epoch: int,
+) -> dict[str, Any]:
+    """Carry prior segment provenance into future checkpoints after a valid resume.
+
+    The warm-start parent did not change merely because its file changed while
+    training was interrupted. Retain that original lineage. Snapshot each changed
+    segment once, without recursively nesting its history or mutating inputs.
+    """
+    continued = deepcopy(dict(current))
+    continued["parent_checkpoint"] = deepcopy(stored.get("parent_checkpoint"))
+    continued["parent_checkpoint_hash"] = stored.get("parent_checkpoint_hash")
+    continued["run_hash"] = _combined_run_hash(
+        continued["components"], continued["parent_checkpoint_hash"]
     )
+    history = deepcopy(stored.get("resume_history", []))
+    if stored.get("run_hash") != continued["run_hash"]:
+        previous = {key: deepcopy(value) for key, value in stored.items() if key != "resume_history"}
+        history.append({"checkpoint_epoch": int(checkpoint_epoch), "fingerprint": previous})
+    if history:
+        continued["resume_history"] = history
+    return continued
 
 
 def check_warm_start_fingerprint(

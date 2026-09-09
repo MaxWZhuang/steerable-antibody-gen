@@ -1,9 +1,8 @@
 """Contract tests for run fingerprinting and checkpoint lineage (J03).
 
-The point of `smallAntibodyGen.experiment` is that a resume against edited
-inputs, an edited config, an edited tokenizer, or edited source code is
-*impossible* rather than merely discouraged. These tests pin the pieces that
-make that true:
+Resume rejects changed inputs, config, tokenizer, or architecture. Source and
+contract changes remain visible provenance and warn without blocking resume.
+These tests pin the pieces that make those two policies distinct:
 
 - canonical serialization (sorted keys, no absolute paths, order-independent);
 - six separate component fingerprints, so a mismatch says WHICH component moved;
@@ -455,6 +454,7 @@ def test_run_fingerprint_records_all_six_components_and_a_combined_hash(tmp_path
         "architecture", "objective", "tokenizer", "data", "contracts", "source"
     }
     assert len(fp["run_hash"]) == 64
+    assert len(fp["resume_hash"]) == 64
     assert "parent_checkpoint_hash" in fp
     assert fp["worktree_dirty"] in (True, False)
     assert fp["schema_version"] == experiment.FINGERPRINT_SCHEMA_VERSION
@@ -551,26 +551,138 @@ def test_tokenizer_mismatch_rejects_resume(tmp_path: Path):
         experiment.check_resume_fingerprint(stored, current, Path("last.pt"))
 
 
-def test_source_edit_rejects_resume_and_names_the_edited_file(tmp_path: Path):
+@pytest.mark.parametrize("path", ["scripts/train.py", "src/pkg/mod.py", "configs/new.yaml"])
+def test_source_edit_warns_and_allows_resume(tmp_path: Path, capsys, path):
     from smallAntibodyGen import experiment
 
     repo = _make_repo(tmp_path / "repo")
     stored = _fingerprint(repo)
-    (repo / "scripts" / "train.py").write_text("# train v2\n", encoding="utf-8")
+    (repo / path).write_text("# comment or unrelated configuration\n", encoding="utf-8")
     current = _fingerprint(repo)
-    with pytest.raises(experiment.ResumeFingerprintMismatch, match="scripts/train.py"):
-        experiment.check_resume_fingerprint(stored, current, Path("last.pt"))
+    experiment.check_resume_fingerprint(stored, current, Path("last.pt"))
+    warning = capsys.readouterr().out
+    assert "[warn]" in warning and path in warning
+    assert "provenance" in warning.lower()
+    assert current["resume_hash"] == stored["resume_hash"]
+    assert current["run_hash"] != stored["run_hash"]
 
 
-def test_changed_contract_rejects_resume(tmp_path: Path):
+def test_changed_contract_warns_and_allows_resume(tmp_path: Path, capsys):
     from smallAntibodyGen import experiment
 
     repo = _make_repo(tmp_path / "repo")
     stored = _fingerprint(repo)
     (repo / "specs" / "contract.md").write_text("# contract v2\n", encoding="utf-8")
     current = _fingerprint(repo)
-    with pytest.raises(experiment.ResumeFingerprintMismatch, match="contracts"):
+    experiment.check_resume_fingerprint(stored, current, Path("last.pt"))
+    warning = capsys.readouterr().out
+    assert "contracts" in warning and "specs/contract.md" in warning
+    assert current["resume_hash"] == stored["resume_hash"]
+    assert current["components"]["source"] != stored["components"]["source"]
+    assert current["components"]["contracts"] != stored["components"]["contracts"]
+
+
+def test_data_edit_still_refuses_resume_with_source_changes(tmp_path: Path):
+    from smallAntibodyGen import experiment
+
+    repo = _make_repo(tmp_path / "repo")
+    corpus = repo / "corpus.jsonl"
+    corpus.write_text('old data\n')
+    stored = _fingerprint(repo, data_paths=[corpus])
+    corpus.write_text('new data\n')
+    (repo / 'src/pkg/mod.py').write_text('# edited source\n')
+    current = _fingerprint(repo, data_paths=[corpus])
+    with pytest.raises(experiment.ResumeFingerprintMismatch, match="data"):
         experiment.check_resume_fingerprint(stored, current, Path("last.pt"))
+
+
+def test_schema_one_checkpoint_resumes_after_provenance_edit(tmp_path: Path, capsys):
+    from smallAntibodyGen import experiment
+
+    repo = _make_repo(tmp_path / "repo")
+    stored = _fingerprint(repo)
+    stored.pop("resume_hash")
+    stored["schema_version"] = 1
+    stored["run_hash"] = experiment.hash_payload({
+        "schema_version": 1, "components": stored["components"],
+        "parent_checkpoint_hash": stored["parent_checkpoint_hash"],
+    })
+    (repo / 'specs/contract.md').write_text('# typo fixed\n')
+    current = _fingerprint(repo)
+    experiment.check_resume_fingerprint(stored, current, Path("last.pt"))
+    assert "[warn]" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("component", ["architecture", "objective", "tokenizer", "data"])
+def test_resume_requires_every_compatibility_component(tmp_path: Path, component):
+    from smallAntibodyGen import experiment
+
+    repo = _make_repo(tmp_path / "repo")
+    stored = _fingerprint(repo)
+    current = _fingerprint(repo)
+    # Equal cached run/resume hashes must not bypass missing component evidence.
+    del stored["components"][component]
+    with pytest.raises(experiment.ResumeFingerprintMismatch, match=component):
+        experiment.check_resume_fingerprint(stored, current, Path("last.pt"))
+
+
+def test_resume_provenance_history_survives_subsequent_resumes(tmp_path: Path):
+    from smallAntibodyGen import experiment
+
+    repo = _make_repo(tmp_path / 'repo')
+    original = _fingerprint(repo)
+    (repo / 'src/pkg/mod.py').write_text('# first edit\n')
+    current = _fingerprint(repo)
+    continued = experiment.record_resume_provenance(original, current, checkpoint_epoch=2)
+    history = continued['resume_history']
+    assert history[0]['checkpoint_epoch'] == 2
+    assert history[0]['fingerprint'] == original
+    assert continued['run_hash'] == current['run_hash']
+    assert 'resume_history' not in current  # no mutation of the input
+
+    # An unchanged restart preserves history without adding duplicate snapshots.
+    unchanged = experiment.record_resume_provenance(continued, current, checkpoint_epoch=3)
+    assert unchanged['resume_history'] == history
+    (repo / 'specs/contract.md').write_text('# second edit\n')
+    newer = _fingerprint(repo)
+    continued_again = experiment.record_resume_provenance(unchanged, newer, checkpoint_epoch=4)
+    assert len(continued_again['resume_history']) == 2
+    assert continued_again['resume_history'][0] == history[0]
+    prior = continued_again['resume_history'][1]['fingerprint']
+    assert prior['run_hash'] == current['run_hash']
+    assert 'resume_history' not in prior  # snapshots cannot nest recursively
+    assert json.loads(json.dumps(continued_again)) == continued_again
+
+
+def test_resume_retains_actual_parent_when_init_file_provenance_changes(tmp_path: Path, capsys):
+    from smallAntibodyGen import experiment
+
+    repo = _make_repo(tmp_path / 'repo')
+    original_parent = {'path': 'parent.pt', 'run_hash': 'a' * 64}
+    changed_parent = {'path': 'parent.pt', 'run_hash': 'b' * 64}
+    original = _fingerprint(repo, parent=original_parent)
+    current = _fingerprint(repo, parent=changed_parent)
+    experiment.check_resume_fingerprint(original, current, Path('last.pt'))
+    assert 'original parent lineage' in capsys.readouterr().out
+    continued = experiment.record_resume_provenance(original, current, checkpoint_epoch=2)
+    assert continued['parent_checkpoint'] == original_parent
+    assert continued['parent_checkpoint_hash'] == original['parent_checkpoint_hash']
+    assert continued['run_hash'] == original['run_hash']
+
+
+@pytest.mark.parametrize('corruption', ['unknown_schema', 'stale_resume_hash'])
+def test_resume_refuses_unverifiable_fingerprint_metadata(tmp_path: Path, corruption):
+    from smallAntibodyGen import experiment
+
+    repo = _make_repo(tmp_path / 'repo')
+    stored = _fingerprint(repo)
+    current = _fingerprint(repo)
+    if corruption == 'unknown_schema':
+        stored['schema_version'] = 999
+    else:
+        stored['resume_hash'] = '0' * 64
+    with pytest.raises(experiment.ResumeFingerprintMismatch):
+        experiment.check_resume_fingerprint(stored, current, Path('last.pt'))
 
 
 def test_mismatch_message_is_not_two_opaque_hashes(tmp_path: Path):
