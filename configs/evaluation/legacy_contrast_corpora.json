@@ -1,0 +1,6 @@
+{
+  "overrides": {
+    "paired_refine": "data/processed/oas_paired_all_pair_key_pre_20260902/oas_paired.jsonl.gz"
+  },
+  "note": "The legacy paired checkpoint predates the heavy-key regeneration at its saved data_path. Audit the available backup, recording its bytes. These checkpoints did not pin training-corpus hashes; this override does not certify historical membership."
+}

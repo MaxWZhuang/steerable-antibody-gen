@@ -4,9 +4,13 @@ __pycache__/
 .venv/
 .env
 
-# Claude Code (local-only, not shared)
+# Agent instruction files (local-only, not shared).
+# AGENTS.md holds the shared conventions Claude Code and Codex CLI both read;
+# it is kept local for the same reason CLAUDE.md is. Tracking it is a
+# publishing decision -- ask first.
 .claude/
 CLAUDE.md
+AGENTS.md
 
 # Local-only docs. INTERNAL: research notes, the bug log, the architecture
 # contract, and the steering plans are for the owner, not for the public repo.

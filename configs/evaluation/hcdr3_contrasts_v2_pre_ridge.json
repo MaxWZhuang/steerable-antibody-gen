@@ -1,0 +1,31 @@
+{
+  "primary_endpoint": "equal-target, equal-group concordance",
+  "secondary_endpoint": "pair-pooled concordance within target; never pooled across groups or targets",
+  "floor": 0.5,
+  "floor_justification": "contrasts.concordance excludes measured ties and counts score ties as half, so a constant scorer earns exactly 0.500 by construction. Pinned by test_constant_scorer_earns_exactly_the_floor.",
+
+  "min_variants": 2,
+  "min_variants_rationale": "Two variants with one comparable pair is the smallest rankable panel. Single-pair groups are noisy but carry real information and stay in the primary population. A higher threshold defines a SECONDARY population and must be declared before looking at it, not chosen because it improves the number.",
+
+  "fold": "validation",
+  "seed": 42,
+  "alpha": 0.05,
+  "n_resamples": 20000,
+  "n_permutations": 2000,
+  "n_simulations": 2000,
+  "effect": 0.03,
+
+  "multiplicity": "Three scored targets. A per-target claim is judged at Bonferroni alpha = 0.05/3 = 0.0167; the primary endpoint is the single pre-declared headline and is judged at 0.05.",
+  "adoption_bar": "A ranking change is adopted only if the primary endpoint improves by at least 0.03 with a paired cluster-bootstrap interval excluding zero, AND residue/pairing retention stays within its own frozen margins. Ranking improvement alone never establishes antigen conditioning.",
+  "power_requirement": "Report power_simulation before treating any negative result as decisive. Its power is an UPPER bound (pairs inside a panel are simulated independently). Below ~0.80 the comparison is uninformative either way and the answer is more panels, not more training.",
+
+  "status": "RETROSPECTIVE, NOT A PREREGISTRATION",
+  "status_detail": "These endpoint choices were made after inspecting the first validation scoring run, whose v1 headline was dominated by 579 single-pair groups and one 50,086-pair TIGIT panel. They become a preregistration only for a subsequent, untouched evaluation population. Any claim quoting this protocol on the run that motivated it must say so.",
+
+  "known_confounds": [
+    "The scored checkpoint carries max_length 192 while configs/refine_antigen_hcdr3_infill.yaml declares 288; all aayl49 groups were excluded for exceeding the antibody context and the RBD native antigen was truncated.",
+    "Every currently scored group is heavy-only, so this benchmark cannot speak to heavy/light pairing retention.",
+    "Stage-4 split leakage is OPEN; the exposure audit found related eligible sequences for some PD-1 and RBD variants. Historical holdout is not established.",
+    "The substituted-antigen arm has no measured labels. It is an input ablation, not a specificity measurement."
+  ]
+}

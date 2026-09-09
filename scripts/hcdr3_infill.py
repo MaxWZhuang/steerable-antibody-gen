@@ -143,6 +143,10 @@ def config_from_checkpoint(checkpoint: dict[str, Any], *, data_path: str, device
     merged = _train_config_defaults()
     saved = checkpoint.get("train_config")
     if isinstance(saved, dict):
+        # Before norm placement became configurable, both streams and fusion
+        # used post-LN. A missing field must retain that historical computation,
+        # not inherit the current pre-LN default (which also adds parameters).
+        merged["norm_first"] = saved.get("norm_first", False)
         # Only overlay keys that are still TrainConfig fields, so a checkpoint
         # saved under an older/newer schema (a renamed or removed field) cannot
         # crash reconstruction with an unexpected keyword argument.
