@@ -39,6 +39,14 @@ from smallAntibodyGen.data.MLMCollator import (
     OASSequenceDataset,
 )
 
+# The last commit BEFORE J22c. This must be an immutable SHA, never a moving ref
+# like `HEAD` or a branch name: the whole point of the byte-identity test below is
+# to compare against pre-change behavior, and a moving ref silently starts
+# pointing AT the change once it is committed, at which point the test compares
+# the collator against itself and passes vacuously. That is exactly what happened
+# the first time this was written against `HEAD`.
+PRE_J22C_COMMIT = "2dde1af"
+
 HEAVY = "QVQLVQSGAEVKKPGASVKVSCKASGYTFTSYAMHWVRQAPGQGLEWMGWINAGNGNTKYSQKFQGRVTITRDTSASTAYMELSSLRSEDTAVYYCARDRSTFDYWGQGTLVTVSS"
 ANTIGEN = "MKTIIALSYIFCLVFADYKDDDDKGSHMTEYKLVVVGAGGVGKSALTIQLIQNHFVDEYDPTIEDSYRKQVVIDGETCLLDILDTAGQEEYSAMRDQYMRTGEGFLCVFAINNTKSFEDIHQYREQIKRVKDSDDVPMVLVGNKCDL"
 
@@ -898,10 +906,14 @@ def test_base_collator_output_is_byte_identical_to_the_pre_change_collator(
     # The only keys the working tree is allowed to ADD over HEAD: the
     # eligibility mask this ticket contributes, and the alias-resolved target
     # grouping J02 contributes. Everything else must still match byte for byte,
-    # which the loop below and the RNG-cursor check enforce. J02's donor
-    # matching reads `canonical_target_id or target_key`, and this fixture's
-    # rows predate the canonical field, so the fallback must reproduce the
-    # legacy donor choices exactly -- that is what the tensor comparison proves.
+    # which the loop below and the RNG-cursor check enforce.
+    #
+    # What this does NOT prove: J02's collator-level
+    # `canonical_target_id or target_key` fallback. `OASSequenceDataset._load`
+    # already applies that same fallback when it builds the record, so by the
+    # time the collator sees a dataset-loaded row `canonical_target_id` is never
+    # None and the collator's own `or` is unreachable from this path. That
+    # fallback is covered separately, against directly-constructed records.
     assert set(current) - set(before) == {
         "conditional_denoising_eligible",
         "canonical_target_ids",
@@ -1148,3 +1160,29 @@ def test_preflight_raises_end_to_end_on_an_all_nonbinder_corpus(
     )
     with pytest.raises(ValueError, match="eligible for antigen-conditioned"):
         mlm_train.main()
+
+
+def test_binary_binders_only_is_refused_on_the_shuffling_stage(project_root):
+    """
+    `antigen_refine` builds synthetic negatives by swapping antigens. Shuffling
+    rewrites the antigen fields but never `binder_label`, so a constructed
+    nonbinder would stay eligible and become a positive reconstruction target
+    under an antigen it does not bind. The contract puts shuffled rows out of
+    scope, so the combination is refused rather than reinterpreted.
+    """
+    mlm_train = _load_script(project_root, "mlm_train")
+    cfg = mlm_train.TrainConfig(
+        data_path="x",
+        training_stage="antigen_refine",
+        init_checkpoint="parent.pt",
+        conditional_denoising_eligibility="binary_binders_only",
+    )
+    with pytest.raises(ValueError, match="synthetic shuffled-antigen negatives"):
+        cfg.validate()
+
+    # The stage's own default is unaffected.
+    default = mlm_train.TrainConfig(
+        data_path="x", training_stage="antigen_refine", init_checkpoint="parent.pt"
+    )
+    default.validate()
+    assert default.conditional_denoising_eligibility == "all_filtered_rows"
