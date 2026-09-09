@@ -490,6 +490,31 @@ class TrainConfig:
                 "supported for antigen stages; a stage with no antigen has no "
                 "antigen-conditioned denoising to restrict"
             )
+        if (
+            self.conditional_denoising_eligibility == "binary_binders_only"
+            and self.training_stage == "antigen_refine"
+        ):
+            # `antigen_refine` builds SYNTHETIC negatives by swapping antigens
+            # between rows. The eligibility predicate reads `binder_label` off the
+            # post-swap record, and swapping rewrites only the antigen fields --
+            # never the label -- so a constructed nonbinder would stay eligible
+            # and become a positive reconstruction target under an antigen it does
+            # not bind. That is precisely the failure this policy exists to
+            # prevent, on the one path whose name most implies it is fixed.
+            #
+            # specs/conditional_denoising_eligibility.md puts shuffled rows out of
+            # scope ("a separate defect on a different config path"), so the fix is
+            # to refuse the combination rather than to change what this stage
+            # denoises. `_build_strength_targets` and `_build_length_query` already
+            # exclude shuffled rows; the eligibility mask deliberately does not.
+            raise ValueError(
+                "conditional_denoising_eligibility='binary_binders_only' is not "
+                "supported for training_stage='antigen_refine': that stage builds "
+                "synthetic shuffled-antigen negatives, which the eligibility "
+                "predicate cannot distinguish from measured binders because "
+                "shuffling rewrites the antigen and not binder_label. Use "
+                "'antigen_real_label_refine' for measured binder/nonbinder labels."
+            )
         if self.length_loss_weight < 0:
             raise ValueError("length_loss_weight must be >= 0")
         if self.length_loss_weight > 0 and not is_antigen_stage(self.training_stage):
