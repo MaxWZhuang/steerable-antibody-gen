@@ -1,0 +1,90 @@
+{
+  "revision": "2026-09-08b sequence-disjoint correction to the ridge baseline",
+  "previous_protocol": "configs/evaluation/hcdr3_contrasts_v2_pre_ridge.json",
+  "primary_endpoint": "equal-target, equal-group concordance",
+  "secondary_endpoint": "pair-pooled concordance within target; never pooled across groups or targets",
+  "floor": 0.5,
+  "floor_justification": "Chance/constant-score reference, not an adoption threshold: contrasts.concordance excludes measured ties and counts score ties as half, so a constant scorer earns exactly 0.500. Pinned by test_constant_scorer_earns_exactly_the_floor. Ranking claims must also report and beat the supervised ridge baseline.",
+  "supervised_baseline": {
+    "method": "Per-target ridge on left/right positional residue identities (up to 12 positions each), residue counts, and length; measured labels centred within fit groups; unpenalised intercept",
+    "artifact": "outputs/hcdr3_contrasts/linear_ranker.json",
+    "artifact_sha256": "bd98bc5978510ff5d5087011105c640d1a3455f23c11a5a447a9c680b3ca7cca",
+    "TWO_REFERENCES": "The supervised baseline is an INTERVAL, not a number. cv_background is an upper bound inflated by sequence memorisation; cv_sequence_disjoint is a lower bound depressed by starved fits. Report a ranking claim against BOTH.",
+    "cv_background": {
+      "role": "UPPER bound. Held-out background only: exact backgrounds do not cross folds, but identical HCDR3 strings do.",
+      "observed_primary": 0.6464783784841033,
+      "observed_selected_lambda": 10.0,
+      "observed_cv_grid_range": [
+        0.605015228477198,
+        0.6464783784841033
+      ],
+      "observed_conditional_95_ci": [
+        0.6191013020043191,
+        0.67319088765767
+      ],
+      "by_target": {
+        "human_pd_1": 0.686,
+        "human_tigit": 0.619,
+        "sars_cov2_rbd": 0.634
+      }
+    },
+    "cv_sequence_disjoint": {
+      "role": "LOWER bound. Groups linked by any shared HCDR3 are assigned to folds as whole connected components, so no sequence crosses a fold.",
+      "observed_primary": 0.5525,
+      "observed_selected_lambda": 1.0,
+      "observed_cv_grid_range": [
+        0.5184,
+        0.5525
+      ],
+      "observed_conditional_95_ci": [
+        0.5321,
+        0.5728
+      ],
+      "by_target": {
+        "human_pd_1": 0.499,
+        "human_tigit": 0.567,
+        "sars_cov2_rbd": 0.592
+      },
+      "reading": "Every grid point exceeds chance and the interval excludes 0.5, so some within-target signal survives sequence disjointness -- but it comes entirely from TIGIT and RBD. PD-1 sits at 0.499 (chance) at every lambda: its cv_background 0.686 was memorising 132 distinct HCDR3s across 733 variants. This interval also nearly touches the checkpoint's [0.4811, 0.5371], so ridge is NOT established as better than the checkpoint under sequence disjointness; that needs the paired comparison in future_comparison."
+    },
+    "in_sample_ceiling": 0.6744,
+    "observed_lambda_grid": [
+      0.1,
+      1.0,
+      10.0,
+      100.0,
+      1000.0
+    ],
+    "observed_population": "956 groups, 3702 variants, 3 known targets; five-fold CV within target on the previously inspected validation population",
+    "selection_caveat": "Each headline is the maximum over five lambdas on these CV outcomes. Its group-bootstrap interval does not adjust for lambda selection or refit the CV models. All grid point estimates in both arms exceed chance, but this does not remove selection optimism from the maximum.",
+    "overlap_caveat": "MEASURED 2026-09-08: 66.6% of scored variants share an HCDR3 with another variant (1657 distinct sequences across 3702 variants); per target, PD-1 has 132 distinct HCDR3s across 733 variants (88.5% repeated), TIGIT 59.3% repeated, RBD 64.3%. Group-level CV therefore holds out backgrounds but not sequences. Neither arm demonstrates unseen-target generalization.",
+    "population_cannot_resolve_this": "MEASURED 2026-09-08: linking groups that share any HCDR3 collapses PD-1's 147 groups into 2 components with the largest covering 99.3% of groups; TIGIT 479 -> 102 components, largest 78.3%; RBD 330 -> 43, largest 86.4%. There is no sequence-disjoint split of this population with usable training folds, so cv_sequence_disjoint predicts a giant held-out component from a sliver. The true novel-sequence value is NOT estimable on this data; closing the gap needs more independent panels, not a better estimator.",
+    "future_comparison": "Freeze the arm, its lambda and all feature/split choices before a new untouched evaluation, or select lambda inside nested training-only CV. The observed maxima were lambda 10 for cv_background and lambda 1 for cv_sequence_disjoint; do not assume one arm's lambda transfers to the other. Fit ridge using only the labels made available to the competing learned model; evaluate both on identical held-out groups. Keep exact backgrounds together, and keep HCDR3-linked components together whenever the claim concerns unseen sequences. Save out-of-fold predictions and group/fold assignments for paired comparisons. Re-estimate both arms on that population; 0.6465 and 0.5525 are observed references on this population, not universal constants."
+  },
+  "min_variants": 2,
+  "min_variants_rationale": "Two variants with one comparable pair is the smallest rankable panel. Single-pair groups are noisy but carry real information and stay in the primary population. A higher threshold defines a SECONDARY population and must be declared before looking at it, not chosen because it improves the number.",
+  "fold": "validation",
+  "seed": 42,
+  "alpha": 0.05,
+  "n_resamples": 20000,
+  "n_permutations": 2000,
+  "n_simulations": 2000,
+  "effect": 0.03,
+  "effect_role": "Legacy sensitivity diagnostic: power_simulation tests a shift from chance (0.5), not a paired gain over the checkpoint or ridge. It does not implement the adoption bar.",
+  "multiplicity": "Three scored targets. A per-target claim is judged at Bonferroni alpha = 0.05/3 = 0.0167; the primary endpoint is the single pre-declared headline and is judged at 0.05.",
+  "adoption_bar": "A ranking change must beat the supervised ridge baseline on identical held-out groups with a positive paired primary-endpoint difference and a 95% interval excluding zero, AND improve over the frozen checkpoint by at least 0.03 with a paired interval excluding zero, AND meet frozen residue/pairing retention margins. The ridge comparator is BOTH arms: clearing cv_sequence_disjoint is necessary, clearing cv_background is what would make the claim strong. Do not import either number as a threshold -- refit and evaluate the predeclared comparator on each future population, matching its fold construction to the claim (sequence-disjoint folds for a novel-HCDR3 claim). Ranking improvement alone never establishes antigen conditioning.",
+  "adoption_enforcement": "These are decision criteria, not an automated pass/fail gate in the current statistics CLI. Ridge comparison requires saved paired predictions and an evaluation that handles training and tuning uncertainty; the current selected-grid aggregate artifact alone cannot certify adoption.",
+  "power_requirement": "Power must match the intended comparison, independent units, and effect size. A large ridge-versus-chance gap does not establish power for a small model-versus-ridge gain. The current power_simulation assumes independent pairs within groups and is only an optimistic chance-based sensitivity diagnostic; do not use its near-1 result at a large effect as proof of adequate paired-comparison power. Do not use its low power at +0.03 as a blanket reason to defer all supervised ranking experiments. Plan the future paired comparison at its declared useful effect size, retaining target/group dependence and fitting/tuning uncertainty.",
+  "status": "RETROSPECTIVE, NOT A PREREGISTRATION",
+  "status_detail": "Endpoint choices followed inspection of the first validation scoring run; the ridge baseline and revised adoption criteria followed inspection of the ridge grid on that same population. Both are retrospective here. Freeze the revised procedure before a subsequent untouched evaluation. The exact pre-ridge protocol is archived at previous_protocol so historical reports remain reproducible.",
+  "known_confounds": [
+    "The scored checkpoint carries max_length 192 while configs/refine_antigen_hcdr3_infill.yaml declares 288; all aayl49 groups were excluded for exceeding the antibody context and the RBD native antigen was truncated.",
+    "Every currently scored group is heavy-only, so this benchmark cannot speak to heavy/light pairing retention.",
+    "Stage-4 split leakage is OPEN; the exposure audit found related eligible sequences for some PD-1 and RBD variants. Historical holdout is not established.",
+    "The substituted-antigen arm has no measured labels. It is an input ablation, not a specificity measurement.",
+    "Ridge receives target identity and direct quantitative labels; the checkpoint is scored without that supervised fit. This is a useful supervised baseline, not an equal-training-access attribution experiment.",
+    "The 3702 scored variants have source_split train but no stored strong-binder positives; the audit excludes these three cohorts from stage-3/4 eligibility. Source assignment does not establish historical minibatch contact or ranking supervision.",
+    "The ridge-versus-checkpoint gap is NOT evidence that the training objective caused the checkpoint's null. Ridge is fit directly on quantitative affinity labels the checkpoint never trained against, and the checkpoint's MLM likelihood was never a ranking objective. Elimination of model-side explanations (architecture capacity, fusion gate, stuck weights, PLL readout) does not identify a cause; an equal-label-access comparison would be needed for that.",
+    "PD-1 carries no sequence-disjoint signal at any lambda (0.499). Any aggregate that leans on PD-1 is reporting memorisation."
+  ]
+}

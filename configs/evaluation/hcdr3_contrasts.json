@@ -1,0 +1,17 @@
+{
+  "seed": 42,
+  "targets": ["name:human_tigit", "name:sars_cov2_rbd", "pdb:aayl49", "name:human_pd_1"],
+  "assays": [
+    {
+      "dataset": "alphaseq", "affinity_type": "alphaseq", "direction": "lower",
+      "interpretation": "reported log10 KD score; smaller means stronger binding",
+      "source": "https://github.com/A-Alpha-Bio/alphabind/blob/main/alphabind/examples/finetuning_and_inference/tutorial_1_finetuning_alphabind.ipynb"
+    },
+    {
+      "dataset": "abbd", "affinity_type": "-log kd", "direction": "higher",
+      "interpretation": "reported negative log KD; larger means stronger binding",
+      "source": "https://huggingface.co/datasets/AbBibench/Antibody_Binding_Benchmark_Dataset"
+    }
+  ],
+  "measurement_caveat": "Directions follow the source conventions and untransformed processed measurements. Replicate uncertainty and censoring are not fully preserved in ASD; this first benchmark is exploratory. No numeric threshold labels a row as a positive training example."
+}
