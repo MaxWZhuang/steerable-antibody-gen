@@ -1,0 +1,385 @@
+{
+  "audit_date": "2026-09-14",
+  "cr9114": {
+    "caveats": [
+      "Floor values are censored, not exact affinities.",
+      "The reported SEM convention was not traced to upstream analysis code; discrepancy is not labeled a proven bug.",
+      "Finite policy support includes missing labels; report unknown-label mass.",
+      "Sample SEM is undefined for n<2; 526 above-floor singleton rows have reported zero SEM.",
+      "Above-floor genotype-mean spread and single-replicate error variance refer to different measurement units.",
+      "Reliability and sqrt(reliability) require a matched error model; they do not establish rank or preference-accuracy ceilings.",
+      "Assay repeats do not measure every possible library-construction error component."
+    ],
+    "estimator": "sqrt(sum_i sum_j (y_ij - mean_i)**2 / sum_i (n_i-1)), n_i>=2",
+    "genotypes": 65536,
+    "h1_above_floor_mean_label_sd": 0.5537814884212315,
+    "h1_at_least_two_replicates": 63942,
+    "h1_conventional_three_replicate_sem_mean": 0.05818800873099233,
+    "h1_conventional_three_replicate_sem_median": 0.04830873822600873,
+    "h1_exactly_three_replicates": 62224,
+    "h1_exactly_two_replicates": 1718,
+    "h1_pooled_within_genotype_sample_sd": 0.13236693052966955,
+    "h1_provided_sem_mean_on_three_replicate_rows": 0.04114513555742666,
+    "h1_provided_to_conventional_sem_ratio_on_positive_sem_rows": 0.7071067811865467,
+    "h1_provided_to_conventional_sem_ratio_scope": "Exactly three finite observations and positive conventional sample SEM.",
+    "h1_replicate_sem_audit": {
+      "conventional_estimator": "std(finite_replicates, ddof=1) / sqrt(n), n>=2; undefined for n<2",
+      "decision": "Recompute counts and sample SEM before eligibility, pairs or weighting. Do not apply a universal sqrt(2) correction; singleton reported zero is not measured certainty.",
+      "ratios": [
+        {
+          "finite_replicates": 3,
+          "max_absolute_ratio_deviation": 7.569500581894317e-13,
+          "positive_sample_sem_rows": 61788,
+          "released_to_sample_sem_ratio_mean": 0.707106781186546,
+          "released_to_sample_sem_ratio_sd": 1.3830016845116465e-14,
+          "rows": 62224
+        },
+        {
+          "finite_replicates": 2,
+          "max_absolute_ratio_deviation": 2.419175970658216e-13,
+          "positive_sample_sem_rows": 1105,
+          "released_to_sample_sem_ratio_mean": 0.5773502691896251,
+          "released_to_sample_sem_ratio_sd": 9.433927430837865e-15,
+          "rows": 1718
+        }
+      ],
+      "replicate_count_rows": {
+        "0": 442,
+        "1": 1152,
+        "2": 1718,
+        "3": 62224
+      }
+    },
+    "h1_single_replicate_above_floor_reported_zero_sem": 526,
+    "h1_single_replicate_reported_zero_sem": 1152,
+    "h1_single_replicate_rows": 1152,
+    "label_counts": {
+      "fluB": {
+        "above_floor": 198,
+        "at_floor": 65336,
+        "missing": 2
+      },
+      "h1": {
+        "above_floor": 63419,
+        "at_floor": 1675,
+        "missing": 442
+      },
+      "h3": {
+        "above_floor": 7174,
+        "at_floor": 58361,
+        "missing": 1
+      }
+    },
+    "source_sha256": "ee31f8fc26fce2730d2ae772e7a095aa334b4c6c5d8e7fbfe4b4a5a1c9a794fe",
+    "source_url": "https://cdn.elifesciences.org/articles/71393/elife-71393-fig1-data1-v3.csv"
+  },
+  "tigit": {
+    "caveats": [
+      "Distinct candidate IDs do not alone establish independent biological replication.",
+      "All usable repeated sequences are double mutants; not representative of the full library.",
+      "Trimming is post-hoc sensitivity only."
+    ],
+    "duplicate_error_sd_assuming_independent_equal_variance": 0.5185879108567384,
+    "duplicate_pairs": [
+      {
+        "candidate_ids": [
+          "candidate_21442",
+          "candidate_4119"
+        ],
+        "difference": 1.826986969201041,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_10989",
+          "candidate_11393"
+        ],
+        "difference": 1.5527257815368323,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_14594",
+          "candidate_15904"
+        ],
+        "difference": -0.9931627336623983,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_10194",
+          "candidate_5543"
+        ],
+        "difference": -0.9430337145439651,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_24390",
+          "candidate_25555"
+        ],
+        "difference": -0.9134033263381625,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_14401",
+          "candidate_25482"
+        ],
+        "difference": 0.8670878855565931,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_12597",
+          "candidate_7790"
+        ],
+        "difference": 0.8166922516646835,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_21481",
+          "candidate_21695"
+        ],
+        "difference": -0.7737210504559968,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_16112",
+          "candidate_25244"
+        ],
+        "difference": 0.7204389944654963,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_14178",
+          "candidate_15921"
+        ],
+        "difference": -0.7074792665016716,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_13807",
+          "candidate_16664"
+        ],
+        "difference": 0.7039560264497524,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_20337",
+          "candidate_24810"
+        ],
+        "difference": 0.6953037958266997,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_23838",
+          "candidate_7777"
+        ],
+        "difference": -0.6416959303955352,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_11430",
+          "candidate_6016"
+        ],
+        "difference": -0.6303172711325153,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_23531",
+          "candidate_24552"
+        ],
+        "difference": 0.4363117460198751,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_13847",
+          "candidate_24694"
+        ],
+        "difference": -0.41845142651576595,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_13058",
+          "candidate_23999"
+        ],
+        "difference": -0.2765026697271722,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_15473",
+          "candidate_7323"
+        ],
+        "difference": 0.2476617316976295,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_28914",
+          "candidate_29771"
+        ],
+        "difference": 0.23360799512087738,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_14282",
+          "candidate_17236"
+        ],
+        "difference": 0.22981545006698312,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_5448",
+          "candidate_7630"
+        ],
+        "difference": 0.2182112152014959,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_12138",
+          "candidate_6286"
+        ],
+        "difference": -0.16620352394307858,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_19174",
+          "candidate_24062"
+        ],
+        "difference": 0.09291759050911708,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_25766",
+          "candidate_6611"
+        ],
+        "difference": 0.062365150395336855,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_9837",
+          "candidate_9928"
+        ],
+        "difference": -0.03857514115814453,
+        "mutation_count": 2
+      },
+      {
+        "candidate_ids": [
+          "candidate_24358",
+          "candidate_27797"
+        ],
+        "difference": -0.026538238996174357,
+        "mutation_count": 2
+      }
+    ],
+    "estimator": "sqrt(mean(pair_difference**2)/2)",
+    "outside_positions_all_parental": true,
+    "remove_two_largest_absolute_differences_sd_sensitivity_only": 0.4142186210362371,
+    "source_sha256": "6b82f9bb39c835ec160ca192ef0e1ba165a0d6651c520791081e800c485c907b",
+    "unique_sequences": 13015,
+    "usable_records": 13041,
+    "zero_based_varying_positions": [
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      65,
+      66,
+      67,
+      68,
+      69,
+      70,
+      71,
+      72,
+      73,
+      74,
+      75,
+      76,
+      77,
+      78,
+      79,
+      80,
+      81,
+      82,
+      83,
+      84,
+      85,
+      86,
+      87,
+      88,
+      89,
+      90,
+      91,
+      92,
+      93,
+      94,
+      95,
+      96,
+      97,
+      98,
+      99,
+      100,
+      101,
+      102,
+      103,
+      104,
+      105,
+      106,
+      107,
+      108,
+      109,
+      110,
+      111,
+      112,
+      113
+    ]
+  }
+}

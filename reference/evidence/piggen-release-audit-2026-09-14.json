@@ -1,0 +1,324 @@
+{
+  "audit_date": "2026-09-14",
+  "files": {
+    "config.json": {
+      "bytes": 719,
+      "parsed": {
+        "_name_or_path": ".",
+        "architectures": [
+          "GPTNeoXForCausalLM"
+        ],
+        "attention_bias": true,
+        "attention_dropout": 0.0,
+        "bos_token_id": 0,
+        "classifier_dropout": 0.1,
+        "eos_token_id": 2,
+        "hidden_act": "gelu",
+        "hidden_dropout": 0.0,
+        "hidden_size": 768,
+        "initializer_range": 0.02,
+        "intermediate_size": 2048,
+        "layer_norm_eps": 1e-05,
+        "max_position_embeddings": 400,
+        "model_type": "gpt_neox",
+        "num_attention_heads": 8,
+        "num_hidden_layers": 4,
+        "rope_scaling": null,
+        "rotary_emb_base": 10000,
+        "rotary_pct": 0.25,
+        "tie_word_embeddings": false,
+        "torch_dtype": "float32",
+        "transformers_version": "4.42.3",
+        "use_cache": true,
+        "use_parallel_residual": true,
+        "vocab_size": 26
+      },
+      "sha256": "4c5a54545ae1d8773d0793b7c9fee0c8bfaf4c2e384d16552278bcaa523b0a74",
+      "url": "https://huggingface.co/ollieturnbull/p-IgGen/resolve/0e5c4ed4e4c6bed0a0c7e56ad6fa24c63ed56023/config.json"
+    },
+    "generation_config.json": {
+      "bytes": 111,
+      "parsed": {
+        "_from_model_config": true,
+        "bos_token_id": 0,
+        "eos_token_id": 2,
+        "transformers_version": "4.42.3"
+      },
+      "sha256": "d922c8de8235185b68ab3e1ed29de9276d4d36566056279c0372ee2ace6fe2bb",
+      "url": "https://huggingface.co/ollieturnbull/p-IgGen/resolve/0e5c4ed4e4c6bed0a0c7e56ad6fa24c63ed56023/generation_config.json"
+    },
+    "special_tokens_map.json": {
+      "bytes": 141,
+      "parsed": {
+        "pad_token": {
+          "content": "<PAD>",
+          "lstrip": false,
+          "normalized": false,
+          "rstrip": false,
+          "single_word": false
+        }
+      },
+      "sha256": "8ac045b33e2e3858cff599eb4083fe16f30aa4f424e3ef4ff92d6b29eaa8ab57",
+      "url": "https://huggingface.co/ollieturnbull/p-IgGen/resolve/0e5c4ed4e4c6bed0a0c7e56ad6fa24c63ed56023/special_tokens_map.json"
+    },
+    "tokenizer.json": {
+      "bytes": 1294,
+      "parsed": {
+        "added_tokens": [
+          {
+            "content": "<PAD>",
+            "id": 0,
+            "lstrip": false,
+            "normalized": false,
+            "rstrip": false,
+            "single_word": false,
+            "special": true
+          }
+        ],
+        "decoder": {
+          "add_prefix_space": true,
+          "trim_offsets": true,
+          "type": "ByteLevel",
+          "use_regex": true
+        },
+        "model": {
+          "byte_fallback": false,
+          "continuing_subword_prefix": null,
+          "dropout": null,
+          "end_of_word_suffix": null,
+          "fuse_unk": false,
+          "merges": [],
+          "type": "BPE",
+          "unk_token": null,
+          "vocab": {
+            "1": 23,
+            "2": 24,
+            "3": 25,
+            "<PAD>": 0,
+            "A": 1,
+            "B": 5,
+            "C": 6,
+            "D": 4,
+            "E": 7,
+            "F": 16,
+            "G": 10,
+            "H": 11,
+            "I": 12,
+            "K": 14,
+            "L": 13,
+            "M": 15,
+            "N": 3,
+            "P": 17,
+            "Q": 8,
+            "R": 2,
+            "S": 18,
+            "T": 19,
+            "V": 22,
+            "W": 20,
+            "Y": 21,
+            "Z": 9
+          }
+        },
+        "normalizer": null,
+        "padding": null,
+        "post_processor": {
+          "add_prefix_space": true,
+          "trim_offsets": true,
+          "type": "ByteLevel",
+          "use_regex": true
+        },
+        "pre_tokenizer": {
+          "add_prefix_space": false,
+          "trim_offsets": true,
+          "type": "ByteLevel",
+          "use_regex": true
+        },
+        "truncation": null,
+        "version": "1.0"
+      },
+      "sha256": "66f2015ce989903c1319fcd89e751b805f9aacb83e898c3f8a221af6de195a73",
+      "url": "https://huggingface.co/ollieturnbull/p-IgGen/resolve/0e5c4ed4e4c6bed0a0c7e56ad6fa24c63ed56023/tokenizer.json"
+    },
+    "tokenizer_config.json": {
+      "bytes": 341,
+      "parsed": {
+        "added_tokens_decoder": {
+          "0": {
+            "content": "<PAD>",
+            "lstrip": false,
+            "normalized": false,
+            "rstrip": false,
+            "single_word": false,
+            "special": true
+          }
+        },
+        "clean_up_tokenization_spaces": true,
+        "model_max_length": 512,
+        "pad_token": "<PAD>",
+        "tokenizer_class": "PreTrainedTokenizerFast"
+      },
+      "sha256": "b210d89151085258a2d6f65127604615a3a36ef0617cf154f3c974ffd05320c0",
+      "url": "https://huggingface.co/ollieturnbull/p-IgGen/resolve/0e5c4ed4e4c6bed0a0c7e56ad6fa24c63ed56023/tokenizer_config.json"
+    }
+  },
+  "hf_parameter_metadata": {
+    "safetensors": {
+      "parameters": {
+        "F32": 22097408
+      },
+      "total": 22097408
+    },
+    "sha": "0e5c4ed4e4c6bed0a0c7e56ad6fa24c63ed56023",
+    "url": "https://huggingface.co/api/models/ollieturnbull/p-IgGen/revision/0e5c4ed4e4c6bed0a0c7e56ad6fa24c63ed56023"
+  },
+  "model": "ollieturnbull/p-IgGen",
+  "paired_split_reconciliation": {
+    "difference": 54110,
+    "files": [
+      {
+        "bytes": 59429687,
+        "columns": [
+          "sequence_alignment_aa_heavy",
+          "sequence_alignment_aa_light"
+        ],
+        "file": "paired_oas_human_train.csv.gz",
+        "independent_line_count_rows": 1632916,
+        "local_path": "/tmp/piggen_paired_oas_human_train.csv.gz",
+        "md5": "c66381bba4729dbd18f2a932265ab05d",
+        "percent_of_paper_total": 90.69009660963764,
+        "query_matches": {
+          "cdr3_germline_allele_substring_or_reverse": 0,
+          "cdr3_somatic_substring_or_reverse": 0,
+          "exact_fixed_vl": 0,
+          "exact_mature_pair": 0,
+          "exact_mature_vh": 0,
+          "fixed_vl_substring_or_reverse": 0,
+          "mature_vh_substring_or_reverse": 0
+        },
+        "rows": 1632916,
+        "sha256": "3964c69f8e2415a1d2407ba574fa88bf343e31f504b5ef51c4da64c8c01a03e5",
+        "split": "train",
+        "url": "https://zenodo.org/api/records/13880874/files/paired_oas_human_train.csv.gz/content"
+      },
+      {
+        "bytes": 1597668,
+        "columns": [
+          "sequence_alignment_aa_heavy",
+          "sequence_alignment_aa_light"
+        ],
+        "file": "paired_oas_human_val.csv.gz",
+        "independent_line_count_rows": 43661,
+        "local_path": "/tmp/piggen-pin-audit/paired_oas_human_val.csv.gz",
+        "md5": "3655f157785949140be1b745b3ae9132",
+        "percent_of_paper_total": 2.42487691226823,
+        "query_matches": {
+          "cdr3_germline_allele_substring_or_reverse": 0,
+          "cdr3_somatic_substring_or_reverse": 0,
+          "exact_fixed_vl": 0,
+          "exact_mature_pair": 0,
+          "exact_mature_vh": 0,
+          "fixed_vl_substring_or_reverse": 0,
+          "mature_vh_substring_or_reverse": 0
+        },
+        "rows": 43661,
+        "sha256": "0410a220c08881b5f68760600d62a2060b5fe357ae8f617757b3e1b3145fa7ae",
+        "split": "val",
+        "url": "https://zenodo.org/api/records/13880874/files/paired_oas_human_val.csv.gz/content"
+      },
+      {
+        "bytes": 2544196,
+        "columns": [
+          "sequence_alignment_aa_heavy",
+          "sequence_alignment_aa_light"
+        ],
+        "file": "paired_oas_human_test.csv.gz",
+        "independent_line_count_rows": 69858,
+        "local_path": "/tmp/piggen-pin-audit/paired_oas_human_test.csv.gz",
+        "md5": "44f75ab29c79db9d8c4aff7fafdb66f3",
+        "percent_of_paper_total": 3.8798252751250315,
+        "query_matches": {
+          "cdr3_germline_allele_substring_or_reverse": 0,
+          "cdr3_somatic_substring_or_reverse": 0,
+          "exact_fixed_vl": 0,
+          "exact_mature_pair": 0,
+          "exact_mature_vh": 0,
+          "fixed_vl_substring_or_reverse": 0,
+          "mature_vh_substring_or_reverse": 0
+        },
+        "rows": 69858,
+        "sha256": "2ed29936ff8efe3535be5c099449c4cad0ed37206b384d6b36b3f0688a3b1202",
+        "split": "test",
+        "url": "https://zenodo.org/api/records/13880874/files/paired_oas_human_test.csv.gz/content"
+      }
+    ],
+    "limitations": [
+      "A residual 54,110-pair difference from the paper filtered dataset remains unexplained; deduplication is not established as its cause.",
+      "No unpaired-training or near-neighbor exposure audit has been completed.",
+      "The relationship between the published sequence files and shipped checkpoint remains undocumented.",
+      "These searches do not establish absence of pretraining exposure or experimental-label leakage."
+    ],
+    "normalization": "remove - and .; uppercase; substring search in both orientations",
+    "paper_filtered_paired_dataset_rows": 1800545,
+    "paper_provenance": {
+      "interpretation": "The paper figure refers to the filtered paired collection, not explicitly the training CSV alone. The three released split files do not fully reconcile it; no documented cause for the remaining 54,110 was found.",
+      "main_article": "https://academic.oup.com/bioinformatics/article/40/11/btae659/7888884",
+      "main_claim": "Filtered paired dataset contains 1,800,545 VH/VL sequences.",
+      "main_section": "2.3 Data",
+      "supplement": "https://oup.silverchair-cdn.com/oup/backfile/Content_public/Journal/bioinformatics/40/11/10.1093_bioinformatics_btae659/1/btae659_supplementary_data.pdf",
+      "supplement_section": "2 Dataset Filtering (pages 1-2)",
+      "supplement_summary": "Paired data filtered for missing conserved cysteines and unknown residues; framework deletions completed with AbLang; exact full VH/VL duplicate pairs removed. Train/validation/test split formed using length-matched CDR clustering at 95% identity with CD-HIT. No split count table supplied here."
+    },
+    "queries": {
+      "cdr3_germline_allele": "ARHGNYYYYYGMDV",
+      "cdr3_somatic": "ARHGNYYYYSGMDV",
+      "fixed_vl": "SSYVLTQPPAVSGTPGQRVTISCSGSDSNIGRRSVNWYQQFPGTAPKLLIYSNDQRPSVVPDRFSGSKSGTSASLAISGLQSEDEAEYYCAAWDDSLKGAVFGGGTQLTVLS",
+      "mature_vh": "QVQLVQSGAEVKKPGSSVKVSCKASGGTSNNYAISWVRQAPGQGLEWMGGISPIFGSTAYAQKFQGRVTISADIFSNTAYMELNSLTSEDTAVYFCARHGNYYYYSGMDVWGQGTTVTVSS"
+    },
+    "residual_percent_of_paper_total": 3.005201202969101,
+    "source_record": "https://zenodo.org/records/13880874",
+    "total_rows": 1746435,
+    "train_vs_paper_gap": 167629,
+    "unpaired_training_data_scanned": false,
+    "val_test_rows": 113519
+  },
+  "paired_training_overlap": {
+    "bytes": 59429687,
+    "columns": [
+      "sequence_alignment_aa_heavy",
+      "sequence_alignment_aa_light"
+    ],
+    "counts": {
+      "cdr3_germline_allele_substring_or_reverse": 0,
+      "cdr3_somatic_substring_or_reverse": 0,
+      "exact_fixed_vl": 0,
+      "exact_mature_pair": 0,
+      "exact_mature_vh": 0,
+      "fixed_vl_substring_or_reverse": 0,
+      "mature_vh_substring_or_reverse": 0
+    },
+    "file": "paired_oas_human_train.csv.gz",
+    "limitations": [
+      "Unpaired heavy train (3.3GB) and light train (3.1GB) were not downloaded or scanned.",
+      "No training-label contamination test possible from these sequence-only files.",
+      "No fuzzy homology or lineage clustering performed.",
+      "No claim of zero pretraining sequence exposure."
+    ],
+    "local_path": "/tmp/piggen_paired_oas_human_train.csv.gz",
+    "md5": "c66381bba4729dbd18f2a932265ab05d",
+    "normalization": "remove - and .; uppercase",
+    "queries": {
+      "cdr3_germline_allele": "ARHGNYYYYYGMDV",
+      "cdr3_somatic": "ARHGNYYYYSGMDV",
+      "fixed_vl": "SSYVLTQPPAVSGTPGQRVTISCSGSDSNIGRRSVNWYQQFPGTAPKLLIYSNDQRPSVVPDRFSGSKSGTSASLAISGLQSEDEAEYYCAAWDDSLKGAVFGGGTQLTVLS",
+      "mature_vh": "QVQLVQSGAEVKKPGSSVKVSCKASGGTSNNYAISWVRQAPGQGLEWMGGISPIFGSTAYAQKFQGRVTISADIFSNTAYMELNSLTSEDTAVYFCARHGNYYYYSGMDVWGQGTTVTVSS"
+    },
+    "rows": 1632916,
+    "sha256": "3964c69f8e2415a1d2407ba574fa88bf343e31f504b5ef51c4da64c8c01a03e5",
+    "source_record": "https://zenodo.org/records/13880874",
+    "url": "https://zenodo.org/records/13880874/files/paired_oas_human_train.csv.gz?download=1",
+    "version": "v1"
+  },
+  "revision": "0e5c4ed4e4c6bed0a0c7e56ad6fa24c63ed56023",
+  "source_wrapper_revision": "a4030ba7da81729c64b3198d331811ce1c91911e",
+  "weights_downloaded": false
+}

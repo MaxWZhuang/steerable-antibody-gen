@@ -1,0 +1,51 @@
+{
+  "audit_date": "2026-09-14",
+  "caveats": [
+    "Package metadata does not establish import compatibility.",
+    "The local torch import error predates any ESM-IF1 import or installation; it is not an ESM-IF1 model failure.",
+    "The previous p-IgGen exposure audit does not audit this checkpoint.",
+    "No model weights were loaded and no new packages were installed in this audit."
+  ],
+  "code_source": "https://github.com/facebookresearch/esm",
+  "cpu": null,
+  "hardware_model": null,
+  "machine": "arm64",
+  "memory_bytes": null,
+  "model_forward_backward_measured": false,
+  "model_loader_name": "esm_if1_gvp4_t16_142M_UR50",
+  "model_throughput_measured": false,
+  "module_paths": {
+    "biotite": null,
+    "esm": null,
+    "torch_geometric": null,
+    "torch_scatter": null
+  },
+  "packages": {
+    "biotite": null,
+    "esm": null,
+    "fair-esm": null,
+    "numpy": "2.4.3",
+    "scipy": "1.17.1",
+    "torch": "2.7.1",
+    "torch-geometric": null,
+    "torch-scatter": null,
+    "torch-sparse": null,
+    "transformers": null
+  },
+  "platform": "macOS-14.5-arm64-arm-64bit",
+  "python_executable": "/opt/miniconda3/envs/mylabenv/bin/python",
+  "python_version": "3.12.5",
+  "source_revision": null,
+  "status": "User selected ESM-IF1 for integration; checkpoint not promoted.",
+  "structural_context": "Required and not yet pinned. Fixed context for the H1 benchmark; related-antigen templates must be labeled explicitly.",
+  "torch_import_probe": {
+    "device_availability_measured": false,
+    "exit_code": 134,
+    "message": "OMP: Error #15: Initializing libomp.dylib, but found libomp.dylib already initialized.",
+    "status": "failed",
+    "unsupported_duplicate_runtime_override_used": false
+  },
+  "training_device": "Unselected; CPU smoke test and accelerated-device checks remain pending in an isolated environment.",
+  "weight_sha256": null,
+  "weights_downloaded_in_this_audit": false
+}

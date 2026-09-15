@@ -3,7 +3,17 @@
 **Date:** 2026-09-09
 
 **Status:** direction accepted in [Decision 0003](decisions/0003-pretrained-conditioned-policy.md).
-The migration is not implemented. All M01-M08 deliverables below are pending.
+The broader migration below is not implemented.
+
+## Current first experiment — 2026-09-14
+
+The user selected ESM-IF1 for a fixed-target CR9114/H1 post-training experiment.
+Use its existing structural encoder and autoregressive decoder with a declared
+fixed structural context. The [Decision 0003 clarification](decisions/0003-pretrained-conditioned-policy.md#scope-clarification--2026-09-14)
+and [current recommendation](../reference/fixed-target-posttraining-recommendation.md)
+govern that first milestone. Exact artifact/structure pinning and compute checks
+remain pending. The custom antigen-fusion, cross-antigen, and diffusion milestones
+below describe the broader program and are not the current implementation queue.
 
 ## Research question and first milestone
 

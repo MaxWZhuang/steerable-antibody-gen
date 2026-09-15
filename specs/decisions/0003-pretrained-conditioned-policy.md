@@ -2,9 +2,35 @@
 
 **Date:** 2026-09-09
 
-**Status:** direction accepted; implementation pending; backbone not selected.
+**Status:** direction accepted; ESM-IF1 selected for integration; implementation and checkpoint promotion pending.
 
-## Decision
+## Scope clarification — 2026-09-14
+
+The first experiment follows the narrower [offline preference scope](../../docs/OFFLINE-DPO-SCOPE.md)
+and the user's stated priority: establish a measured fixed-target task with an
+existing pretrained generator, then study post-training and interpretation.
+The user selected **ESM-IF1** (`esm_if1_gvp4_t16_142M_UR50`) after considering
+future antigen conditioning. The first experiment uses one declared fixed
+structural context. Cross-antigen response is a later extension. The original
+decision below describes that longer-term program; its antigen-response milestone,
+custom fusion, and diffusion path are not prerequisites for this first experiment.
+
+Use ESM-IF1's existing autoregressive decoder and geometric encoder. Pin the exact
+weights, source revision, alphabet, structural input, and residue mapping; verify
+probability semantics, exposure, and measured compute before checkpoint promotion.
+This is structural conditioning, not raw-antigen-sequence conditioning. The first
+pilot proposes a frozen encoder and decoder adaptation. Fixed-length editing may
+use the measured CR9114 VH sites outside HCDR3, keeping the remaining residues and
+light chain fixed. The previously evaluated p-IgGen candidate is retained as an
+alternative; its release and exposure checks do not audit ESM-IF1.
+
+The [research recommendation](../../reference/fixed-target-posttraining-recommendation.md)
+specifies CR9114/H1 and records validation gates and limits of the intended claim.
+The [local readiness audit](../../reference/evidence/esm-if1-readiness-2026-09-14.json)
+records that model loading, device/gradient checks, and compute measurement remain
+pending. This clarification does not certify a checkpoint, training run, or biological result.
+
+## Original broader decision — later program
 
 Make the central experiment a test of how antigen information changes HCDR3
 generation, how post-training changes that response, and how a separate guide
