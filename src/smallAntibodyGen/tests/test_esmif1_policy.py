@@ -563,7 +563,7 @@ def test_skipping_a_forced_position_changes_the_score(policy, geometry):
 
     honest = _incremental_log_prob(policy, geometry, candidate, skip_forced=False)
     holed = _incremental_log_prob(policy, geometry, candidate, skip_forced=True)
-    teacher_forced = float(policy.log_prob(candidate, geometry)[0])
+    teacher_forced = float(policy.log_prob(candidate, geometry)[0].detach())
 
     assert abs(honest - teacher_forced) < 1e-12
     assert abs(holed - teacher_forced) > 1e-3

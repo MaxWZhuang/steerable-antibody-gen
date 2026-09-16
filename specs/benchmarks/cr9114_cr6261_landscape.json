@@ -2,14 +2,20 @@
   "candidate_source_url": "https://elifesciences.org/articles/71393",
   "candidate_source_url_verified": false,
   "dataset_name": "cr9114_cr6261_landscape",
-  "files": [],
+  "files": [
+    {
+      "relative_path": "cr9114_cr6261_landscape/elife-71393-fig1-data1-v3.csv",
+      "sha256": "ee31f8fc26fce2730d2ae772e7a095aa334b4c6c5d8e7fbfe4b4a5a1c9a794fe",
+      "size_bytes": 12258680
+    }
+  ],
   "license": "TODO(owner)",
-  "notes": "J05a records format only. No file has been downloaded, hashed, or inspected in this repository. The construct-availability question decides whether the assay records carry an ExactAssayedConstruct or a RegisteredNullConstruct; a UniProt full-length sequence is never an acceptable answer.",
+  "notes": "Figure 1 source data for the CR9114 landscape has been downloaded, hashed, and inspected: 65,536 rows x 33 columns, antigens h1/h3/fluB, binary site columns pos1..pos16, plus genotype and som_mut. CR6261 is NOT in this file. LOADING TRAP: the `genotype` column is a 16-character binary string whose leading zeros are meaningful; pandas infers int64 and strips them, silently corrupting 32,768 of 65,536 rows while raising nothing and leaving pos1..pos16 intact. Any loader must pass dtype={\"genotype\": \"string\"}. pos1..pos16 carry binary STATES only -- they do not name antibody residue positions or the amino acids that 0 and 1 stand for, so editable_site_table_source remains unsupplied until an artifact defining sites AND allowed residues is cited; genotype-to-sequence reconstruction is not yet grounded. Measurements are -log10(KD), higher is stronger, per the eLife Figure 1 source-data description rather than the CSV headers, which state no units. Floor-censoring is per antigen: h1 7.0 (1,675 rows at floor), h3 6.0 (58,361), fluB 6.0 (65,336); no ceiling censoring is observed for h1 (max 9.8345). The construct-availability question decides whether the assay records carry an ExactAssayedConstruct or a RegisteredNullConstruct; a UniProt full-length sequence is never an acceptable answer. This file carries no HA construct sequences. Byte-level verification and the reproduced replicate/SEM audit are recorded in reference/evidence/cr9114-h1-data-verification-2026-09-14.json.",
   "owner_decisions": [
     {
       "key": "assay_direction_and_units",
       "question": "What quantity, unit, and direction (higher_is_stronger / lower_is_stronger) does the released measurement column carry?",
-      "status": "unsupplied"
+      "status": "supplied"
     },
     {
       "key": "assayed_construct_availability",
@@ -34,7 +40,7 @@
     {
       "key": "file_hashes",
       "question": "Supply the raw downloads so per-file byte sizes and SHA-256 hashes can be computed and recorded.",
-      "status": "unsupplied"
+      "status": "supplied"
     },
     {
       "key": "license",
@@ -49,7 +55,7 @@
     {
       "key": "release_version",
       "question": "Which exact release/revision of this source is authoritative for the benchmark?",
-      "status": "unsupplied"
+      "status": "supplied"
     },
     {
       "key": "replicate_aggregation_convention",
@@ -59,7 +65,7 @@
     {
       "key": "retrieval_date",
       "question": "On what date were the authoritative files retrieved?",
-      "status": "unsupplied"
+      "status": "supplied"
     },
     {
       "key": "revealed_label_budgets",
@@ -69,7 +75,7 @@
     {
       "key": "source_url",
       "question": "Which download URL is authoritative? The candidate_source_url below is unverified.",
-      "status": "unsupplied"
+      "status": "supplied"
     },
     {
       "key": "split_seed",
@@ -84,7 +90,7 @@
   ],
   "plan_assertions": [
     {
-      "claim": "The CR9114/CR6261 combinatorial landscapes have 16 editable sites, each with two allowed residues.",
+      "claim": "The CR9114 combinatorial landscape has 16 editable sites, each with two allowed residues (2**16 = 65,536 variants). CR6261 is a SEPARATE landscape with 11 sites (2,048 variants) and is not carried by this release's Figure 1 source data.",
       "source": "docs/PLAN-steering-prerequisites.md (J05)",
       "verified": false
     },
@@ -99,8 +105,8 @@
       "verified": false
     }
   ],
-  "release_version": "TODO(owner)",
-  "retrieval_date": "TODO(owner)",
+  "release_version": "v3",
+  "retrieval_date": "2026-09-14",
   "schema_version": "1",
-  "source_url": "TODO(owner)"
+  "source_url": "https://cdn.elifesciences.org/articles/71393/elife-71393-fig1-data1-v3.csv"
 }

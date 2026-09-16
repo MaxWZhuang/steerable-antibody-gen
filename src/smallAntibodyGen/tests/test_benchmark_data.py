@@ -22,6 +22,52 @@ from smallAntibodyGen.benchmarks import provenance as prov
 
 
 # --------------------------------------------------------------------------
+# what the committed manifests are allowed to say
+#
+# Two of the three are still untouched templates. The CR9114 one is not: the
+# 2026-09-14 audit downloaded, hashed, and inspected the eLife Figure 1 source
+# data, so five of its owner decisions are now answered *from evidence*. These
+# constants are transcribed from
+# reference/evidence/cr9114-h1-data-verification-2026-09-14.json, and the tests
+# below pin them exactly -- a hash or a date that drifts from the audit record
+# is as much a failure as a hash nobody computed.
+# --------------------------------------------------------------------------
+
+TEMPLATE_MANIFESTS = ("avida_hil6", "open_alphaseq")
+
+CR9114_MANIFEST = "cr9114_cr6261_landscape"
+
+CR9114_VERIFIED_FILES = [
+    {
+        "relative_path": "cr9114_cr6261_landscape/elife-71393-fig1-data1-v3.csv",
+        "sha256": "ee31f8fc26fce2730d2ae772e7a095aa334b4c6c5d8e7fbfe4b4a5a1c9a794fe",
+        "size_bytes": 12258680,
+    }
+]
+
+CR9114_VERIFIED_SOURCE_URL = (
+    "https://cdn.elifesciences.org/articles/71393/elife-71393-fig1-data1-v3.csv"
+)
+CR9114_VERIFIED_RELEASE_VERSION = "v3"
+CR9114_VERIFIED_RETRIEVAL_DATE = "2026-09-14"
+
+#: The only owner decisions the audit is entitled to have closed.
+CR9114_SUPPLIED_DECISIONS = frozenset(
+    {
+        "assay_direction_and_units",
+        "file_hashes",
+        "release_version",
+        "retrieval_date",
+        "source_url",
+    }
+)
+
+#: Named in the audit's ``still_pending`` list; spot-pinned so a future edit
+#: cannot quietly mark them supplied without evidence.
+CR9114_STILL_PENDING = ("license", "assayed_construct_availability")
+
+
+# --------------------------------------------------------------------------
 # fixtures
 # --------------------------------------------------------------------------
 
@@ -188,6 +234,57 @@ def test_parse_of_a_complete_manifest_is_approved(approved_manifest_dict):
     assert doc.validated().dataset_name == "fixture_landscape"
 
 
+# --------------------------------------------------------------------------
+# is_approved must answer for BOTH kinds of outstanding owner requirement.
+#
+# It used to test only the TODO(owner) sentinels, so a manifest whose top-level
+# sentinels had been filled in reported is_approved True while every owner
+# decision was still pending -- the exact path specs/benchmarks/README.md says
+# does not exist. validate_source_manifest was never fooled; the inspect door
+# was. These three pin each combination.
+# --------------------------------------------------------------------------
+
+def test_a_pending_decision_blocks_approval_even_with_no_sentinels(approved_manifest_dict):
+    """The regression: sentinels all filled, one decision still unsupplied."""
+    approved_manifest_dict["owner_decisions"] = [
+        {"key": "license", "question": "Which license?", "status": "supplied"},
+        {"key": "split_seed", "question": "Which seed?", "status": "unsupplied"},
+    ]
+    doc = prov.parse_manifest_document(approved_manifest_dict)
+
+    assert doc.unsupplied_fields == ()          # no sentinel survives ...
+    assert doc.is_approved is False             # ... but the owner has not signed off
+    with pytest.raises(prov.UnsuppliedOwnerDecisionError):
+        prov.validate_source_manifest(doc.raw)
+
+
+def test_a_surviving_sentinel_blocks_approval_even_with_every_decision_supplied(
+    approved_manifest_dict,
+):
+    approved_manifest_dict["license"] = prov.TODO_OWNER
+    approved_manifest_dict["owner_decisions"] = [
+        {"key": "license", "question": "Which license?", "status": "supplied"},
+    ]
+    doc = prov.parse_manifest_document(approved_manifest_dict)
+
+    assert doc.unsupplied_fields == ("license",)
+    assert doc.is_approved is False
+    with pytest.raises(prov.BenchmarkProvenanceError):
+        prov.validate_source_manifest(doc.raw)
+
+
+def test_no_sentinels_and_every_decision_supplied_is_approved(approved_manifest_dict):
+    """The positive case, so the stricter predicate cannot approve nothing at all."""
+    approved_manifest_dict["owner_decisions"] = [
+        {"key": "license", "question": "Which license?", "status": "supplied"},
+    ]
+    doc = prov.parse_manifest_document(approved_manifest_dict)
+
+    assert doc.unsupplied_fields == ()
+    assert doc.is_approved is True
+    assert doc.validated().dataset_name == "fixture_landscape"
+
+
 def test_parse_still_rejects_structural_damage(approved_manifest_dict):
     approved_manifest_dict.pop("files")
     with pytest.raises(prov.ManifestValidationError):
@@ -195,7 +292,7 @@ def test_parse_still_rejects_structural_damage(approved_manifest_dict):
 
 
 # --------------------------------------------------------------------------
-# 3. committed manifest templates
+# 3. committed manifests: per-manifest expectations, not a blanket template check
 # --------------------------------------------------------------------------
 
 def test_every_committed_manifest_parses_structurally(manifest_dir):
@@ -219,17 +316,41 @@ def test_every_committed_manifest_is_unapproved_and_rejected(manifest_dir):
             prov.validate_source_manifest(doc.raw)
 
 
-def test_committed_manifests_record_no_invented_hashes(manifest_dir):
+def test_committed_manifests_record_only_verified_hashes(manifest_dir):
+    """A hash is present only where bytes were actually downloaded and hashed."""
     for path in sorted(manifest_dir.glob("*.json")):
         doc = prov.load_manifest_document(path)
-        assert doc.raw["files"] == [], f"{path.name} must not carry hashes nobody computed"
+        if path.stem in TEMPLATE_MANIFESTS:
+            assert doc.raw["files"] == [], f"{path.name} must not carry hashes nobody computed"
+        elif path.stem == CR9114_MANIFEST:
+            # Exact equality: a drifted hash, a wrong size, or an extra file
+            # nobody hashed all fail here.
+            assert doc.raw["files"] == CR9114_VERIFIED_FILES, (
+                f"{path.name} file entries disagree with the 2026-09-14 verification record"
+            )
+        else:
+            pytest.fail(f"{path.name} has no recorded hash expectation; add one deliberately")
 
 
 def test_committed_manifests_mark_candidate_urls_unverified(manifest_dir):
+    """The candidate (article) URL stays unverified even once a real source is pinned."""
     for path in sorted(manifest_dir.glob("*.json")):
         doc = prov.load_manifest_document(path)
-        assert doc.raw["candidate_source_url_verified"] is False
-        assert doc.raw["source_url"] == prov.TODO_OWNER
+        assert doc.raw["candidate_source_url_verified"] is False, path.name
+
+        if path.stem in TEMPLATE_MANIFESTS:
+            assert doc.raw["source_url"] == prov.TODO_OWNER, path.name
+            assert doc.raw["release_version"] == prov.TODO_OWNER, path.name
+            assert doc.raw["retrieval_date"] == prov.TODO_OWNER, path.name
+        elif path.stem == CR9114_MANIFEST:
+            assert doc.raw["source_url"] == CR9114_VERIFIED_SOURCE_URL
+            assert doc.raw["release_version"] == CR9114_VERIFIED_RELEASE_VERSION
+            assert doc.raw["retrieval_date"] == CR9114_VERIFIED_RETRIEVAL_DATE
+            # The authoritative CSV is a different thing from the unverified
+            # article landing page, and neither may be promoted into the other.
+            assert doc.raw["source_url"] != doc.raw["candidate_source_url"]
+        else:
+            pytest.fail(f"{path.name} has no recorded source expectation; add one deliberately")
 
 
 def test_committed_manifests_are_in_canonical_form(manifest_dir):
@@ -240,13 +361,28 @@ def test_committed_manifests_are_in_canonical_form(manifest_dir):
 
 
 def test_committed_manifests_list_open_owner_decisions(manifest_dir):
+    """Every decision is shaped the same way, and only audited ones read supplied."""
     for path in sorted(manifest_dir.glob("*.json")):
         doc = prov.load_manifest_document(path)
         decisions = doc.raw["owner_decisions"]
         assert decisions, path.name
         for decision in decisions:
             assert set(decision) == {"key", "question", "status"}
-            assert decision["status"] == "unsupplied"
+            assert decision["status"] in {"supplied", "unsupplied"}, decision
+
+        supplied = {d["key"] for d in decisions if d["status"] == "supplied"}
+        unsupplied = {d["key"] for d in decisions if d["status"] == "unsupplied"}
+
+        if path.stem in TEMPLATE_MANIFESTS:
+            assert supplied == set(), f"{path.name} is an untouched template; nothing is answered"
+        elif path.stem == CR9114_MANIFEST:
+            assert supplied == set(CR9114_SUPPLIED_DECISIONS), (
+                f"{path.name} supplied decisions disagree with the verification record"
+            )
+            for key in CR9114_STILL_PENDING:
+                assert key in unsupplied, f"{key} is still pending in the audit record"
+        else:
+            pytest.fail(f"{path.name} has no recorded decision expectation; add one deliberately")
 
 
 # --------------------------------------------------------------------------
