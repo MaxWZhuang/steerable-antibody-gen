@@ -89,10 +89,34 @@ The repository provides a custom antibody model and supporting tools:
 | Sampling and guidance | Single-pass and iterative HCDR3 infill; optional external guide |
 | Generative objective | MLM, partial-state masking and mask-rate schedules |
 | Interpretability | Synthetic antigen-pathway probe |
+| ESM-IF1 dependency layer | `smallAntibodyGen.esmif1_compat` makes the archived `fair-esm` inverse-folding stack importable on this repo's torch/numpy versions |
+| ESM-IF1 editing policy | `smallAntibodyGen.models.esmif1_policy` scores and samples a fixed-geometry, two-alleles-per-site constrained edit space through the native decoder |
 
 The pretrained antibody backbone, controlled experiment runner, masked-diffusion
 objective, and preference trainer are not yet integrated. The existing ESM option
 replaces only the antigen encoder.
+
+The ESM-IF1 dependency layer is not backbone integration: it makes the upstream
+package import and run, and nothing more. Install it with
+`pip install -e ".[esm-if1]"` and call `esmif1_compat.install()` before the first
+`esm.inverse_folding` import. The extra deliberately omits `torch-scatter`, which
+has no wheel for any platform; the module substitutes the single function ESM
+calls from it. Measured readiness on the training box — hardware budget, verified
+weight loading, and the batch range beyond which throughput regresses — is recorded
+in
+[the training-box evidence](reference/evidence/esm-if1-training-box-2026-09-14.json).
+
+The ESM-IF1 editing policy is decoder mechanics, not a result. It implements the
+probability contract in
+[the recommendation](reference/fixed-target-posttraining-recommendation.md) —
+native alphabet and decoding order, immutable residues forced into every prefix
+at probability one, each editable site normalized over its two alleles at
+temperature 1 — as a differentiable teacher-forced score, a sampler that agrees
+with it exactly, and a cached frozen-encoder geometry. It loads no weights,
+declares no structure, maps no benchmark site onto a residue index, and trains
+nothing; its tests run on a toy backbone plus an optional randomly initialized
+upstream model that downloads nothing. Exact semantics, limitations, and the
+pending gates are in [the policy specification](specs/esmif1_policy.md).
 
 The checkout has no antibody-antigen corpus, benchmark manifests are incomplete,
 and training hardware measurements are unrecorded. Implemented components alone

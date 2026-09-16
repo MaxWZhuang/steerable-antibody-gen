@@ -16,6 +16,18 @@ dependencies = [
     # suite still reported green (found in the local Gate-0 review).
     "pyarrow>=14.0",
     "PyYAML>=6.0",
+    # Ranking for `evaluation/paired_antigen.py` (`scipy.stats.rankdata`), which
+    # feeds both the Spearman statistic and the permutation null. The same bug
+    # class as pyarrow above, and it was masked the same way: scipy is currently
+    # present only as a TRANSITIVE dependency of the optional `esm-if1` extra
+    # (biotite -> biotraj -> scipy), so a base `pip install -e ".[dev]"` has no
+    # scipy at all. The import is lazy, inside the functions, so the module still
+    # imports cleanly and the break surfaces only when the evaluator is CALLED --
+    # verified on a scipy-less interpreter: import succeeds, `_spearman` raises
+    # ModuleNotFoundError. Not reimplemented in numpy because bootstrap resampling
+    # repeats observations, so the tie convention is load-bearing and a hand-rolled
+    # rank would need its own numerical proof.
+    "scipy>=1.10",
     "tabulate>=0.9",
     "torch>=2.1",
     "tqdm>=4.66",
@@ -36,6 +48,19 @@ esm = [
 # Imported lazily so the base install and non-logging runs never require it.
 tb = [
     "tensorboard>=2.14",
+]
+# ESM-IF1 backbone (Decision 0003, 2026-09-14). Imported lazily; nothing in the
+# custom-model chain needs these.
+#
+# `torch-scatter` is deliberately ABSENT despite being a real upstream import of
+# `esm.inverse_folding`: PyPI ships 2.1.2 as an sdist only, with no wheel for any
+# platform, and building it needs an MSVC newer than the training box has.
+# `smallAntibodyGen.esmif1_compat` substitutes the one function ESM calls. Adding
+# torch-scatter here would make this extra uninstallable on the training box.
+esm-if1 = [
+    "fair-esm>=2.0.0",
+    "torch-geometric>=2.3",
+    "biotite>=1.0",
 ]
 
 [tool.setuptools]

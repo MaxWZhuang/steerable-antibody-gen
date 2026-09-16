@@ -1,0 +1,160 @@
+{
+  "audit_date": "2026-09-14",
+  "supersedes": null,
+  "companion_record": "esm-if1-readiness-2026-09-14.json",
+  "relation_to_companion": "That record was captured on a local macOS arm64 conda environment and reports a torch import failure (OMP #15, exit 134). This record is the TRAINING BOX named by the user on 2026-09-14. The OMP failure does not reproduce here; it was a Mac conda artifact, not an ESM-IF1 defect.",
+  "status": "Dependency layer verified and weights verified loaded on the training box. No training run, no checkpoint promotion, no biological result.",
+
+  "training_device": {
+    "selected_by_user": "Use this box unless renting a GPU becomes mission-critical.",
+    "gpu_name": "NVIDIA GeForce GTX 1650 SUPER",
+    "vram_total_mib": 4096,
+    "vram_used_by_desktop_at_measurement_mib": 1286,
+    "vram_practically_available_mib": 2810,
+    "compute_capability": "7.5",
+    "driver_version": "560.94",
+    "cuda_version_reported_by_driver": "12.6",
+    "platform": "Windows-10-10.0.19045-SP0",
+    "measurement_command": "nvidia-smi --query-gpu=name,memory.total,memory.used,driver_version --format=csv"
+  },
+
+  "environment": {
+    "python_version": "3.11.9",
+    "python_executable": ".venv/Scripts/python.exe",
+    "torch": "2.11.0+cu126",
+    "torch_cuda_available": true,
+    "numpy": "2.4.3",
+    "pandas": "3.0.2",
+    "scipy": "1.17.1",
+    "fair-esm": "2.0.0",
+    "torch-geometric": "2.8.0.post1",
+    "biotite": "1.6.0",
+    "torch-scatter": null,
+    "torch-sparse": null,
+    "note": "torch/numpy/pandas were unchanged by installing the esm-if1 extra; the project suite was re-run after installation and passed."
+  },
+
+  "torch_scatter_unavailability": {
+    "pypi_latest": "2.1.2",
+    "wheels_available": false,
+    "sdist_available": true,
+    "evidence_no_wheel": "pip install --only-binary=:all: torch-scatter -> 'Could not find a version that satisfies the requirement torch-scatter (from versions: none)'",
+    "source_build_attempted": true,
+    "source_build_result": "failed",
+    "source_build_error": "MSVC 14.16.27023 (VS2017 BuildTools): c10/util/StringUtil.h(168): error C3861: '__builtin_LINE': identifier not found",
+    "interpretation": "The installed MSVC predates the C++ builtins torch 2.11's headers require. Building would need VS2022 Build Tools; torch-sparse is not required at all (esm never imports it).",
+    "resolution": "smallAntibodyGen.esmif1_compat substitutes the one function esm calls. See its module docstring."
+  },
+
+  "upstream_dependency_surface": {
+    "torch_scatter_import_sites_in_esm": ["esm/inverse_folding/gvp_modules.py:34"],
+    "torch_scatter_call_sites_in_esm": ["esm/inverse_folding/gvp_modules.py:452"],
+    "torch_scatter_names_imported": ["scatter_add", "scatter"],
+    "torch_scatter_names_actually_called": ["scatter_add"],
+    "call_semantics": "scatter_add(torch.ones_like(dst), dst, dim_size=N) -- node in-degree count, equivalent to torch.bincount(dst, minlength=N)",
+    "torch_sparse_import_sites_in_esm": [],
+    "biotite_renames_required": {
+      "biotite.structure.filter_backbone": "renamed to filter_peptide_backbone in biotite 1.0",
+      "biotite.structure.io.pdbx.PDBxFile": "replaced by CIFFile in biotite 1.0"
+    },
+    "biotite_downgrade_avoided_because": "pip resolves biotite<1.0 together with a numpy downgrade, 2.4.3 -> 1.26.4 (measured: `pip install --dry-run --only-binary=:all: 'biotite<1.0'` -> 'Would install biotite-0.41.2 numpy-1.26.4'). Whether that downgrade actually breaks anything here was NOT tested, and the declared metadata suggests it might not: pandas 3.0.2 requires numpy>=1.26.0 on Python 3.11 and torch declares no numpy requirement, so 1.26.4 satisfies both. The downgrade was avoided as an unnecessary environment-wide change affecting every package in the venv, not because it was shown to break one.",
+    "decoder_is_dependency_free": "esm/inverse_folding/transformer_decoder.py imports only math, torch, esm.modules and .transformer_layer -- no PyG, no biotite. The package __init__ still pulls the encoder, so PyG is needed to import, not to train."
+  },
+
+  "model": {
+    "loader": "esm_if1_gvp4_t16_142M_UR50",
+    "weights_url": "https://dl.fbaipublicfiles.com/fair-esm/models/esm_if1_gvp4_t16_142M_UR50.pt",
+    "weights_sha256": "be4ba36edec22a9bfaa4946ff6b2815f1f19d8a3d7e0eada8b796d5a0eae9fd4",
+    "weights_bytes": 1700450121,
+    "checkpoint_top_level_keys": ["args", "extra_state", "last_optimizer_state", "model", "optimizer_history"],
+    "load_seconds_including_download": 40.0,
+    "params_total": 141662150,
+    "params_encoder": 107993030,
+    "params_decoder": 33669120,
+    "encoder_fraction": 0.762,
+    "decoder_fraction": 0.238,
+    "weights_fp32_mib": 540,
+    "alphabet_size": 35,
+    "source_revision": null
+  },
+
+  "weights_actually_loaded": {
+    "verified": true,
+    "method": "Compared the live state_dict against the raw checkpoint tensors. 464 of 489 entries matched by name and were byte-identical (0 differing). The remaining 25 have no same-named checkpoint entry because upstream remaps keys on load; each was matched to a renamed checkpoint counterpart by (shape, content) and all 25 were accounted for.",
+    "tensors_identical_by_name": 464,
+    "tensors_accounted_for_by_rename": 25,
+    "tensors_unaccounted": 0,
+    "why_this_check_exists": "A matching parameter COUNT proves the architecture, not the weights. The migration spec requires preserving the native head; a silently random output_projection would look identical on a param census and invalidate every downstream number.",
+    "caveat": "Rename matching used (shape, float-sum) as a content key. Exact-shape agreement plus a clean 1:1 mapping to sensibly-renamed counterparts makes collision implausible, but this is not a byte-equality proof for those 25."
+  },
+
+  "measured_resident_encoder_train_step": {
+    "note": "Whole model resident and the encoder forward re-runs every step (no caching), but the encoder was FROZEN (requires_grad=False) and AdamW covered the DECODER ONLY: 33,669,120 trainable params. fp32, batch 1, min of 3 steps. Synthetic coordinates and sequence.",
+    "not_a_full_model_adamw_measurement": "Optimising all 141,662,150 params in fp32 would need roughly 1,621 MiB for parameters plus two AdamW moment tensors alone, before gradients and activations. The peaks below are far under that and must not be read as full-model training. This block was mislabelled in the first draft of this record; the numbers are unchanged, the label was wrong.",
+    "columns": ["seq_len", "step_seconds", "peak_alloc_mib", "peak_reserved_mib", "nvidia_smi_used_mib"],
+    "rows": [
+      [150, 0.401, 1076, 1270, 2632],
+      [300, 0.780, 1275, 1518, 2880],
+      [600, 1.637, 1730, 2270, 3622]
+    ]
+  },
+
+  "measured_cached_encoder_design": {
+    "note": "The planned pilot freezes the structure encoder and uses ONE fixed geometry, so the encoder runs once and its output is cached. Structural context 700 residues; decoded chain 120 residues (CR9114 VH scale). Synthetic coordinates and sequence.",
+    "encoder_pass_seconds": 2.01,
+    "encoder_pass_peak_mib": 1600,
+    "cached_tensor_payload_mib": 1.4,
+    "decoder_resident_after_dropping_encoder_mib": 149,
+    "trainable_params_decoder_only": 33669120,
+    "columns": ["batch", "step_seconds", "sequences_per_second", "peak_alloc_mib", "peak_reserved_mib", "nvidia_smi_used_mib", "num_alloc_retries", "num_ooms"],
+    "rows": [
+      [8, 0.178, 44.9, 1094, 1312, 2180, 0, 0],
+      [16, 0.337, 47.5, 1758, 2020, 2888, 0, 0],
+      [20, 0.438, 45.7, 2086, 2398, 3266, 0, 0],
+      [24, 0.537, 44.7, 2408, 2798, 3666, 0, 0],
+      [28, 0.622, 45.0, 2737, 3164, 3869, 0, 0],
+      [32, 0.970, 33.0, 3061, 3560, 3855, 0, 0]
+    ],
+    "earlier_coarse_sweep": {
+      "note": "First pass, min of 3 steps instead of 4. Retained because it is where the batch-32 regression was first seen, at a different magnitude (38.5 vs 33.0 seq/s) -- the regression reproduces, its size is noisy.",
+      "columns": ["batch", "step_seconds", "sequences_per_second", "peak_alloc_mib", "peak_reserved_mib", "nvidia_smi_used_mib"],
+      "rows": [[1, 0.051, 19.8, 675, 726, 2088], [4, 0.098, 40.7, 756, 890, 2252], [16, 0.335, 47.7, 1760, 2006, 3368], [32, 0.831, 38.5, 3062, 3556, 3882]]
+    },
+    "throughput_shape": "Rises steeply from batch 1 to 8 (19.8 -> 44.9 seq/s), then flat from 8 to 28 at 44.7-47.5 seq/s, then a sharp drop at 32. The flat region means step time grows about linearly with batch; this record does NOT attribute that to a particular bottleneck, since linear step-time growth is equally consistent with saturated compute and with other limits, and nothing here profiles them apart.",
+    "usable_batch_range": "8 to 28. Batch 16 is the fastest measured, but 28 matches it within the spread while carrying 1.75x the sequences, so the practical ceiling is 28, not 16.",
+    "batch_32_regression": {
+      "observed": "Throughput falls to 33.0 seq/s, roughly 30% below the 8-28 plateau. Reproduced across two sweeps at differing magnitudes.",
+      "cause_established": false,
+      "what_was_ruled_out": "PyTorch allocator pressure. num_alloc_retries and num_ooms are 0 at EVERY batch including 32, so the caching allocator never had to free and retry. nvidia-smi at batch 32 (3855 MiB) is also not higher than at batch 28 (3869 MiB), so it is not a simple monotonic memory-pressure story.",
+      "candidate_explanations_untested": "Driver-level paging invisible to torch's allocator, a kernel/algorithm switch at that shape, or thermal behaviour. Distinguishing them would need shared-memory or migration telemetry that was not collected.",
+      "operational_consequence": "Do not run this shape at batch 32. Detect over-budget configurations on this box by throughput regression rather than by waiting for an exception -- no OOM was ever raised."
+    }
+  },
+
+  "feasibility_conclusion": {
+    "status": "provisional -- supported for the supervised arm, NOT derived for the full matrix",
+    "what_the_measurements_support": "At the measured 45-47 sequences/second plateau, one pass over a ~40k-genotype split is roughly 14-15 minutes of decoder forward+backward. The frozen cached encoder keeps 76.2% of the parameters out of the training loop entirely, and the model plus decoder-only optimiser state fits with room to spare.",
+    "what_is_NOT_derivable_from_this_record": "Total wall clock for the four-arm, three-seed experiment. No epoch budget, preference-pair count, or measured DPO step cost exists yet. Precomputing the frozen reference's log-probabilities removes the reference forward pass but NOT the policy's, and a preference pair still requires scoring both the winner and the loser, so a DPO step is not a one-sequence step. An earlier draft of this record asserted 'on the order of a day' for the full matrix; that figure was an extrapolation with no workload measurement behind it and has been withdrawn.",
+    "gpu_rental_required_for_cr9114_h1": "not indicated by what has been measured, but not established either -- the supervised arm is clearly feasible on this card; the preference arms have no measured cost yet",
+    "binding_constraint": "Not VRAM, at the shapes measured. The dependency chain was the real risk, and it is now closed.",
+    "cheapest_way_to_close_this": "Measure one DPO step at the intended pair shape, and declare an epoch budget. Both are small compared with the experiment they would size."
+  },
+
+  "caveats": [
+    "All timing and memory rows use SYNTHETIC random backbone coordinates and random sequences at representative lengths. No real CR9114 structure was used; real numbers will shift.",
+    "The biotite renames are verified at the NAME level only. filter_peptide_backbone's atom selection has not been compared against biotite 0.x filter_backbone on a real structure. A silent selection change would corrupt the structural input without raising.",
+    "torch-scatter cannot be built on this box, so the substitute has never been run side by side against the genuine extension here. Its correctness rests on bincount being a complete specification of the single call site.",
+    "No structural input has been pinned. The declared fixed geometry for CR9114/H1 is still unchosen, and Shanker et al.'s CR9114 input was an H5 complex, not a matched H1 structure.",
+    "score_sequence was confirmed non-differentiable: it returns numpy and averages the per-residue loss. A custom scorer implementing the constrained 16-site probability contract is still required.",
+    "No training run, no SFT/DPO arm, no learnability check, and no biological result. Model-family selection is not checkpoint promotion.",
+    "Measurements are min-of-3 steps with no dataloader, checkpointing, or evaluation overhead included."
+  ],
+
+  "next_evidence_required": [
+    "Pin the structural input: PDB/CIF source, chain selection, residue mapping, missing-coordinate convention, and its relation to the measured H1 target.",
+    "Verify filter_peptide_backbone against a real structure before trusting any coordinates.",
+    "Rerun the throughput table on the real structure and real VH length once the cohort exists.",
+    "Implement and test the constrained 16-site probability contract, with enumerated-vs-teacher-forced agreement on a tiny example.",
+    "Single-target learnability with ordinary predictors on CR9114/H1, which needs no GPU and no ESM-IF1."
+  ]
+}
