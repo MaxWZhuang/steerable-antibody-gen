@@ -301,9 +301,19 @@ def _check_manifest_shape(document: Any) -> Mapping:
 class ManifestDocument:
     """A parsed manifest that may still be waiting on the owner.
 
-    ``is_approved`` is false whenever any ``TODO(owner)`` sentinel survives.
+    ``is_approved`` is false while EITHER kind of owner requirement is
+    outstanding: a surviving ``TODO(owner)`` sentinel, or an ``owner_decisions``
+    entry still marked ``unsupplied``. It previously tested only the sentinels,
+    which made it a false approval signal -- a manifest whose four top-level
+    sentinels had been filled reported ``is_approved is True`` with all fifteen
+    decisions still pending, contradicting this directory's README ("There is no
+    path by which an unfilled manifest is mistaken for an approved one") while
+    :func:`validate_source_manifest` correctly went on rejecting it.
+
+    It remains a structural signal, not a validity proof: an approved-looking
+    document can still fail strict validation (``files: []`` is the easy case).
     :meth:`validated` is the only way to obtain a :class:`SourceManifest`, and it
-    raises for an unapproved document.
+    is still the gate anything consuming data must pass.
     """
 
     raw: Mapping
@@ -316,7 +326,10 @@ class ManifestDocument:
 
     @property
     def is_approved(self) -> bool:
-        return not self.unsupplied_fields
+        return not self.unsupplied_fields and all(
+            decision["status"] == "supplied"
+            for decision in self.raw["owner_decisions"]
+        )
 
     def validated(self) -> SourceManifest:
         return validate_source_manifest(self.raw)

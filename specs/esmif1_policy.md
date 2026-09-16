@@ -58,6 +58,8 @@ and `test_sixteen_site_sampling_agrees_with_teacher_forcing`. Enumeration is
 guarded by `max_sequences`, because a 16-site space is 65,536 candidates.
 
 ```python
+import torch
+
 from smallAntibodyGen.models.esmif1_policy import (
     ConstrainedEditPolicy, ConstrainedEditSpace, EditableSite,
 )

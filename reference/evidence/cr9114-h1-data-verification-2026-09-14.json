@@ -1,0 +1,125 @@
+{
+  "audit_date": "2026-09-14",
+  "censoring": {
+    "agrees_with_paper": "Titration bounds 1e-12..1e-7 M for H1 (-logKD 7..12) and 1e-11..1e-6 M for H3/B (-logKD 6..11); values outside are pinned to the boundary.",
+    "fluB": {
+      "max": 8.0608,
+      "min": 6.0,
+      "rows_at_floor": 65336
+    },
+    "h1": {
+      "max": 9.8345,
+      "min": 7.0,
+      "rows_at_floor": 1675
+    },
+    "h3": {
+      "max": 9.0419,
+      "min": 6.0,
+      "rows_at_floor": 58361
+    },
+    "implication": "H1 is floor-censored only (1675/65536 = 2.6%). H3 is 89% floor-tied and fluB 99.7%, so neither supports an ordinary ordering metric.",
+    "observed_ceiling_censoring_h1": false,
+    "units": "-log10(KD), KD in molar; HIGHER is stronger binding"
+  },
+  "companion_records": [
+    "esm-if1-readiness-2026-09-14.json",
+    "esm-if1-training-box-2026-09-14.json",
+    "fixed-target-data-audit-2026-09-14.json"
+  ],
+  "file_shape": {
+    "antigens_present": [
+      "h1",
+      "h3",
+      "fluB"
+    ],
+    "columns": 33,
+    "cr6261_present": false,
+    "matches_2_pow_16": true,
+    "other_columns": [
+      "genotype",
+      "som_mut"
+    ],
+    "per_antigen_columns": [
+      "<ag>_repa",
+      "<ag>_repb",
+      "<ag>_repc",
+      "<ag>_mean",
+      "<ag>_sem"
+    ],
+    "rows": 65536,
+    "site_columns": "pos1..pos16, binary"
+  },
+  "genotype_column_trap": {
+    "corrupted_rows_under_naive_read": 32768,
+    "evidence": "Naive read gives a power-of-two length ladder {1:2, 2:2, 3:4, ... 16:32768}; dtype={'genotype': str} gives {16: 65536}.",
+    "finding": "`genotype` is a 16-character binary STRING with meaningful leading zeros. pandas.read_csv infers int64 and strips them.",
+    "required_loader_contract": "pd.read_csv(path, dtype={'genotype': str})",
+    "severity": "silent corruption of half the dataset",
+    "total_rows": 65536,
+    "why_it_is_dangerous": "It raises nothing. pos1..pos16 stay intact, so any consumer keyed on pos* is unaffected and a spot check looks fine, while anything keyed on the genotype string silently mis-maps exactly the half of variants beginning with 0."
+  },
+  "manifest_defects_found": [
+    {
+      "claim": "The CR9114/CR6261 combinatorial landscapes have 16 editable sites, each with two allowed residues.",
+      "verdict": "WRONG for CR6261. Phillips et al. report CR9114 with 16 mutations (65,536 variants) and CR6261 with 11 (2,048). The assertion conflates the two landscapes; it was marked verified:false, so nothing had caught it.",
+      "where": "specs/benchmarks/cr9114_cr6261_landscape.json plan_assertions[0]"
+    },
+    {
+      "claim": "specs/benchmarks/README.md: 'There is no path by which an unfilled manifest is mistaken for an approved one.'",
+      "verdict": "FALSE at the time of this audit, now FIXED. is_approved tested only TODO(owner) sentinels, so filling the four top-level fields returned is_approved True with all 15 owner decisions still unsupplied. validate_source_manifest was never fooled. Now requires both no sentinels and every decision supplied; three regression tests pin the combinations.",
+      "where": "src/smallAntibodyGen/benchmarks/provenance.py ManifestDocument.is_approved"
+    }
+  ],
+  "replicate_sem_reproduction": {
+    "claim_source": "reference/fixed-target-posttraining-recommendation.md:45-55",
+    "conclusion": "Every figure in the recommendation reproduces to the digit from a freshly downloaded file. A blanket sqrt(2) correction is wrong: the factor depends on replicate count, and the 1152 singletons have no defined sample SEM at all. Inverse-variance weighting on their reported zeros yields infinite weights.",
+    "genotypes_with_at_least_two_replicates": 63942,
+    "independently_reproduced": true,
+    "pooled_within_genotype_sample_sd_h1": 0.13237,
+    "released_over_conventional_sem": {
+      "n2": {
+        "equals": "1/sqrt(3)",
+        "positive_sem_rows": 1105,
+        "ratio": 0.57735026919,
+        "ratio_sd": 9.45e-15,
+        "rows": 1718
+      },
+      "n3": {
+        "equals": "1/sqrt(2)",
+        "positive_sem_rows": 61788,
+        "ratio": 0.707106781187,
+        "ratio_sd": 1.38e-14,
+        "rows": 62224
+      }
+    },
+    "replicate_count_distribution_h1": {
+      "0": 442,
+      "1": 1152,
+      "2": 1718,
+      "3": 62224
+    },
+    "singletons": {
+      "above_floor": 526,
+      "reported_sem_zero": 1152,
+      "rows": 1152
+    }
+  },
+  "scope": "M01 provenance verification for the CR9114 fixed-target cohort, performed on the Windows training box. No model was run, no checkpoint promoted, no biological claim made.",
+  "source_verification": {
+    "independently_reproduced": true,
+    "local_path": "data/raw/cr9114_cr6261_landscape/elife-71393-fig1-data1-v3.csv",
+    "note": "Downloaded fresh on Windows and hashed; byte-identical to the hash recorded in fixed-target-data-audit-2026-09-14.json, which was produced on macOS. Two machines, two retrievals, one hash.",
+    "release_version_from_filename": "v3",
+    "retrieval_date": "2026-09-14",
+    "sha256": "ee31f8fc26fce2730d2ae772e7a095aa334b4c6c5d8e7fbfe4b4a5a1c9a794fe",
+    "size_bytes": 12258680,
+    "source_url": "https://cdn.elifesciences.org/articles/71393/elife-71393-fig1-data1-v3.csv"
+  },
+  "still_pending": [
+    "license: eLife article license not yet confirmed from an authoritative page; NOT recorded as CC-BY-4.0 on assumption.",
+    "assayed_construct_availability: this file carries no HA construct sequences, so the H1 antigen construct is not reconstructable from it alone; a registered null may be the correct record.",
+    "The structural input remains unpinned (see esm-if1-training-box record). Shanker et al. used an H5 complex for CR9114, so it is not a matched H1 template.",
+    "Six owner decisions are design calls, not facts: evaluator_custody, split_seed, revealed_label_budgets, pareto_reference_point, uncertainty_near_optimal_convention, replicate_aggregation_convention.",
+    "The manifest itself is NOT yet filled: four committed-manifest guard tests assert template state across all three manifests and must be reworked into per-manifest expectations first."
+  ]
+}
