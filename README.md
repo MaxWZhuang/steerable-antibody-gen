@@ -164,9 +164,9 @@ verified and the structural input is prepared. Its engineered H1-derived stem is
 not an established match to the assayed antigen construct.
 
 The [bounded CR9114 pilot](reference/cr9114-5cjq-pilot.md) now provides released-model
-scoring checks and decoder-only supervised training. The full four-arm experiment
-and general benchmark manifests remain incomplete. Hardware and weight-loading
-readiness are recorded in the training-box evidence above. The
+scoring checks and decoder-only supervised training. These are fixed-target
+development pilots; broader benchmarks and general manifests remain incomplete.
+Hardware and weight-loading readiness are recorded in the training-box evidence above. The
 [completed pilot report](reference/evidence/cr9114-5cjq-pilot-2026-09-16.json)
 records the first real-context scoring and training results; test data remain reserved.
 The [preference-pair development evaluation](reference/cr9114-preferences-development.md)
@@ -181,5 +181,8 @@ The [diversity-method audit](reference/cr9114-diversity-method-audit.md) disting
 global sampling diversity from variety among strong shortlisted candidates. A
 [locked shortlist comparison](reference/cr9114-shortlist.md) improved sequence
 distance but missed its affinity tolerance at 32 candidates; its selector is not
-promoted. The [matched follow-up protocol](specs/cr9114_shortlist.md) holds affinity
-training fixed while comparing reference KL, entropy, and embedding diversity.
+promoted. The [three-seed regularization comparison](reference/cr9114-regularization.md)
+completed twelve runs under a [fixed protocol](specs/cr9114_shortlist.md), holding
+affinity training constant while comparing reference KL, entropy, and embedding
+diversity. No regularizer retained or improved both ordinary affinity budgets
+against its direct matched control in every seed; no checkpoint was promoted.
