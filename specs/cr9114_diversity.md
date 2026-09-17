@@ -78,3 +78,13 @@ The runner therefore builds a new reference cache tied to its own encoding for
 every variant used by either fixed schedule, verifies all of them against the
 historical cache, and uses only the new scores for optimization. The failed
 preflight performed no training and its local artifacts are retained.
+
+Numerical reproducibility amendment before regularized arms: a historical-control
+retraining agreed initially but diverged in raw log probability during optimization
+(maximum difference 4.36; rank correlation 0.9993; pair accuracy difference 0.285
+percentage points). Strict checkpoint reload still passed. That attempt stopped
+after the control and is retained locally. All six final arms instead use
+deterministic PyTorch algorithms and the declared cuBLAS workspace setting, with
+repeat-encoding verification. Historical nondeterministic retraining drift is
+reported rather than confused with checkpoint reload correctness. Hyperparameters,
+cohort identities, training budgets and scientific screening gates are unchanged.

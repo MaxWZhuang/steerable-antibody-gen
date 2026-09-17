@@ -8,6 +8,8 @@
   "learning_rate": 0.00001,
   "weight_decay": 0.01,
   "gradient_clip": 1.0,
+  "deterministic_algorithms": true,
+  "cublas_workspace_config": ":4096:8",
   "entropy_every": 4,
   "entropy_samples": 8,
   "evaluation_samples": 1024,

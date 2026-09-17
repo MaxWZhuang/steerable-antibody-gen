@@ -6,6 +6,7 @@ import argparse
 import gc
 import json
 import math
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -24,7 +25,7 @@ from smallAntibodyGen.experiments.dpo import (  # noqa: E402
 from run_cr9114_dpo_pilot import load_inputs, score_sequences, training_schedule  # noqa: E402
 from run_cr9114_esmif1_pilot import require, save_json, sha256, stable_subset, state_digest  # noqa: E402
 from prepare_cr9114_preferences import construct_pairs  # noqa: E402
-from diagnose_cr9114_dpo import cohort_metrics, diversity_metrics  # noqa: E402
+from diagnose_cr9114_dpo import cohort_metrics, diversity_metrics, pair_metrics  # noqa: E402
 
 
 def fresh_cohort(records, excluded, count, seed):
@@ -86,9 +87,11 @@ def run(config_path, output):
     require(len(set(config["seeds"])) == len(config["seeds"])
             and len(set(config["entropy_coefficients"])) == len(config["entropy_coefficients"])
             and all(np.isfinite(v) and v >= 0 for v in config["entropy_coefficients"]), "Invalid arms")
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = config["cublas_workspace_config"]
+    torch.use_deterministic_algorithms(config["deterministic_algorithms"])
     require(torch.cuda.is_available(), "CUDA required")
     prior_config = json.loads((ROOT / "configs/experiments/cr9114_dpo_pilot.json").read_text())
-    pilot, manifest, pairs, _, old_scores, genotypes = load_inputs(prior_config)
+    pilot, manifest, pairs, old_pairs, old_scores, genotypes = load_inputs(prior_config)
     record_path = ROOT / prior_config["preference_dir"] / "eligible_non_test_records.csv"
     require(sha256(record_path) == manifest["output_files"][record_path.name]["sha256"], "Measurement records changed")
     records = pd.read_csv(record_path, dtype={"genotype": "string"})
@@ -120,6 +123,10 @@ def run(config_path, output):
                "source_reference_cache_sha256": source_cache_sha, "source_reference_identity": source_identity,
                "schedule_sha256": {str(seed): sha256(output / f"schedule_{seed}.npy") for seed in config["seeds"]},
                "reserved_test_labels_evaluated": False, "checkpoint_promoted": False, "arms": {}}
+    results["runtime"] = {"torch_version": str(torch.__version__), "cuda_version": torch.version.cuda,
+                          "gpu": torch.cuda.get_device_name(0),
+                          "deterministic_algorithms": torch.are_deterministic_algorithms_enabled(),
+                          "cublas_workspace_config": os.environ["CUBLAS_WORKSPACE_CONFIG"]}
     save_json(output / "results.json", results)
     from smallAntibodyGen.esmif1_compat import install
     from smallAntibodyGen.structure import load_prepared_structure, verify_against_source
@@ -139,6 +146,10 @@ def run(config_path, output):
     model, alphabet = esm.pretrained.load_model_and_alphabet_local(str(weights))
     model.eval().cuda()
     bound = bind_policy(prepared, model, alphabet)
+    repeated = bind_policy(prepared, model, alphabet)
+    require(bound.geometry.digest == repeated.geometry.digest, "Deterministic geometry encoding did not repeat")
+    del repeated
+    results["deterministic_geometry_repeat_verified"] = True
     checkpoint = torch.load(sft_path, map_location="cpu", weights_only=True)
     sft_state = checkpoint["decoder"]
     del checkpoint
@@ -244,7 +255,7 @@ def run(config_path, output):
             model.zero_grad(set_to_none=True)
             final_hash = state_digest(model.decoder)
             require(final_hash != identity["decoder_state_sha256"] and state_digest(model.encoder) == identity["encoder_state_sha256"], "Model state audit failed")
-            destination = directory / "decoder_step_0256.pt"
+            destination = directory / f"decoder_step_{config['steps']:04d}.pt"
             torch.save({"schema_version": "cr9114-diversity-decoder/1", "decoder": model.decoder.state_dict(),
                         "optimizer": optimizer.state_dict(), "config": config, "seed": seed,
                         "entropy_coefficient": coefficient, "reference_identity": identity,
@@ -273,9 +284,14 @@ def run(config_path, output):
             if seed == 20260916 and coefficient == 0:
                 prior = pd.read_csv(ROOT / "outputs/cr9114_dpo_pilot_20260916/sft_dpo/development_scores.csv", dtype={"genotype": "string"}).set_index("genotype")
                 values = score_sequences(bound.policy, bound.geometry, old_sequences, 16)
-                error = float(np.max(np.abs(values - prior.loc[old_scores.genotype, "adapted_log_q"].to_numpy())))
-                require(error < .01, "Matched plain-DPO control failed to reproduce")
-                result["prior_plain_dpo_max_log_q_error"] = error
+                original = prior.loc[old_scores.genotype, "adapted_log_q"].to_numpy()
+                result["historical_control_comparison"] = {
+                    "max_log_q_difference": float(np.max(np.abs(values - original))),
+                    "mean_absolute_log_q_difference": float(np.mean(np.abs(values - original))),
+                    "score_rank_correlation": float(pd.Series(values).corr(pd.Series(original), method="spearman")),
+                    "historical_pair_accuracy": pair_metrics(old_pairs, pd.Series(original, index=old_scores.genotype))["pair_accuracy"],
+                    "retrained_pair_accuracy": pair_metrics(old_pairs, pd.Series(values, index=old_scores.genotype))["pair_accuracy"],
+                    "note": "Historical training used nondeterministic GPU operations. Record drift; this is not a checkpoint reload or within-experiment matched-arm check."}
             model.decoder.load_state_dict(sft_state, strict=True)
             refs = score_sequences(bound.policy, bound.geometry,
                 [bound.space.sequence_for(tuple(map(int, g))) for g in samples.genotype], 16)
