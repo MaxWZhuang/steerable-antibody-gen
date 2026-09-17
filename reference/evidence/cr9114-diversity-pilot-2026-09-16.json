@@ -1,6 +1,6 @@
 {
   "run": {
-    "status": "running",
+    "status": "completed",
     "config": {
       "schema_version": "cr9114-diversity-pilot/1",
       "seeds": [
@@ -264,6 +264,318 @@
           "nats": 1.7752448953688145,
           "standard_error": 0.04587622179985791
         }
+      },
+      "seed_20260916_entropy_0.1": {
+        "development": {
+          "pair_accuracy": 0.9594571148614076,
+          "pairs": 5796,
+          "per_block_accuracy": {
+            "5": 0.9174740010946908,
+            "7": 0.9849553145040251,
+            "11": 0.9759420289855072
+          },
+          "dpo_loss": 0.13122160594016957,
+          "spearman": 0.7655202138798729,
+          "top_k_mean": {
+            "16": 9.494372637996834,
+            "32": 9.501134414103138
+          },
+          "per_block_spearman": {
+            "5": 0.8609064528194424,
+            "7": 0.8128062073225966,
+            "11": 0.7982395798410759
+          }
+        },
+        "diversity": {
+          "sample_count": 1024,
+          "unique_genotypes": 954,
+          "duplicate_fraction": 0.068359375,
+          "largest_observed_genotype_fraction": 0.0029296875,
+          "entropy_nats_mc": 9.293515942059457,
+          "entropy_mc_standard_error": 0.028040986412522877,
+          "entropy_effective_support_mc": 10867.325895312726,
+          "collision_probability_unbiased": 0.00013937255620723364,
+          "mean_pairwise_hamming_unbiased": 6.6328793224584555,
+          "allele_one_frequencies": [
+            0.431640625,
+            0.5791015625,
+            0.4775390625,
+            1.0,
+            0.4140625,
+            0.552734375,
+            0.6572265625,
+            0.447265625,
+            0.6552734375,
+            1.0,
+            0.509765625,
+            0.255859375,
+            0.5166015625,
+            0.564453125,
+            0.47265625,
+            0.279296875
+          ],
+          "sites_with_minor_allele_below_1pct": 2
+        },
+        "sample_rescore_max_error": 1.049041748046875e-05,
+        "seed": 20260916,
+        "entropy_coefficient": 0.1,
+        "training_seconds": 128.0490517000144,
+        "peak_cuda_allocated_mib": 2082.89892578125,
+        "checkpoint_sha256": "a64a79ec39157de3afcdd8776bb716f2854df24a9628b88ada1abc6f5e3627d0",
+        "decoder_state_sha256": "d785dddf07443d58d4c374e7ceaa03662a2472f9fdcc1be13d5ee93c4f30c83f",
+        "safe_strict_reload": true,
+        "reload_max_error": 0.0,
+        "encoder_unchanged": true,
+        "regularization_sample_count": 512,
+        "unlabelled_regularization_unique_overlap_with_development": 23,
+        "screen": {
+          "checks": {
+            "top_16_at_least_sft": false,
+            "top_32_at_least_sft": false,
+            "unique_genotypes_retained": true,
+            "mean_pairwise_hamming_unbiased_retained": true
+          },
+          "passes": false,
+          "biological_significance_claim": false
+        },
+        "kl_to_sft_mc": {
+          "nats": 1.2008864553645253,
+          "standard_error": 0.034051023658106645
+        }
+      },
+      "seed_20260918_entropy_0": {
+        "development": {
+          "pair_accuracy": 0.9625482918882058,
+          "pairs": 5796,
+          "per_block_accuracy": {
+            "5": 0.9273086245992649,
+            "7": 0.9854328694228408,
+            "11": 0.9749033816425121
+          },
+          "dpo_loss": 0.10874277380189366,
+          "spearman": 0.7648328345242942,
+          "top_k_mean": {
+            "16": 9.503325208322176,
+            "32": 9.491656582621452
+          },
+          "per_block_spearman": {
+            "5": 0.8867669279190059,
+            "7": 0.8364825975424802,
+            "11": 0.7926163952589007
+          }
+        },
+        "diversity": {
+          "sample_count": 1024,
+          "unique_genotypes": 563,
+          "duplicate_fraction": 0.4501953125,
+          "largest_observed_genotype_fraction": 0.0185546875,
+          "entropy_nats_mc": 6.880799876060337,
+          "entropy_mc_standard_error": 0.0521382856295172,
+          "entropy_effective_support_mc": 973.4046515597148,
+          "collision_probability_unbiased": 0.002583165322580645,
+          "mean_pairwise_hamming_unbiased": 4.624171401515151,
+          "allele_one_frequencies": [
+            0.744140625,
+            0.416015625,
+            0.9169921875,
+            1.0,
+            0.998046875,
+            0.408203125,
+            0.0869140625,
+            0.4189453125,
+            0.25,
+            1.0,
+            0.203125,
+            0.505859375,
+            0.8544921875,
+            0.0859375,
+            0.3955078125,
+            0.7392578125
+          ],
+          "sites_with_minor_allele_below_1pct": 3
+        },
+        "sample_rescore_max_error": 1.049041748046875e-05,
+        "seed": 20260918,
+        "entropy_coefficient": 0.0,
+        "training_seconds": 38.298109600000316,
+        "peak_cuda_allocated_mib": 1418.9814453125,
+        "checkpoint_sha256": "3cd4aedc0fa82ea46655a7ecb8c88171da3c7baa6a4cc70ac1982b71c7c9f9a3",
+        "decoder_state_sha256": "de75a66ecfa77e267929faf6a2d8e526afec711c7051f2a94b170b3171e3b4cb",
+        "safe_strict_reload": true,
+        "reload_max_error": 0.0,
+        "encoder_unchanged": true,
+        "regularization_sample_count": 0,
+        "unlabelled_regularization_unique_overlap_with_development": 0,
+        "screen": {
+          "checks": {
+            "top_16_at_least_sft": false,
+            "top_32_at_least_sft": false,
+            "unique_genotypes_retained": false,
+            "mean_pairwise_hamming_unbiased_retained": false
+          },
+          "passes": false,
+          "biological_significance_claim": false
+        },
+        "kl_to_sft_mc": {
+          "nats": 3.5113465734757483,
+          "standard_error": 0.055272404728239306
+        }
+      },
+      "seed_20260918_entropy_0.03": {
+        "development": {
+          "pair_accuracy": 0.9640342525363246,
+          "pairs": 5796,
+          "per_block_accuracy": {
+            "5": 0.9305399171162718,
+            "7": 0.9848478646472916,
+            "11": 0.9767149758454107
+          },
+          "dpo_loss": 0.1194498491045052,
+          "spearman": 0.7537696263427142,
+          "top_k_mean": {
+            "16": 9.517031006060973,
+            "32": 9.511758633679733
+          },
+          "per_block_spearman": {
+            "5": 0.8763186584324008,
+            "7": 0.8161733310859484,
+            "11": 0.7792893052059725
+          }
+        },
+        "diversity": {
+          "sample_count": 1024,
+          "unique_genotypes": 963,
+          "duplicate_fraction": 0.0595703125,
+          "largest_observed_genotype_fraction": 0.0029296875,
+          "entropy_nats_mc": 9.353269912302494,
+          "entropy_mc_standard_error": 0.02358917819435532,
+          "entropy_effective_support_mc": 11536.485131044765,
+          "collision_probability_unbiased": 0.0001240988514173998,
+          "mean_pairwise_hamming_unbiased": 6.680370998289345,
+          "allele_one_frequencies": [
+            0.4248046875,
+            0.4853515625,
+            0.4794921875,
+            1.0,
+            0.630859375,
+            0.62109375,
+            0.3271484375,
+            0.4736328125,
+            0.5224609375,
+            1.0,
+            0.611328125,
+            0.462890625,
+            0.5146484375,
+            0.4970703125,
+            0.3955078125,
+            0.7626953125
+          ],
+          "sites_with_minor_allele_below_1pct": 2
+        },
+        "sample_rescore_max_error": 7.62939453125e-06,
+        "seed": 20260918,
+        "entropy_coefficient": 0.03,
+        "training_seconds": 127.71543929999461,
+        "peak_cuda_allocated_mib": 2082.89892578125,
+        "checkpoint_sha256": "7f51139f2064517b5e60a7cc026bf20dcc8d68b9c338774890813c51373ef162",
+        "decoder_state_sha256": "a5c6be65d9350b86838e6d4c7f22da4c7e393811dc8d83eed3a896a7caef535c",
+        "safe_strict_reload": true,
+        "reload_max_error": 0.0,
+        "encoder_unchanged": true,
+        "regularization_sample_count": 512,
+        "unlabelled_regularization_unique_overlap_with_development": 14,
+        "screen": {
+          "checks": {
+            "top_16_at_least_sft": false,
+            "top_32_at_least_sft": false,
+            "unique_genotypes_retained": true,
+            "mean_pairwise_hamming_unbiased_retained": true
+          },
+          "passes": false,
+          "biological_significance_claim": false
+        },
+        "kl_to_sft_mc": {
+          "nats": 1.1949091162532568,
+          "standard_error": 0.032064352844295436
+        }
+      },
+      "seed_20260918_entropy_0.1": {
+        "development": {
+          "pair_accuracy": 0.9661434323625275,
+          "pairs": 5796,
+          "per_block_accuracy": {
+            "5": 0.9374130111814841,
+            "7": 0.9850269477418473,
+            "11": 0.9759903381642512
+          },
+          "dpo_loss": 0.12265525675187008,
+          "spearman": 0.7581800600778432,
+          "top_k_mean": {
+            "16": 9.500906498161335,
+            "32": 9.496670330516032
+          },
+          "per_block_spearman": {
+            "5": 0.8844306392040019,
+            "7": 0.8046144542697478,
+            "11": 0.7724507579868944
+          }
+        },
+        "diversity": {
+          "sample_count": 1024,
+          "unique_genotypes": 974,
+          "duplicate_fraction": 0.048828125,
+          "largest_observed_genotype_fraction": 0.00390625,
+          "entropy_nats_mc": 9.397041007876396,
+          "entropy_mc_standard_error": 0.02155272448296553,
+          "entropy_effective_support_mc": 12052.664175411412,
+          "collision_probability_unbiased": 0.0001030975073313783,
+          "mean_pairwise_hamming_unbiased": 6.716546768084067,
+          "allele_one_frequencies": [
+            0.3408203125,
+            0.5615234375,
+            0.48046875,
+            1.0,
+            0.5791015625,
+            0.658203125,
+            0.2900390625,
+            0.486328125,
+            0.53125,
+            1.0,
+            0.5078125,
+            0.53125,
+            0.4970703125,
+            0.4775390625,
+            0.4609375,
+            0.689453125
+          ],
+          "sites_with_minor_allele_below_1pct": 2
+        },
+        "sample_rescore_max_error": 1.1444091796875e-05,
+        "seed": 20260918,
+        "entropy_coefficient": 0.1,
+        "training_seconds": 127.25232209998649,
+        "peak_cuda_allocated_mib": 2082.90478515625,
+        "checkpoint_sha256": "749817327cdde446620c331911555216c6a9275f8e789bd11c61ec243c26bade",
+        "decoder_state_sha256": "820aeab146019d0d75547bc342a2ccb74e4fc0605299b6b90f373e025721043c",
+        "safe_strict_reload": true,
+        "reload_max_error": 0.0,
+        "encoder_unchanged": true,
+        "regularization_sample_count": 512,
+        "unlabelled_regularization_unique_overlap_with_development": 14,
+        "screen": {
+          "checks": {
+            "top_16_at_least_sft": false,
+            "top_32_at_least_sft": false,
+            "unique_genotypes_retained": true,
+            "mean_pairwise_hamming_unbiased_retained": true
+          },
+          "passes": false,
+          "biological_significance_claim": false
+        },
+        "kl_to_sft_mc": {
+          "nats": 1.1191236535087228,
+          "standard_error": 0.029182289765836898
+        }
       }
     },
     "runtime": {
@@ -363,8 +675,76 @@
         "7": 0.8113945188603295,
         "11": 0.7757033473389348
       }
+    },
+    "two_seed_screen": {
+      "0.0": false,
+      "0.03": false,
+      "0.1": false
+    },
+    "reference_cache_unchanged": true,
+    "output_sha256": {
+      "development_pairs.csv": "2a5e0e5a2f3e563e8363cc60b575849e918d2434f450ab2b82fd8c88ebd81ef7",
+      "fresh_development.csv": "aa6a0ec8a98caf8904e607fd99e99bdf7f8527fbd0fe2f240cbec09cd26bf154",
+      "schedule_20260916.npy": "d1717fd2c654e6015a478fefab7d924061e9ea63f1c5f2fcac7e94fc81f4eb6e",
+      "schedule_20260918.npy": "e5d28f29ad60adbae366e1197d288ff1f747baeaa8cd19d83a809e61be65e344",
+      "seed_20260916_entropy_0\\development_scores.csv": "683aa60e83e5454fd83118fc42d3b0045f3eebe060ae25531c2bba806779ddb2",
+      "seed_20260916_entropy_0\\samples.csv": "20f6466d2f1a599fe4d0b48f015178a8f602ea2324fc9765a36a7365d29c2003",
+      "seed_20260916_entropy_0.03\\development_scores.csv": "b8adb31486de1878a583dbb6b5ffacc270bb60ac76641525ac1389d0058d59a3",
+      "seed_20260916_entropy_0.03\\entropy_training_samples.csv": "f9bf4653a409d30159ddcc1bfa63d588888a8b0e2e5d9d4deceede2595311552",
+      "seed_20260916_entropy_0.03\\samples.csv": "6ee58417a7f656e02459635b20c521a6a9ce8968ac5479e287e6a6f9bb5158a4",
+      "seed_20260916_entropy_0.1\\development_scores.csv": "09e65721d1fd7ad45b3002871ccafbdbadee0c004aa3f6767cce747b38f49af6",
+      "seed_20260916_entropy_0.1\\entropy_training_samples.csv": "1bcc9a027e97e4e37949c89fd1b79a1a37da0b1104a7741fa3bb2e426bc18bb0",
+      "seed_20260916_entropy_0.1\\samples.csv": "eb3e4be4c73e7fa37e1376063e87c4318e0eeb293dadba89a97bb50b5f1195a9",
+      "seed_20260918_entropy_0\\development_scores.csv": "15a378092e9a01f3ddfc67a3ac632a5bd882987f60b31ea74b9389624b9a3f77",
+      "seed_20260918_entropy_0\\samples.csv": "469bb7e429c6e7f0c02ee365f5f1847da8b690c315f74b53927de3ae9911bc3c",
+      "seed_20260918_entropy_0.03\\development_scores.csv": "ba67c4339ad280ac165e019161480e3435f05a8b3017b04b0c561da021f9e6cc",
+      "seed_20260918_entropy_0.03\\entropy_training_samples.csv": "4cef93c5def42fc2c7b2f786fc4bb0eb51dc7890f9bd1329deb144e5dfbfca30",
+      "seed_20260918_entropy_0.03\\samples.csv": "bf3f3655b655b0b51be9e537766ef6c88c4b9ab1fca86292bc2e95e2a715df42",
+      "seed_20260918_entropy_0.1\\development_scores.csv": "16fab1c9f390a5d80aec7d709b5ce37fe6d66b95fca3396facfb1e49ce7dcb55",
+      "seed_20260918_entropy_0.1\\entropy_training_samples.csv": "e4ea8776b2939d4390fa58cd27167279df9a89c44ab77584485e1bd5fe4fa7ac",
+      "seed_20260918_entropy_0.1\\samples.csv": "c04d6a2f515e9dfff84e63e0bd97bec4a7913dddcb335deaac956f62784fcd8b",
+      "sft\\development_scores.csv": "d43fded0c8e9180fe6ec07398966c18f3b3efd052b3de724ac60290c021ec70e",
+      "sft\\samples.csv": "0fecf7a1f85eff50a9a1165db764446c5818e50177bb4908ea4d7a3a7d01f352"
     }
   },
-  "partial": true,
-  "source_results_sha256": "be3da34e63d75951afb49eb6303d7a30a0065ba98416217d5e22a71091c21a26"
+  "partial": false,
+  "source_results_sha256": "2c0014e4342905ca974c09603979c42511f292d6f4efb31de747174c7f6cbd95",
+  "independent_audit": {
+    "output_and_checkpoint_hashes_verified": true,
+    "fresh_cohort_disjoint_from_prior_evaluations": true,
+    "pair_accuracy_top16_top32_entropy_hamming_and_kl_reproduced": true,
+    "all_screens_independently_recomputed": true,
+    "all_256_step_histories_finite": true,
+    "entropy_draw_counts_and_label_free_overlap_reproduced": true,
+    "reserved_test_labels_loaded": false
+  },
+  "deterministic_control_replay": {
+    "arm": "seed_20260916_entropy_0",
+    "replay_script_sha256": "7afebd3544222705b8c216bfe80134ecea38b356fe1dbffc34e38d645a863244",
+    "encoding_digest_matches": true,
+    "replayed_decoder_sha256": "59659dd05ad3d280a4442bd1dacf03c67b40b66edf9a8e7307fe95ef32ff2f06",
+    "original_decoder_sha256": "59659dd05ad3d280a4442bd1dacf03c67b40b66edf9a8e7307fe95ef32ff2f06",
+    "decoder_bitwise_identical": true,
+    "encoder_unchanged": true,
+    "reserved_test_labels_evaluated": false
+  },
+  "tests": {
+    "targeted_passed": 45,
+    "full_suite_passed": 1741,
+    "full_suite_skipped": 3,
+    "full_suite_warnings": 13
+  },
+  "earlier_attempts": {
+    "initial": "Stopped before training on a cross-process encoding hash check; weights and structural source identical.",
+    "second": {
+      "max_log_q_difference": 4.3602142333984375,
+      "mean_absolute_log_q_difference": 1.554119006730616,
+      "score_rank_correlation": 0.9992793770957074,
+      "historical_pair_accuracy": 0.9647350455974992,
+      "retrained_pair_accuracy": 0.9618859664635865,
+      "top16_overlap": 14,
+      "top32_overlap": 29,
+      "checkpoint_reload_passed_before_historical_comparison": true
+    }
+  }
 }

@@ -130,7 +130,12 @@ joint acceptance criteria for top-candidate quality and diversity, then examine
 more conservative updates and reference regularization in a bounded development
 comparison. Repeat training across seeds. Generalization beyond close sequence
 neighbors requires a separately planned distance-separated or independent-target
-evaluation. These further experiments have **not** been run.
+evaluation. These were proposed next steps at the time of this diagnostic.
+
+Follow-up on 2026-09-16: the [two-seed entropy-control comparison](cr9114-diversity-pilot.md)
+has now completed. It restores much of the lost diversity but does not pass the
+joint affinity/diversity screen. Independent-target and distance-separated
+evaluations remain outstanding; the two DPO seeds share one SFT initialization.
 
 The targeted diagnostic, DPO-runner and objective tests passed: **33 tests**.
 Saved-score and sample/teacher-forced parity checks passed for all four models.
