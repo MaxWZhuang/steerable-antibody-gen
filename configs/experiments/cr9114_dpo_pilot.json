@@ -1,0 +1,23 @@
+{
+  "schema_version": "cr9114-dpo-pilot/1",
+  "seed": 20260916,
+  "steps": 256,
+  "pairs_per_batch": 2,
+  "score_batch_size": 16,
+  "beta": 0.1,
+  "learning_rate": 0.00001,
+  "weight_decay": 0.01,
+  "gradient_clip": 1.0,
+  "checkpoint_every": 64,
+  "device": "cuda",
+  "precision": "float32",
+  "arms": ["direct_dpo", "sft_dpo"],
+  "pilot_dir": "outputs/cr9114_5cjq_pilot_20260916",
+  "preference_dir": "outputs/cr9114_preferences_verified_20260916",
+  "preference_manifest_sha256": "3bc37cd545c1c4fbacd7afe7b3b8c50a7773d92dc7a550a9397fe3133acc7593",
+  "sft_checkpoint": "outputs/cr9114_5cjq_pilot_20260916/decoder_step_0256.portable.pt",
+  "sft_checkpoint_sha256": "e0da8b1221ee5218be881df183c39a2f4fc80d57c1814211d83312c277b4ca58",
+  "sampling": "One identical precomputed schedule for both arms, drawn with replacement proportional to declared training pair weights. Minibatch loss is unweighted; do not apply weights twice.",
+  "reference_cache": "All unique training-pair genotypes, once per initial checkpoint. No development or test genotype is included in these reference caches.",
+  "scope": "Two bounded single-seed development pilots. Equal DPO update and sequence-exposure budgets; SFT-to-DPO also includes its preceding SFT compute. Fixed final-step reporting, no checkpoint selection or test evaluation."
+}
