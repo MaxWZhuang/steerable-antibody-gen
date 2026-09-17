@@ -1,0 +1,370 @@
+{
+  "run": {
+    "status": "running",
+    "config": {
+      "schema_version": "cr9114-diversity-pilot/1",
+      "seeds": [
+        20260916,
+        20260918
+      ],
+      "entropy_coefficients": [
+        0.0,
+        0.03,
+        0.1
+      ],
+      "steps": 256,
+      "pairs_per_batch": 2,
+      "beta": 0.1,
+      "learning_rate": 1e-05,
+      "weight_decay": 0.01,
+      "gradient_clip": 1.0,
+      "deterministic_algorithms": true,
+      "cublas_workspace_config": ":4096:8",
+      "entropy_every": 4,
+      "entropy_samples": 8,
+      "evaluation_samples": 1024,
+      "evaluation_sample_seed": 20260919,
+      "fresh_development_count": 2048,
+      "fresh_development_seed": 20260919,
+      "diversity_retention_fraction": 0.8,
+      "scope": "Six fixed final-step arms from one frozen SFT initialization; two DPO schedule seeds, not two SFT seeds. Fresh on-policy entropy draws are never joined to assay labels. All support is eligible for unlabelled regularization, so fresh evaluation means held-out measurements, not guaranteed never-generated identities. No checkpoint selection or final-test evaluation."
+    },
+    "git_commit": "66875f8b0a64d6b9597dd760c14df4dda572c934",
+    "config_sha256": "dbd6a4ddb6d4de8064cdfcc5a4cb8a93eb104a11774696504add2cce7c4c06c9",
+    "script_sha256": "9b177dbe117d421b486adde0555f2e249b67754d84220761e7a9260e38626144",
+    "fresh_cohort_sha256": "aa6a0ec8a98caf8904e607fd99e99bdf7f8527fbd0fe2f240cbec09cd26bf154",
+    "fresh_pairs_sha256": "2a5e0e5a2f3e563e8363cc60b575849e918d2434f450ab2b82fd8c88ebd81ef7",
+    "fresh_pair_audit": {
+      "candidate_variants": 2048,
+      "represented_variants": 1997,
+      "unrepresented_variants": 51,
+      "pair_count": 5796,
+      "maximum_variant_degree": 8,
+      "represented_blocks": 3,
+      "pair_weight_sum": 1.0,
+      "hamming_distance_histogram": {
+        "1": 4,
+        "2": 51,
+        "3": 198,
+        "4": 519,
+        "5": 1019,
+        "6": 1310,
+        "7": 1260,
+        "8": 855,
+        "9": 424,
+        "10": 134,
+        "11": 21,
+        "12": 1
+      },
+      "per_block": [
+        {
+          "block": 5,
+          "candidates": 609,
+          "represented_variants": 609,
+          "pairs": 2218
+        },
+        {
+          "block": 7,
+          "candidates": 722,
+          "represented_variants": 698,
+          "pairs": 1606
+        },
+        {
+          "block": 11,
+          "candidates": 717,
+          "represented_variants": 690,
+          "pairs": 1972
+        }
+      ]
+    },
+    "source_reference_cache_sha256": "e1aea46a8b7e05bfa26b51a9293b0cd8837a05d45fc14f768fef7927344f07ac",
+    "source_reference_identity": {
+      "reference": "sft_dpo",
+      "source_checkpoint_sha256": "e0da8b1221ee5218be881df183c39a2f4fc80d57c1814211d83312c277b4ca58",
+      "decoder_state_sha256": "c8ea340526ea1bbb53d018fb4db2a081a4a727bae76fbf1be34882862e3efb4a",
+      "encoder_state_sha256": "2138dd5f2f82d504b9d80f76238d4faae1eb39428b750e510f7d386102fed2aa",
+      "prepared_artifact_sha256": "70be19f822c05d4efaa84d01ab75940516001e147b218f18a09c9d5b6bfbe4f7",
+      "geometry_digest": "6aff5223334b71276c9e0a956ec6efb4e36416e10f2ea28f7fb2b0d5953c85c3",
+      "genotype_order_sha256": "22753141ed712bccf1142305e7f2a9ba9beb3d154f4adec62828bee94325deb8",
+      "probability_contract": "ESM-IF1 binary 16-site constrained summed log q; temperature 1; dropout off",
+      "policy_source_sha256": "5857128508e7c5d2c6b136a5ab61fe1658e6f1e439f1a678d4779263d5289f6b",
+      "compat_source_sha256": "79fc85f13bb06a819cb405b46317c6b425dcaf664e6dcd50daf9e451bb75ffd4",
+      "torch_version": "2.11.0+cu126",
+      "esm_version": "2.0.0",
+      "score_batch_size": 16,
+      "precision": "float32"
+    },
+    "schedule_sha256": {
+      "20260916": "d1717fd2c654e6015a478fefab7d924061e9ea63f1c5f2fcac7e94fc81f4eb6e",
+      "20260918": "e5d28f29ad60adbae366e1197d288ff1f747baeaa8cd19d83a809e61be65e344"
+    },
+    "reserved_test_labels_evaluated": false,
+    "checkpoint_promoted": false,
+    "arms": {
+      "seed_20260916_entropy_0": {
+        "development": {
+          "pair_accuracy": 0.9619552286666508,
+          "pairs": 5796,
+          "per_block_accuracy": {
+            "5": 0.9259304871373836,
+            "7": 0.9865414790558056,
+            "11": 0.9733937198067635
+          },
+          "dpo_loss": 0.11579284569210453,
+          "spearman": 0.7735145981607374,
+          "top_k_mean": {
+            "16": 9.488709025063075,
+            "32": 9.50467651005943
+          },
+          "per_block_spearman": {
+            "5": 0.8810285854545916,
+            "7": 0.8124728299948917,
+            "11": 0.7947888901556602
+          }
+        },
+        "diversity": {
+          "sample_count": 1024,
+          "unique_genotypes": 248,
+          "duplicate_fraction": 0.7578125,
+          "largest_observed_genotype_fraction": 0.0859375,
+          "entropy_nats_mc": 4.916455134050921,
+          "entropy_mc_standard_error": 0.05967709460183402,
+          "entropy_effective_support_mc": 136.5178170643474,
+          "collision_probability_unbiased": 0.021793667521994135,
+          "mean_pairwise_hamming_unbiased": 3.133982847629521,
+          "allele_one_frequencies": [
+            0.8359375,
+            0.8837890625,
+            0.94140625,
+            1.0,
+            0.982421875,
+            0.384765625,
+            0.00390625,
+            0.0537109375,
+            0.8740234375,
+            1.0,
+            0.2177734375,
+            0.2392578125,
+            0.998046875,
+            0.4169921875,
+            0.966796875,
+            0.3330078125
+          ],
+          "sites_with_minor_allele_below_1pct": 4
+        },
+        "sample_rescore_max_error": 1.33514404296875e-05,
+        "seed": 20260916,
+        "entropy_coefficient": 0.0,
+        "training_seconds": 37.46422920000623,
+        "peak_cuda_allocated_mib": 1418.0751953125,
+        "checkpoint_sha256": "f51c9ae541aa37829221a91b3760212309edc767180b0eb844f8c648d3e0abba",
+        "decoder_state_sha256": "59659dd05ad3d280a4442bd1dacf03c67b40b66edf9a8e7307fe95ef32ff2f06",
+        "safe_strict_reload": true,
+        "reload_max_error": 0.0,
+        "encoder_unchanged": true,
+        "regularization_sample_count": 0,
+        "unlabelled_regularization_unique_overlap_with_development": 0,
+        "screen": {
+          "checks": {
+            "top_16_at_least_sft": false,
+            "top_32_at_least_sft": false,
+            "unique_genotypes_retained": false,
+            "mean_pairwise_hamming_unbiased_retained": false
+          },
+          "passes": false,
+          "biological_significance_claim": false
+        },
+        "historical_control_comparison": {
+          "max_log_q_difference": 4.6010589599609375,
+          "mean_absolute_log_q_difference": 1.7146355211734772,
+          "score_rank_correlation": 0.9995964154106727,
+          "historical_pair_accuracy": 0.9647350455974992,
+          "retrained_pair_accuracy": 0.9620313324373009,
+          "note": "Historical training used nondeterministic GPU operations. Record drift; this is not a checkpoint reload or within-experiment matched-arm check."
+        },
+        "kl_to_sft_mc": {
+          "nats": 4.796376453479752,
+          "standard_error": 0.0566022456365677
+        }
+      },
+      "seed_20260916_entropy_0.03": {
+        "development": {
+          "pair_accuracy": 0.9647656676050931,
+          "pairs": 5796,
+          "per_block_accuracy": {
+            "5": 0.9342364532019704,
+            "7": 0.9852537863282849,
+            "11": 0.9748067632850241
+          },
+          "dpo_loss": 0.12071955872850985,
+          "spearman": 0.7666768173400922,
+          "top_k_mean": {
+            "16": 9.531927138455227,
+            "32": 9.52548245035555
+          },
+          "per_block_spearman": {
+            "5": 0.8944821954547193,
+            "7": 0.8372799164822199,
+            "11": 0.7958732819394548
+          }
+        },
+        "diversity": {
+          "sample_count": 1024,
+          "unique_genotypes": 916,
+          "duplicate_fraction": 0.10546875,
+          "largest_observed_genotype_fraction": 0.0029296875,
+          "entropy_nats_mc": 8.994569369591773,
+          "entropy_mc_standard_error": 0.034624698529207805,
+          "entropy_effective_support_mc": 8059.198344643605,
+          "collision_probability_unbiased": 0.0002271963587487781,
+          "mean_pairwise_hamming_unbiased": 6.400797287390029,
+          "allele_one_frequencies": [
+            0.4814453125,
+            0.5400390625,
+            0.4658203125,
+            1.0,
+            0.86328125,
+            0.4599609375,
+            0.625,
+            0.4658203125,
+            0.453125,
+            1.0,
+            0.4189453125,
+            0.1796875,
+            0.55078125,
+            0.5751953125,
+            0.58203125,
+            0.3486328125
+          ],
+          "sites_with_minor_allele_below_1pct": 2
+        },
+        "sample_rescore_max_error": 1.52587890625e-05,
+        "seed": 20260916,
+        "entropy_coefficient": 0.03,
+        "training_seconds": 128.31913080002414,
+        "peak_cuda_allocated_mib": 2082.89892578125,
+        "checkpoint_sha256": "9b9b81b84cf972a1670a22f975c0d82b683f113514c5038a6c14078f777b21c6",
+        "decoder_state_sha256": "17de504a3477a40e2c850a60d6dee651665440959d8c80c503f16bde54dbcf61",
+        "safe_strict_reload": true,
+        "reload_max_error": 0.0,
+        "encoder_unchanged": true,
+        "regularization_sample_count": 512,
+        "unlabelled_regularization_unique_overlap_with_development": 14,
+        "screen": {
+          "checks": {
+            "top_16_at_least_sft": false,
+            "top_32_at_least_sft": false,
+            "unique_genotypes_retained": true,
+            "mean_pairwise_hamming_unbiased_retained": true
+          },
+          "passes": false,
+          "biological_significance_claim": false
+        },
+        "kl_to_sft_mc": {
+          "nats": 1.7752448953688145,
+          "standard_error": 0.04587622179985791
+        }
+      }
+    },
+    "runtime": {
+      "torch_version": "2.11.0+cu126",
+      "cuda_version": "12.6",
+      "gpu": "NVIDIA GeForce GTX 1650 SUPER",
+      "deterministic_algorithms": true,
+      "cublas_workspace_config": ":4096:8"
+    },
+    "deterministic_geometry_repeat_verified": true,
+    "reference_identity": {
+      "reference": "sft_dpo",
+      "source_checkpoint_sha256": "e0da8b1221ee5218be881df183c39a2f4fc80d57c1814211d83312c277b4ca58",
+      "decoder_state_sha256": "c8ea340526ea1bbb53d018fb4db2a081a4a727bae76fbf1be34882862e3efb4a",
+      "encoder_state_sha256": "2138dd5f2f82d504b9d80f76238d4faae1eb39428b750e510f7d386102fed2aa",
+      "prepared_artifact_sha256": "70be19f822c05d4efaa84d01ab75940516001e147b218f18a09c9d5b6bfbe4f7",
+      "geometry_digest": "cf4c951fe4e97d728616e11819a99e82cec8d7d8aaf6c55eff9f4ffd526d8b92",
+      "genotype_order_sha256": "f3a9257ef9349b504ec3d071b59417a981714f9560082e34dd6c7323cdd2e546",
+      "probability_contract": "ESM-IF1 binary 16-site constrained summed log q; temperature 1; dropout off",
+      "policy_source_sha256": "5857128508e7c5d2c6b136a5ab61fe1658e6f1e439f1a678d4779263d5289f6b",
+      "compat_source_sha256": "79fc85f13bb06a819cb405b46317c6b425dcaf664e6dcd50daf9e451bb75ffd4",
+      "torch_version": "2.11.0+cu126",
+      "esm_version": "2.0.0",
+      "score_batch_size": 16,
+      "precision": "float32"
+    },
+    "reference_cache_sha256": "ad9c2e432cfc1d3035fed2e5c4eaa1dbbbd3c96e00d46762e79f3573f94fceb9",
+    "rebuilt_reference_variants": 1985,
+    "source_reference_max_score_error": 1.621246337890625e-05,
+    "sft": {
+      "development": {
+        "pair_accuracy": 0.8926783572085465,
+        "pairs": 5796,
+        "per_block_accuracy": {
+          "5": 0.8240499648135114,
+          "7": 0.9219095374539499,
+          "11": 0.932075569358178
+        },
+        "spearman": 0.8120671612109926,
+        "top_k_mean": {
+          "16": 9.56056124655161,
+          "32": 9.564864548112292
+        },
+        "per_block_spearman": {
+          "5": 0.7361918079540284,
+          "7": 0.8225195205162961,
+          "11": 0.8226994202968947
+        }
+      },
+      "diversity": {
+        "sample_count": 1024,
+        "unique_genotypes": 996,
+        "duplicate_fraction": 0.02734375,
+        "largest_observed_genotype_fraction": 0.001953125,
+        "entropy_nats_mc": 10.274662666022778,
+        "entropy_mc_standard_error": 0.028506063237707192,
+        "entropy_effective_support_mc": 28988.73734216244,
+        "collision_probability_unbiased": 5.345796676441838e-05,
+        "mean_pairwise_hamming_unbiased": 7.305901759530792,
+        "allele_one_frequencies": [
+          0.62109375,
+          0.56640625,
+          0.5380859375,
+          0.556640625,
+          0.537109375,
+          0.6396484375,
+          0.4599609375,
+          0.470703125,
+          0.759765625,
+          0.9638671875,
+          0.4326171875,
+          0.578125,
+          0.5595703125,
+          0.515625,
+          0.4775390625,
+          0.5771484375
+        ],
+        "sites_with_minor_allele_below_1pct": 0
+      },
+      "sample_rescore_max_error": 4.76837158203125e-06
+    },
+    "additive_ridge": {
+      "pair_accuracy": 0.9755192741621119,
+      "pairs": 5796,
+      "per_block_accuracy": {
+        "5": 0.9547990460552036,
+        "7": 0.990865056624369,
+        "11": 0.9808937198067633
+      },
+      "spearman": 0.826533387966964,
+      "top_k_mean": {
+        "16": 9.432616948952727,
+        "32": 9.440773483666877
+      },
+      "per_block_spearman": {
+        "5": 0.914040312057702,
+        "7": 0.8113945188603295,
+        "11": 0.7757033473389348
+      }
+    }
+  },
+  "partial": true,
+  "source_results_sha256": "be3da34e63d75951afb49eb6303d7a30a0065ba98416217d5e22a71091c21a26"
+}
