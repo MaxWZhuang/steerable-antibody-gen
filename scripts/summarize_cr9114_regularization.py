@@ -35,6 +35,13 @@ def summarize(directory, test_log):
                                   "hamming_delta": result["diversity"]["mean_pairwise_hamming_unbiased"] - control["diversity"]["mean_pairwise_hamming_unbiased"],
                                   "frozen_embedding_cosine_delta": result["frozen_sft_embedding_cosine"] - control["frozen_sft_embedding_cosine"],
                                   "live_embedding_cosine_delta": result["live_embedding_cosine"] - control["live_embedding_cosine"]}}
+        # KL-only is the direct control for adding either diversity term.
+        kl_control = run["arms"][f"seed_{result['seed']}_kl"]
+        paired[name]["versus_same_seed_kl"] = {
+            mode: {k: {"mean_affinity_delta": cell["mean_affinity"] - kl_control["portfolios"][mode][k]["mean_affinity"],
+                       "mean_hamming_delta": cell["diversity"]["mean_hamming"] - kl_control["portfolios"][mode][k]["diversity"]["mean_hamming"],
+                       "frozen_embedding_cosine_delta": cell["frozen_sft_embedding_cosine"] - kl_control["portfolios"][mode][k]["frozen_sft_embedding_cosine"]}
+                   for k, cell in cells.items()} for mode, cells in result["portfolios"].items()}
     summary = {}
     for arm in run["config"]["arms"]:
         cells = [run["arms"][f"seed_{seed}_{arm['name']}"] for seed in run["config"]["seeds"]]
@@ -60,6 +67,14 @@ def summarize(directory, test_log):
     for name, r in [("SFT", run["sft"]), *run["arms"].items()]:
         ordinary, diverse = r["portfolios"]["ordinary"], r["portfolios"]["diverse"]["32"]
         lines.append(f"| {r.get('seed', '-')} | {r.get('arm', {}).get('name', 'SFT')} | {ordinary['16']['mean_affinity']:.6f} | {ordinary['32']['mean_affinity']:.6f} | {ordinary['32']['diversity']['mean_hamming']:.4f} | {diverse['mean_affinity']:.6f} | {diverse['diversity']['mean_hamming']:.4f} |")
+    lines += ["", "For the effect of adding a diversity term, compare against the same-seed KL-only",
+        "control. The following are descriptive paired differences, not significance tests.", "",
+        "| Seed | Added term | Top-16 affinity delta vs KL | Top-32 affinity delta vs KL | Top-32 Hamming delta vs KL |",
+        "|---|---|---:|---:|---:|"]
+    for seed in run["config"]["seeds"]:
+        for arm in ("kl_entropy", "kl_embedding"):
+            cells = paired[f"seed_{seed}_{arm}"]["versus_same_seed_kl"]["ordinary"]
+            lines.append(f"| {seed} | {arm.removeprefix('kl_')} | {cells['16']['mean_affinity_delta']:+.6f} | {cells['32']['mean_affinity_delta']:+.6f} | {cells['32']['mean_hamming_delta']:+.4f} |")
     lines += ["", "## Sampling and representation diagnostics", "",
         "These concern unconditional policy samples, not just the selected high-score sets.",
         "Entropy and KL are Monte Carlo estimates; the evidence includes standard errors.",
@@ -83,6 +98,9 @@ def summarize(directory, test_log):
         "encoder and fresh AdamW optimizer. Within each seed, the four arms receive the",
         "same 1,024 labelled sequence exposures over 256 updates. Only the regularizer",
         "changes. All use the existing training-only affinity-weighted likelihood.", "",
+        "Comparisons against SFT include 256 additional optimization steps. Only the",
+        "within-seed matched contrasts isolate the regularizer; this study does not",
+        "re-establish the benefit of affinity weighting over uniform continuation.", "",
         "The objective is NLL/16, plus 0.1*KL(q||SFT)/16 when enabled. The entropy arm",
         "also subtracts 0.1*H(q)/16. The embedding arm instead adds 0.1 times mean",
         "off-diagonal cosine of normalized mean-pooled last decoder features. Thus the",
