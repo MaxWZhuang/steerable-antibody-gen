@@ -69,6 +69,14 @@ def summarize(directory, test_log):
     for name, r in [("SFT", run["sft"]), *run["arms"].items()]:
         d = r["diversity"]
         lines.append(f"| {r.get('seed', '-')} | {r.get('arm', {}).get('name', 'SFT')} | {d['unique_genotypes']} | {d['entropy_nats_mc']:.4f} | {d['mean_pairwise_hamming_unbiased']:.4f} | {r['kl_to_sft_mc']['nats']:.4f} | {r['frozen_sft_embedding_cosine']:.6f} | {r['live_embedding_cosine']:.6f} |")
+    if "posthoc_gradient_scale_probe" in replay:
+        norms = replay["posthoc_gradient_scale_probe"]["pre_clipping_norms"]
+        lines += ["", "A post-hoc gradient-scale probe at the first final embedding checkpoint gave",
+            f"pre-clipping norms NLL/site={norms['nll_per_site']:.6g}, scheduled KL={norms['scheduled_kl']:.6g},",
+            f"and scheduled embedding={norms['scheduled_embedding']:.6g}. The regularizer norms",
+            "include their coefficients and four-update multiplier. This uses one fixed",
+            "eight-sample batch and one labelled training minibatch, changes no parameters,",
+            "and is not a typical-gradient estimate or a coefficient-tuning procedure."]
     lines += ["", "## How the comparison isolates the mechanism", "",
         "The [protocol](../specs/cr9114_shortlist.md) was committed before the new shortlist",
         "development result. Each arm starts from the same SFT checkpoint, with a frozen",

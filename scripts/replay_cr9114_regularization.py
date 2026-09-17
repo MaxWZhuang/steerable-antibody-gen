@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import math
 from pathlib import Path
 import sys
 import time
@@ -66,10 +67,35 @@ def replay(directory):
     actual = state_digest(model.decoder)
     require(actual == expected["decoder_state_sha256"], "Deterministic final decoder did not reproduce")
     require(state_digest(model.encoder) == identity["encoder_state_sha256"] and state_digest(reference) == identity["decoder_state_sha256"], "Frozen state changed")
+    # Post-hoc scale diagnostic, no optimizer step or held-out measurements.
+    # One fixed sample batch cannot establish typical training gradient scales.
+    probe_seed = 20260929
+    probe = bound.policy.sample(bound.geometry, num_samples=8, generator=torch.Generator(device="cuda").manual_seed(probe_seed))
+    with torch.no_grad():
+        probe_refs, _ = decoder_statistics(reference, bound, probe.sequences)
+    gradient_norms = {}
+    for term in ("nll_per_site", "scheduled_kl", "scheduled_embedding"):
+        model.zero_grad(set_to_none=True)
+        if term == "nll_per_site":
+            loss = -bound.policy.log_prob([sequences[i] for i in schedule[0]], bound.geometry).mean() / 16
+        else:
+            scores, features = decoder_statistics(model.decoder, bound, probe.sequences)
+            if term == "scheduled_kl":
+                ratios = scores.detach() - probe_refs
+                centered = ratios - (ratios.sum() - ratios) / 7
+                loss = 4 * .1 * (scores * centered).mean() / 16
+            else:
+                loss = 4 * .1 * (features.sum(0).square().sum() - features.square().sum()) / 56
+        loss.backward()
+        gradient_norms[term] = math.sqrt(sum(float(p.grad.square().sum()) for p in model.decoder.parameters() if p.grad is not None))
+    model.zero_grad(set_to_none=True)
+    require(state_digest(model.decoder) == actual, "Gradient probe modified parameters")
     document = {"passes": True, "arm": name, "bitwise_final_decoder_match": True,
                 "decoder_state_sha256": actual, "sample_rescore_max_error": max_parity,
                 "training_seconds": time.perf_counter() - started, "reference_and_encoder_unchanged": True,
-                "assay_labels_used_for_training": "training split only", "development_evaluated": False}
+                "assay_labels_used_for_training": "training split only", "development_evaluated": False,
+                "posthoc_gradient_scale_probe": {"sample_seed": probe_seed, "parameters_unchanged": True,
+                    "pre_clipping_norms": gradient_norms, "scope": "One final-checkpoint batch; not a typical-gradient estimate or coefficient tuning"}}
     save_json(directory / "deterministic_replay.json", document)
     print(json.dumps(document))
 
