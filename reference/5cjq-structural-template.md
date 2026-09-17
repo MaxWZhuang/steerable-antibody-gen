@@ -1,5 +1,9 @@
 # 5CJQ working structural template
 
+**Preparation update:** the [derived structural context](cr9114-5cjq-context.md)
+is now prepared and source-verified. The selection-time checklist below is
+historical; model scoring and exact assay-construct correspondence remain open.
+
 **Decision: 2026-09-16.** The user selected **5CJQ** as the working template
 for the CR9114/H1 fixed-target experiment using ESM-IF1. This selects the source
 structure; it does not establish a prepared model input or close the structural

@@ -4,6 +4,10 @@
 residues. All 121 residues of the released benchmark VH have N/CA/C coordinates.
 This completes the sequence/site correspondence audit, not model preparation.
 
+**Subsequent preparation:** the [structural context](cr9114-5cjq-context.md)
+has now been prepared and source-verified. The remaining-input-work section below
+records the handoff from this earlier mapping audit; scoring parity is still pending.
+
 - [Site table (CSV)](evidence/cr9114-5cjq-sites-2026-09-16.csv)
 - [Full mapping and local validation evidence](evidence/cr9114-5cjq-residue-mapping-2026-09-16.json)
 - [Pinned input files, URLs, sizes and hashes](evidence/cr9114-5cjq-mapping-sources-2026-09-16.json)

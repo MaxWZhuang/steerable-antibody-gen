@@ -1,0 +1,361 @@
+{
+  "kind": "cr9114_5cjq_prepared_context",
+  "date": "2026-09-16",
+  "source": {
+    "relative_path": "data/raw/cr9114_structure/5CJQ.cif",
+    "source_url": "https://files.rcsb.org/download/5CJQ.cif",
+    "size_bytes": 530923,
+    "sha256": "29d3c01238bc6fb8e22550206e687168c4e34a9b728c52d70ae701248742416d"
+  },
+  "light_chain_audit": {
+    "reference_accession": "JX213640.1",
+    "protein_id": "AFP87547.1",
+    "reference_sha256": "05f7a22f34aba4f465a9b5cf67f8373c7c49b32ae80e0b32f6c2a4ad25e5b085",
+    "reference_url": "https://www.ebi.ac.uk/ena/browser/api/embl/JX213640.1?download=false",
+    "reference_is_partial_cds": true,
+    "assay_reference_vl_length": 110,
+    "template_vl_length": 109,
+    "both_antibody_supplements_contain_reference_vl": true,
+    "shared_suffix_length": 107,
+    "difference": "Template prefix SA versus assay/reference SYV; remaining 107 residues agree. No unique residue-level alignment is asserted for the altered prefix.",
+    "interpretation": "Partner VL geometry is a template; it is not an exact assay light-chain match."
+  },
+  "assembly_id": "1",
+  "operators": [
+    {
+      "id": "1",
+      "type": "identity operation",
+      "name": "1_555",
+      "symmetry_operation": "x,y,z",
+      "matrix[1][1]": "1.0000000000",
+      "matrix[1][2]": "0.0000000000",
+      "matrix[1][3]": "0.0000000000",
+      "vector[1]": "0.0000000000",
+      "matrix[2][1]": "0.0000000000",
+      "matrix[2][2]": "1.0000000000",
+      "matrix[2][3]": "0.0000000000",
+      "vector[2]": "0.0000000000",
+      "matrix[3][1]": "0.0000000000",
+      "matrix[3][2]": "0.0000000000",
+      "matrix[3][3]": "1.0000000000",
+      "vector[3]": "0.0000000000"
+    },
+    {
+      "id": "2",
+      "type": "crystal symmetry operation",
+      "name": "2_555",
+      "symmetry_operation": "-y,x-y,z",
+      "matrix[1][1]": "-0.5000000000",
+      "matrix[1][2]": "-0.8660254038",
+      "matrix[1][3]": "0.0000000000",
+      "vector[1]": "0.0000000000",
+      "matrix[2][1]": "0.8660254038",
+      "matrix[2][2]": "-0.5000000000",
+      "matrix[2][3]": "0.0000000000",
+      "vector[2]": "0.0000000000",
+      "matrix[3][1]": "0.0000000000",
+      "matrix[3][2]": "0.0000000000",
+      "matrix[3][3]": "1.0000000000",
+      "vector[3]": "0.0000000000"
+    },
+    {
+      "id": "3",
+      "type": "crystal symmetry operation",
+      "name": "3_555",
+      "symmetry_operation": "-x+y,-x,z",
+      "matrix[1][1]": "-0.5000000000",
+      "matrix[1][2]": "0.8660254038",
+      "matrix[1][3]": "0.0000000000",
+      "vector[1]": "0.0000000000",
+      "matrix[2][1]": "-0.8660254038",
+      "matrix[2][2]": "-0.5000000000",
+      "matrix[2][3]": "0.0000000000",
+      "vector[2]": "0.0000000000",
+      "matrix[3][1]": "0.0000000000",
+      "matrix[3][2]": "0.0000000000",
+      "matrix[3][3]": "1.0000000000",
+      "vector[3]": "0.0000000000"
+    }
+  ],
+  "selection": "Identity-copy VH and VL; all three antigen protomers; omit constant domains and the other two Fabs.",
+  "fragment_mapping": [
+    {
+      "derived_chain": "H",
+      "source_author_chain": "H",
+      "assembly_operator": "1",
+      "label_seq_start": 1,
+      "label_seq_end": 121,
+      "residue_count": 121
+    },
+    {
+      "derived_chain": "L",
+      "source_author_chain": "L",
+      "assembly_operator": "1",
+      "label_seq_start": 1,
+      "label_seq_end": 109,
+      "residue_count": 109
+    },
+    {
+      "derived_chain": "A11",
+      "source_author_chain": "A",
+      "assembly_operator": "1",
+      "label_seq_start": 5,
+      "label_seq_end": 38,
+      "residue_count": 34
+    },
+    {
+      "derived_chain": "A12",
+      "source_author_chain": "A",
+      "assembly_operator": "1",
+      "label_seq_start": 47,
+      "label_seq_end": 64,
+      "residue_count": 18
+    },
+    {
+      "derived_chain": "B11",
+      "source_author_chain": "B",
+      "assembly_operator": "1",
+      "label_seq_start": 4,
+      "label_seq_end": 61,
+      "residue_count": 58
+    },
+    {
+      "derived_chain": "B12",
+      "source_author_chain": "B",
+      "assembly_operator": "1",
+      "label_seq_start": 77,
+      "label_seq_end": 172,
+      "residue_count": 96
+    },
+    {
+      "derived_chain": "A21",
+      "source_author_chain": "A",
+      "assembly_operator": "2",
+      "label_seq_start": 5,
+      "label_seq_end": 38,
+      "residue_count": 34
+    },
+    {
+      "derived_chain": "A22",
+      "source_author_chain": "A",
+      "assembly_operator": "2",
+      "label_seq_start": 47,
+      "label_seq_end": 64,
+      "residue_count": 18
+    },
+    {
+      "derived_chain": "B21",
+      "source_author_chain": "B",
+      "assembly_operator": "2",
+      "label_seq_start": 4,
+      "label_seq_end": 61,
+      "residue_count": 58
+    },
+    {
+      "derived_chain": "B22",
+      "source_author_chain": "B",
+      "assembly_operator": "2",
+      "label_seq_start": 77,
+      "label_seq_end": 172,
+      "residue_count": 96
+    },
+    {
+      "derived_chain": "A31",
+      "source_author_chain": "A",
+      "assembly_operator": "3",
+      "label_seq_start": 5,
+      "label_seq_end": 38,
+      "residue_count": 34
+    },
+    {
+      "derived_chain": "A32",
+      "source_author_chain": "A",
+      "assembly_operator": "3",
+      "label_seq_start": 47,
+      "label_seq_end": 64,
+      "residue_count": 18
+    },
+    {
+      "derived_chain": "B31",
+      "source_author_chain": "B",
+      "assembly_operator": "3",
+      "label_seq_start": 4,
+      "label_seq_end": 61,
+      "residue_count": 58
+    },
+    {
+      "derived_chain": "B32",
+      "source_author_chain": "B",
+      "assembly_operator": "3",
+      "label_seq_start": 77,
+      "label_seq_end": 172,
+      "residue_count": 96
+    }
+  ],
+  "missing_source_residues": [
+    {
+      "author_chain": "H",
+      "count": 13,
+      "label_seq_ids": [
+        138,
+        139,
+        140,
+        141,
+        222,
+        223,
+        224,
+        225,
+        226,
+        227,
+        228,
+        229,
+        230
+      ]
+    },
+    {
+      "author_chain": "L",
+      "count": 4,
+      "label_seq_ids": [
+        212,
+        213,
+        214,
+        215
+      ]
+    },
+    {
+      "author_chain": "A",
+      "count": 14,
+      "label_seq_ids": [
+        1,
+        2,
+        3,
+        4,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        65,
+        66
+      ]
+    },
+    {
+      "author_chain": "B",
+      "count": 39,
+      "label_seq_ids": [
+        1,
+        2,
+        3,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        173,
+        174,
+        175,
+        176,
+        177,
+        178,
+        179,
+        180,
+        181,
+        182,
+        183,
+        184,
+        185,
+        186,
+        187,
+        188,
+        189,
+        190,
+        191,
+        192,
+        193
+      ]
+    }
+  ],
+  "gap_convention": "Separate contiguous observed antigen runs into distinct encoder chains with 10 NaN separator rows. Artificial fragment ends; no imputed loop geometry or assertion of full-chain continuity.",
+  "coordinate_changes": "Only deposited rigid assembly operators; author residue IDs, insertions, residue types and occupancy preserved. Coordinates serialized to six decimals. No minimization or residue replacement.",
+  "assembly_coordinate_check": "All three complete transformed copies agree with independent biotite get_assembly within 0.00003 Angstrom absolute tolerance.",
+  "decoded_residues": 121,
+  "editable_sites": 16,
+  "physical_coordinate_residues": 848,
+  "packed_rows": 978,
+  "fixed_vh_template_mismatches": [
+    {
+      "vh_index_0based": 23,
+      "label_seq_id": 24,
+      "author_chain": "H",
+      "author_res_id": 24,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "benchmark_somatic_residue": "A",
+      "fixed_mismatch": true,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 45,
+      "label_seq_id": 46,
+      "author_chain": "H",
+      "author_res_id": 46,
+      "insertion_code": "",
+      "structure_residue": "D",
+      "benchmark_somatic_residue": "E",
+      "fixed_mismatch": true,
+      "complete_backbone": true
+    }
+  ],
+  "limitations": [
+    "Engineered antigen stem and Fv geometry are proxies for ectodomain/scFv assay.",
+    "Variable-chain crops remove constant domains; VL N terminus differs from assay.",
+    "Antigen missing regions remain absent; fragment convention has not been model-validated.",
+    "3.6-Angstrom coordinates retain the reported local clashes and density-fit limitations."
+  ],
+  "structural_source_verification": "pass",
+  "policy_edit_space_validation": "pass",
+  "model_parity_run": false,
+  "model_scoring_run": false,
+  "training_run": false,
+  "outputs": {
+    "cr9114_5cjq.manifest.json": {
+      "sha256": "d9d8466b66ec4dcd3915478160fc75a2862a2c5b348d14ea44c795a63bc98996",
+      "size_bytes": 34012
+    },
+    "cr9114_5cjq.prepared.json": {
+      "sha256": "70be19f822c05d4efaa84d01ab75940516001e147b218f18a09c9d5b6bfbe4f7",
+      "size_bytes": 93193
+    },
+    "cr9114_5cjq.report.json": {
+      "sha256": "1824f87c718fbcbbd68f721dca89c23b7cd950afb37f631edb3331fa38d1b4a6",
+      "size_bytes": 6307
+    },
+    "cr9114_5cjq_context.cif": {
+      "sha256": "fc7f02692b5bc66a16f20086178bfaa2fc699c32a0d625994267015c94fb8b15",
+      "size_bytes": 661477
+    }
+  },
+  "artifact_directory": "data/processed/cr9114_5cjq_context",
+  "reproducibility": {
+    "status": "pass",
+    "byte_identical_outputs": [
+      "cr9114_5cjq_context.cif",
+      "cr9114_5cjq.manifest.json",
+      "cr9114_5cjq.prepared.json"
+    ],
+    "note": "Report source paths differ by output directory."
+  }
+}
