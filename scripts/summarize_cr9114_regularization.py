@@ -59,7 +59,18 @@ def summarize(directory, test_log):
                                       "seconds": float(match[4]), "log_sha256": sha256(test_log)}}}
     path = ROOT / "reference/evidence/cr9114-regularization-2026-09-17.json"
     save_json(path, evidence)
-    lines = ["# Matched reference-KL and diversity comparison", "", "2026-09-17. All twelve predeclared runs completed; no checkpoint was promoted.", "",
+    uniformly_better = []
+    for arm, control in (("kl", "affinity"), ("kl_entropy", "kl"), ("kl_embedding", "kl")):
+        if all(run["arms"][f"seed_{seed}_{arm}"]["portfolios"]["ordinary"][k]["mean_affinity"]
+               >= run["arms"][f"seed_{seed}_{control}"]["portfolios"]["ordinary"][k]["mean_affinity"]
+               for seed in run["config"]["seeds"] for k in ("16", "32")):
+            uniformly_better.append(arm)
+    finding = ("No regularizer retained or improved both ordinary top-16 and top-32 affinity "
+               "against its direct matched control in all three seeds. This descriptive "
+               "comparison does not establish a best regularizer.") if not uniformly_better else (
+                   "Arms retaining both ordinary affinity budgets against their direct control in all three seeds: "
+                   + ", ".join(uniformly_better) + ". This is a descriptive comparison, not a significance claim.")
+    lines = ["# Matched reference-KL and diversity comparison", "", "2026-09-17. All twelve predeclared runs completed; no checkpoint was promoted.", "", finding, "",
         "## Measured results", "", "All affinities below use the same 2,048 development candidates and selected sets.",
         "Higher measured H1 affinity is better; Hamming counts differing editable sites.", "",
         "| Seed | Arm | Ordinary top-16 affinity | Ordinary top-32 affinity | Top-32 Hamming | Diverse top-32 affinity | Diverse top-32 Hamming |",
@@ -129,7 +140,9 @@ def summarize(directory, test_log):
         "test confirms that changing development labels cannot change selected identities.", "",
         "This cohort was reused from the completed shortlist study, whose combined",
         "quality/diversity screen failed at K=32. The admission rule remains locked to",
-        "the top 4*K model scores. Test measurements remain reserved, and no additional",
+        "the top 4*K model scores. It was calibrated on SFT only; applying that fixed",
+        "window to adapted policies is a transfer test, not fresh affinity calibration.",
+        "Test measurements remain reserved, and no additional",
         "fresh development measurements were consumed by training comparison. No",
         "checkpoint, seed or coefficient was selected from these results. The three",
         "continuation seeds share one SFT initialization, one antibody lineage, and",
