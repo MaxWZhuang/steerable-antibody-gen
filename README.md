@@ -159,5 +159,7 @@ readiness are recorded in the training-box evidence above. The
 records the first real-context scoring and training results; test data remain reserved.
 The [preference-pair development evaluation](reference/cr9114-preferences-development.md)
 now supplies separate training/development pairs and quantifies SFT ordering
-headroom. The DPO objective, reference-score caches and trainer remain to be implemented.
+headroom. The [DPO pilot](specs/cr9114_dpo.md) implements the objective,
+checkpoint-specific reference caches, and matched direct-DPO/SFT-to-DPO runs;
+runtime results must be read from completed run evidence.
 Implemented components alone do not establish biological improvement.
