@@ -149,7 +149,9 @@ for CR9114/H1. Source files are hash-pinned and the benchmark VH mapping is
 verified and the structural input is prepared. Its engineered H1-derived stem is proxy context,
 not an established match to the assayed antigen construct.
 
-Benchmark manifests and the experiment runner remain incomplete. Hardware and
-weight-loading readiness are recorded in the training-box evidence above;
-real-context scoring and training validation remain separate milestones.
+The [bounded CR9114 pilot](reference/cr9114-5cjq-pilot.md) now provides released-model
+scoring checks and decoder-only supervised training. The full four-arm experiment
+and general benchmark manifests remain incomplete. Hardware and weight-loading
+readiness are recorded in the training-box evidence above; successful real-context
+scoring and training require a completed pilot report.
 Implemented components alone do not establish biological improvement.
