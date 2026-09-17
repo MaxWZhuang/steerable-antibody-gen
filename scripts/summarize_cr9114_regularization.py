@@ -122,6 +122,9 @@ def summarize(directory, test_log):
         "Frozen SFT features provide a fixed numerical diagnostic, not an independent",
         "biological assay. Uniqueness is near its sample-size ceiling and connected",
         "sequence clusters are not validated biological modes.", "",
+        "Affinity was evaluated by ranking a fixed measured pool; unconditional sample",
+        "affinity was not evaluated and no new binding assay was performed. The 5CJQ",
+        "engineered stem context remains a structural proxy for the measured landscape.", "",
         "[Compact evidence](evidence/cr9114-regularization-2026-09-17.json) includes",
         "per-seed results, selected identities, paired comparisons, hashes and audits.", ""]
     (ROOT / "reference/cr9114-regularization.md").write_text("\n".join(lines), encoding="utf-8")
