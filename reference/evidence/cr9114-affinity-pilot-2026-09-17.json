@@ -1,0 +1,1487 @@
+{
+  "schema_version": "cr9114-affinity-evidence/1",
+  "completed_date": "2026-09-17",
+  "local_run_directory": "outputs\\cr9114_affinity_pilot_20260916",
+  "run_results_sha256": "7493e96629586fb8216b36f65f25461140d1517f68c28056bd4da8f803c20b12",
+  "independent_audit_sha256": "c6e0360e26c82e0f1c8b8ea031b6c71f0480760ce06ee4850e98d4409b9860ba",
+  "deterministic_replay_sha256": "af628c4c3c86fc93834080cafa130cf0024f0c13998413dfc534c5639592f162",
+  "run": {
+    "status": "completed",
+    "config": {
+      "schema_version": "cr9114-affinity-pilot/1",
+      "seeds": [
+        20260920,
+        20260921
+      ],
+      "arms": [
+        {
+          "name": "continued_sft_entropy",
+          "weighted": false,
+          "entropy_coefficient": 0.03
+        },
+        {
+          "name": "affinity_entropy",
+          "weighted": true,
+          "entropy_coefficient": 0.03
+        },
+        {
+          "name": "affinity_plain",
+          "weighted": true,
+          "entropy_coefficient": 0.0
+        }
+      ],
+      "positive_quantile": 0.75,
+      "uncertainty_multiplier": 1.0,
+      "max_weight_ratio": 20.0,
+      "uniform_fraction": 0.25,
+      "steps": 256,
+      "batch_size": 4,
+      "likelihood_normalizer": 16,
+      "learning_rate": 1e-05,
+      "weight_decay": 0.01,
+      "gradient_clip": 1.0,
+      "entropy_every": 4,
+      "entropy_samples": 8,
+      "evaluation_samples": 1024,
+      "evaluation_sample_seed": 20260922,
+      "fresh_development_count": 2048,
+      "fresh_development_seed": 20260922,
+      "diversity_retention_fraction": 0.8,
+      "deterministic_algorithms": true,
+      "cublas_workspace_config": ":4096:8"
+    },
+    "population": {
+      "training_records": 38790,
+      "positive_records": 9698,
+      "mean_threshold": 9.482658815267193,
+      "pooled_sample_variance": 0.015734210674519192,
+      "temperature": 0.1254360820279364,
+      "effective_sampling_population": 9085.392612947411,
+      "probability_ratio": 11.241735457250012,
+      "uniform_expected_affinity": 9.53200252779816,
+      "weighted_expected_affinity": 9.540962930314794,
+      "block_probability": {
+        "0": 0.03200135204194528,
+        "1": 0.036551938839063616,
+        "3": 0.16204863838730027,
+        "4": 0.09295971151494399,
+        "6": 0.18780351797516884,
+        "9": 0.02994905708553454,
+        "10": 0.09606257224644778,
+        "12": 0.07828936569754796,
+        "14": 0.1270464296499274,
+        "15": 0.15728741656212034
+      }
+    },
+    "git_commit": "d092137bcb824f1e43724b4ce7780831046855e5",
+    "config_sha256": "276f3a59329a6c57f630fd5bbe2eafabe53be8244cdbb2d395ac9e89306caa51",
+    "script_sha256": "f33288bdbcc90f9302794245a47b0d53849525b8a8436b96d7257eb0459701b0",
+    "input_records_sha256": "82fdd8f3d361cdf292544829e5888963e315d3c743b604ea0c56f7ad3a80263f",
+    "fresh_cohort_sha256": "7f93cb8690c645a717e0ffb7d9d26e2fdee4a6a346535d2a3e97a9d0b9872edc",
+    "fresh_pair_audit": {
+      "candidate_variants": 2048,
+      "represented_variants": 1997,
+      "unrepresented_variants": 51,
+      "pair_count": 5807,
+      "maximum_variant_degree": 8,
+      "represented_blocks": 3,
+      "pair_weight_sum": 1.0,
+      "hamming_distance_histogram": {
+        "1": 9,
+        "2": 32,
+        "3": 176,
+        "4": 597,
+        "5": 991,
+        "6": 1350,
+        "7": 1237,
+        "8": 879,
+        "9": 369,
+        "10": 132,
+        "11": 31,
+        "12": 4
+      },
+      "per_block": [
+        {
+          "block": 5,
+          "candidates": 656,
+          "represented_variants": 656,
+          "pairs": 2331
+        },
+        {
+          "block": 7,
+          "candidates": 679,
+          "represented_variants": 664,
+          "pairs": 1636
+        },
+        {
+          "block": 11,
+          "candidates": 713,
+          "represented_variants": 677,
+          "pairs": 1840
+        }
+      ]
+    },
+    "excluded_previous_development_count": 4608,
+    "schedule_sha256": {
+      "20260920_uniform": "3e2387dbff9428e3e71ee6f0b53c8e4aaf0e3ae78684990a529938d444135a19",
+      "20260920_weighted": "3b367885ac9c96aa213dbe5677f139b734513d91ecdabc02aa3674f1ff0fad40",
+      "20260921_uniform": "a192c261202d03182cb06c08180593575da1ec626fcb9d047d7d93df11548320",
+      "20260921_weighted": "4e005d4e90584675a77b639e6357ff9ed3eddcfe2eacbbc29fbd23f817fec19b"
+    },
+    "reserved_test_labels_evaluated": false,
+    "checkpoint_promoted": false,
+    "arms": {
+      "seed_20260920_continued_sft_entropy": {
+        "development": {
+          "pair_accuracy": 0.884486657336383,
+          "pairs": 5807,
+          "per_block_accuracy": {
+            "5": 0.8492886178861788,
+            "7": 0.8970847676419964,
+            "11": 0.9070865864809734
+          },
+          "spearman": 0.7358561564991887,
+          "top_k_mean": {
+            "16": 9.558373766223024,
+            "32": 9.558263718248192
+          },
+          "per_block_spearman": {
+            "5": 0.760536247002123,
+            "7": 0.7657268052737015,
+            "11": 0.7533654100182707
+          }
+        },
+        "diversity": {
+          "sample_count": 1024,
+          "unique_genotypes": 1013,
+          "duplicate_fraction": 0.0107421875,
+          "largest_observed_genotype_fraction": 0.001953125,
+          "entropy_nats_mc": 10.627274346537888,
+          "entropy_mc_standard_error": 0.024944192551559562,
+          "entropy_effective_support_mc": 41244.55349407173,
+          "collision_probability_unbiased": 2.1001344086021507e-05,
+          "mean_pairwise_hamming_unbiased": 7.593616355083089,
+          "allele_one_frequencies": [
+            0.4873046875,
+            0.5458984375,
+            0.48828125,
+            0.505859375,
+            0.5048828125,
+            0.5986328125,
+            0.4560546875,
+            0.501953125,
+            0.5146484375,
+            0.8994140625,
+            0.4208984375,
+            0.44921875,
+            0.48828125,
+            0.4580078125,
+            0.541015625,
+            0.3564453125
+          ],
+          "sites_with_minor_allele_below_1pct": 0
+        },
+        "sample_rescore_max_error": 4.76837158203125e-06,
+        "seed": 20260920,
+        "arm": {
+          "name": "continued_sft_entropy",
+          "weighted": false,
+          "entropy_coefficient": 0.03
+        },
+        "training_seconds": 127.57294059998821,
+        "peak_cuda_allocated_mib": 2082.9033203125,
+        "checkpoint_sha256": "fcd461bd1ace3dc3c6003e8a4e7b0fc949b01e9f2cf018eb27ef4045e5839430",
+        "decoder_state_sha256": "9c639848612667b5379aa5982e6b61e587083c9276f559766fe5d0d97ee404a1",
+        "safe_strict_reload": true,
+        "reload_max_error": 0.0,
+        "encoder_unchanged": true,
+        "selection_details": {
+          "16": {
+            "selected_genotypes": [
+              "0000110111100010",
+              "1001110111100010",
+              "1001010111100010",
+              "0000110111100110",
+              "1101111111100010",
+              "0100110011100010",
+              "0100110111101110",
+              "0001011111100010",
+              "1101110111101110",
+              "1001010011100010",
+              "1100110111100010",
+              "1001011111100110",
+              "0100111111101010",
+              "0001010111101010",
+              "0101110111101010",
+              "1001010011101010"
+            ],
+            "overlap_with_sft": 0,
+            "mean_minus_effective_sem": 9.483858002024323,
+            "per_block_top_k_mean": {
+              "5": 9.538643744009706,
+              "7": 9.558373766223024,
+              "11": 9.491241873241108
+            },
+            "leave_one_block_out_top_k_mean": {
+              "5": 9.558373766223024,
+              "7": 9.536816024163075,
+              "11": 9.558373766223024
+            }
+          },
+          "32": {
+            "selected_genotypes": [
+              "0000110111100010",
+              "1001110111100010",
+              "1001010111100010",
+              "0000110111100110",
+              "1101111111100010",
+              "0100110011100010",
+              "0100110111101110",
+              "0001011111100010",
+              "1101110111101110",
+              "1001010011100010",
+              "1100110111100010",
+              "1001011111100110",
+              "0100111111101010",
+              "0001010111101010",
+              "0101110111101010",
+              "1001010011101010",
+              "0100110111100100",
+              "1100110111100110",
+              "0101110111100110",
+              "0100110111101100",
+              "0100110111110010",
+              "1101011111101110",
+              "0101010111100110",
+              "1101010111101100",
+              "0100111111101110",
+              "0000111011101010",
+              "1100010111100010",
+              "1001010011100000",
+              "1001111011100110",
+              "1001111111100100",
+              "0000110011101000",
+              "1001011011101010"
+            ],
+            "overlap_with_sft": 0,
+            "mean_minus_effective_sem": 9.482443058095823,
+            "per_block_top_k_mean": {
+              "5": 9.53914717068216,
+              "7": 9.558263718248192,
+              "11": 9.497664978621566
+            },
+            "leave_one_block_out_top_k_mean": {
+              "5": 9.558263718248192,
+              "7": 9.514157399807523,
+              "11": 9.558263718248192
+            }
+          }
+        },
+        "schedule_key": "20260920_uniform",
+        "regularization_sample_count": 512,
+        "unlabelled_regularization_unique_overlap_with_development": 17,
+        "screen": {
+          "checks": {
+            "top_16_at_least_sft": false,
+            "top_32_at_least_sft": false,
+            "unique_genotypes_retained": true,
+            "mean_pairwise_hamming_unbiased_retained": true
+          },
+          "passes": false,
+          "biological_significance_claim": false
+        },
+        "kl_to_sft_mc": {
+          "nats": 0.3750936919823289,
+          "standard_error": 0.025916613924457696
+        }
+      },
+      "seed_20260920_affinity_entropy": {
+        "development": {
+          "pair_accuracy": 0.867847316283544,
+          "pairs": 5807,
+          "per_block_accuracy": {
+            "5": 0.8449713269454123,
+            "7": 0.883327954675846,
+            "11": 0.875242667229373
+          },
+          "spearman": 0.7366385488579689,
+          "top_k_mean": {
+            "16": 9.579276282606976,
+            "32": 9.574433385010536
+          },
+          "per_block_spearman": {
+            "5": 0.7571113769278445,
+            "7": 0.7936282879176667,
+            "11": 0.7652915035563683
+          }
+        },
+        "diversity": {
+          "sample_count": 1024,
+          "unique_genotypes": 1005,
+          "duplicate_fraction": 0.0185546875,
+          "largest_observed_genotype_fraction": 0.001953125,
+          "entropy_nats_mc": 10.588383260183036,
+          "entropy_mc_standard_error": 0.027467000690749033,
+          "entropy_effective_support_mc": 39671.29908185397,
+          "collision_probability_unbiased": 3.627504887585533e-05,
+          "mean_pairwise_hamming_unbiased": 7.55602394916911,
+          "allele_one_frequencies": [
+            0.5263671875,
+            0.544921875,
+            0.4501953125,
+            0.5029296875,
+            0.607421875,
+            0.6162109375,
+            0.5947265625,
+            0.5322265625,
+            0.548828125,
+            0.890625,
+            0.4072265625,
+            0.44921875,
+            0.43359375,
+            0.5009765625,
+            0.513671875,
+            0.37890625
+          ],
+          "sites_with_minor_allele_below_1pct": 0
+        },
+        "sample_rescore_max_error": 4.76837158203125e-06,
+        "seed": 20260920,
+        "arm": {
+          "name": "affinity_entropy",
+          "weighted": true,
+          "entropy_coefficient": 0.03
+        },
+        "training_seconds": 127.44886850001058,
+        "peak_cuda_allocated_mib": 2082.8974609375,
+        "checkpoint_sha256": "1334f28cf66974e07777713367694a1cf5fc64c7a46a568d1b176e06f8490a1a",
+        "decoder_state_sha256": "f9afe31f6705edb11ee9c1e277a0449e47b5190891f07717454c54866b4d11e6",
+        "safe_strict_reload": true,
+        "reload_max_error": 0.0,
+        "encoder_unchanged": true,
+        "selection_details": {
+          "16": {
+            "selected_genotypes": [
+              "1001111111100100",
+              "1101111111100010",
+              "1001111011100110",
+              "1000111111100110",
+              "1101111011100100",
+              "1001110111100010",
+              "1001111111100011",
+              "1001011111100110",
+              "0000110111100110",
+              "0100110111100100",
+              "1101111111110000",
+              "1101011111100100",
+              "1101111111101000",
+              "0100111111101110",
+              "0000110111100010",
+              "0000111111100111"
+            ],
+            "overlap_with_sft": 0,
+            "mean_minus_effective_sem": 9.504204152272408,
+            "per_block_top_k_mean": {
+              "5": 9.586258318662864,
+              "7": 9.579276282606976,
+              "11": 9.537177505290138
+            },
+            "leave_one_block_out_top_k_mean": {
+              "5": 9.579276282606976,
+              "7": 9.578104458619661,
+              "11": 9.579276282606976
+            }
+          },
+          "32": {
+            "selected_genotypes": [
+              "1001111111100100",
+              "1101111111100010",
+              "1001111011100110",
+              "1000111111100110",
+              "1101111011100100",
+              "1001110111100010",
+              "1001111111100011",
+              "1001011111100110",
+              "0000110111100110",
+              "0100110111100100",
+              "1101111111110000",
+              "1101011111100100",
+              "1101111111101000",
+              "0100111111101110",
+              "0000110111100010",
+              "0000111111100111",
+              "1100110111100110",
+              "0100111111101010",
+              "0000111111100011",
+              "0100111111110100",
+              "0100111111110010",
+              "1101111111100001",
+              "0000111111101100",
+              "1000110111100100",
+              "1101111011110110",
+              "1100110111100010",
+              "1001111101100110",
+              "0100111111100101",
+              "1101110111101110",
+              "0000111011100000",
+              "1000111111101110",
+              "0100111111110000"
+            ],
+            "overlap_with_sft": 0,
+            "mean_minus_effective_sem": 9.499112665502865,
+            "per_block_top_k_mean": {
+              "5": 9.508258024143151,
+              "7": 9.57446040706444,
+              "11": 9.5232115229349
+            },
+            "leave_one_block_out_top_k_mean": {
+              "5": 9.57446040706444,
+              "7": 9.565052159665676,
+              "11": 9.574433385010536
+            }
+          }
+        },
+        "schedule_key": "20260920_weighted",
+        "regularization_sample_count": 512,
+        "unlabelled_regularization_unique_overlap_with_development": 15,
+        "screen": {
+          "checks": {
+            "top_16_at_least_sft": true,
+            "top_32_at_least_sft": true,
+            "unique_genotypes_retained": true,
+            "mean_pairwise_hamming_unbiased_retained": true
+          },
+          "passes": true,
+          "biological_significance_claim": false
+        },
+        "control_comparison": {
+          "checks": {
+            "top_16_at_least_control": true,
+            "top_32_at_least_control": true,
+            "at_least_one_strict_improvement": true
+          },
+          "passes": true
+        },
+        "kl_to_sft_mc": {
+          "nats": 0.37973897624760866,
+          "standard_error": 0.027381756084410618
+        }
+      },
+      "seed_20260920_affinity_plain": {
+        "development": {
+          "pair_accuracy": 0.8945184889648575,
+          "pairs": 5807,
+          "per_block_accuracy": {
+            "5": 0.8749745934959349,
+            "7": 0.9198508318990245,
+            "11": 0.8887300414996131
+          },
+          "spearman": 0.8013137272897309,
+          "top_k_mean": {
+            "16": 9.590488606056287,
+            "32": 9.573368915117069
+          },
+          "per_block_spearman": {
+            "5": 0.805038771552622,
+            "7": 0.8154519959612346,
+            "11": 0.7895608989770483
+          }
+        },
+        "diversity": {
+          "sample_count": 1024,
+          "unique_genotypes": 1001,
+          "duplicate_fraction": 0.0224609375,
+          "largest_observed_genotype_fraction": 0.0029296875,
+          "entropy_nats_mc": 10.254695527255535,
+          "entropy_mc_standard_error": 0.0301625286070738,
+          "entropy_effective_support_mc": 28415.655641757316,
+          "collision_probability_unbiased": 4.5821114369501466e-05,
+          "mean_pairwise_hamming_unbiased": 7.308662481671554,
+          "allele_one_frequencies": [
+            0.5439453125,
+            0.57421875,
+            0.443359375,
+            0.5908203125,
+            0.6171875,
+            0.640625,
+            0.6279296875,
+            0.529296875,
+            0.63671875,
+            0.96875,
+            0.3876953125,
+            0.455078125,
+            0.439453125,
+            0.4990234375,
+            0.5166015625,
+            0.349609375
+          ],
+          "sites_with_minor_allele_below_1pct": 0
+        },
+        "sample_rescore_max_error": 3.814697265625e-06,
+        "seed": 20260920,
+        "arm": {
+          "name": "affinity_plain",
+          "weighted": true,
+          "entropy_coefficient": 0.0
+        },
+        "training_seconds": 37.157087900006445,
+        "peak_cuda_allocated_mib": 1418.98046875,
+        "checkpoint_sha256": "55ad9a32b91067df648fba07a2d8551d6195aafdb385c9cf5306d6985e9cb7bf",
+        "decoder_state_sha256": "a0cd7941a4e683b87efad15d8923b91ce1c5e865c027ad9db507ffc27d43a475",
+        "safe_strict_reload": true,
+        "reload_max_error": 0.0,
+        "encoder_unchanged": true,
+        "selection_details": {
+          "16": {
+            "selected_genotypes": [
+              "1101111111100010",
+              "1001111111100100",
+              "1101111011100100",
+              "1001111011100110",
+              "1101111111110000",
+              "1101111111101000",
+              "1101011111100100",
+              "1101111011110110",
+              "1001011111100110",
+              "1001111111100011",
+              "1001110111100010",
+              "1101111111100001",
+              "1101011111110110",
+              "1001111011110010",
+              "1101011111101110",
+              "0100111111101110"
+            ],
+            "overlap_with_sft": 0,
+            "mean_minus_effective_sem": 9.518068050331365,
+            "per_block_top_k_mean": {
+              "5": 9.585030781510422,
+              "7": 9.590488606056287,
+              "11": 9.536726536863103
+            },
+            "leave_one_block_out_top_k_mean": {
+              "5": 9.590488606056287,
+              "7": 9.587201532483306,
+              "11": 9.590488606056287
+            }
+          },
+          "32": {
+            "selected_genotypes": [
+              "1101111111100010",
+              "1001111111100100",
+              "1101111011100100",
+              "1001111011100110",
+              "1101111111110000",
+              "1101111111101000",
+              "1101011111100100",
+              "1101111011110110",
+              "1001011111100110",
+              "1001111111100011",
+              "1001110111100010",
+              "1101111111100001",
+              "1101011111110110",
+              "1001111011110010",
+              "1101011111101110",
+              "0100111111101110",
+              "1000111111100110",
+              "1101110111101110",
+              "1101110111110100",
+              "1001111011101100",
+              "0101111111110000",
+              "0100111111110010",
+              "0100111111110100",
+              "0101011111100110",
+              "1101111011100111",
+              "0100111111101010",
+              "1101111111101111",
+              "1101011011100000",
+              "0101110111100110",
+              "1001110111110110",
+              "0001111111110100",
+              "1001111111111000"
+            ],
+            "overlap_with_sft": 1,
+            "mean_minus_effective_sem": 9.498870216694353,
+            "per_block_top_k_mean": {
+              "5": 9.569267030234808,
+              "7": 9.573368915117069,
+              "11": 9.5339912310478
+            },
+            "leave_one_block_out_top_k_mean": {
+              "5": 9.573368915117069,
+              "7": 9.562431995204182,
+              "11": 9.573368915117069
+            }
+          }
+        },
+        "schedule_key": "20260920_weighted",
+        "regularization_sample_count": 0,
+        "unlabelled_regularization_unique_overlap_with_development": 0,
+        "screen": {
+          "checks": {
+            "top_16_at_least_sft": true,
+            "top_32_at_least_sft": true,
+            "unique_genotypes_retained": true,
+            "mean_pairwise_hamming_unbiased_retained": true
+          },
+          "passes": true,
+          "biological_significance_claim": false
+        },
+        "control_comparison": {
+          "checks": {
+            "top_16_at_least_control": true,
+            "top_32_at_least_control": true,
+            "at_least_one_strict_improvement": true
+          },
+          "passes": true
+        },
+        "kl_to_sft_mc": {
+          "nats": 0.28601926285773516,
+          "standard_error": 0.021953563067583975
+        }
+      },
+      "seed_20260921_continued_sft_entropy": {
+        "development": {
+          "pair_accuracy": 0.889837386489018,
+          "pairs": 5807,
+          "per_block_accuracy": {
+            "5": 0.8690766550522645,
+            "7": 0.9038152610441766,
+            "11": 0.8966202433706125
+          },
+          "spearman": 0.7966651676642078,
+          "top_k_mean": {
+            "16": 9.567087462259156,
+            "32": 9.554887208425937
+          },
+          "per_block_spearman": {
+            "5": 0.7804487400201828,
+            "7": 0.7733153602650804,
+            "11": 0.7534979685178198
+          }
+        },
+        "diversity": {
+          "sample_count": 1024,
+          "unique_genotypes": 1005,
+          "duplicate_fraction": 0.0185546875,
+          "largest_observed_genotype_fraction": 0.0029296875,
+          "entropy_nats_mc": 10.456104898825288,
+          "entropy_mc_standard_error": 0.02874685402639224,
+          "entropy_effective_support_mc": 34755.90966462274,
+          "collision_probability_unbiased": 3.8184261974584555e-05,
+          "mean_pairwise_hamming_unbiased": 7.430638288123167,
+          "allele_one_frequencies": [
+            0.517578125,
+            0.4814453125,
+            0.5712890625,
+            0.5693359375,
+            0.5166015625,
+            0.6376953125,
+            0.58984375,
+            0.484375,
+            0.7041015625,
+            0.9052734375,
+            0.359375,
+            0.5166015625,
+            0.51953125,
+            0.5302734375,
+            0.5185546875,
+            0.349609375
+          ],
+          "sites_with_minor_allele_below_1pct": 0
+        },
+        "sample_rescore_max_error": 4.76837158203125e-06,
+        "seed": 20260921,
+        "arm": {
+          "name": "continued_sft_entropy",
+          "weighted": false,
+          "entropy_coefficient": 0.03
+        },
+        "training_seconds": 126.81789500001469,
+        "peak_cuda_allocated_mib": 2082.8974609375,
+        "checkpoint_sha256": "df12f6b2ed3f8eae64e260d9152b83a94d4bbe721e1643e87030029aa5f91e40",
+        "decoder_state_sha256": "981bbea174b1c53345eddfd06b7005ca107ce80e5339df7529fc6c1b4eaa51b4",
+        "safe_strict_reload": true,
+        "reload_max_error": 0.0,
+        "encoder_unchanged": true,
+        "selection_details": {
+          "16": {
+            "selected_genotypes": [
+              "1001111011100110",
+              "1001111111100100",
+              "1001011111100110",
+              "1001111011101100",
+              "0001111111101100",
+              "1001111011110010",
+              "1101111011110110",
+              "1101011111101110",
+              "0001111011110110",
+              "1101111111100010",
+              "1101111011100100",
+              "1101011011111110",
+              "0001111111110100",
+              "1001011011101010",
+              "1001111111111000",
+              "0001011011100110"
+            ],
+            "overlap_with_sft": 1,
+            "mean_minus_effective_sem": 9.49121485267567,
+            "per_block_top_k_mean": {
+              "5": 9.572027845646566,
+              "7": 9.567087462259156,
+              "11": 9.550659363572638
+            },
+            "leave_one_block_out_top_k_mean": {
+              "5": 9.567087462259156,
+              "7": 9.550659363572638,
+              "11": 9.567087462259156
+            }
+          },
+          "32": {
+            "selected_genotypes": [
+              "1001111011100110",
+              "1001111111100100",
+              "1001011111100110",
+              "1001111011101100",
+              "0001111111101100",
+              "1001111011110010",
+              "1101111011110110",
+              "1101011111101110",
+              "0001111011110110",
+              "1101111111100010",
+              "1101111011100100",
+              "1101011011111110",
+              "0001111111110100",
+              "1001011011101010",
+              "1001111111111000",
+              "0001011011100110",
+              "1001110111111110",
+              "0001111011110100",
+              "1001011111111010",
+              "1101011111110110",
+              "1001110111110110",
+              "0001011111110110",
+              "1101011111100100",
+              "0101111011101100",
+              "0001011111100010",
+              "1001110111100010",
+              "0001111011100000",
+              "0101011111100110",
+              "1101110111101110",
+              "1101111111101000",
+              "1000111111100110",
+              "1000111111101110"
+            ],
+            "overlap_with_sft": 1,
+            "mean_minus_effective_sem": 9.480221253597694,
+            "per_block_top_k_mean": {
+              "5": 9.552297666422831,
+              "7": 9.554887208425937,
+              "11": 9.522209029371083
+            },
+            "leave_one_block_out_top_k_mean": {
+              "5": 9.554887208425937,
+              "7": 9.522209029371083,
+              "11": 9.554887208425937
+            }
+          }
+        },
+        "schedule_key": "20260921_uniform",
+        "regularization_sample_count": 512,
+        "unlabelled_regularization_unique_overlap_with_development": 9,
+        "screen": {
+          "checks": {
+            "top_16_at_least_sft": false,
+            "top_32_at_least_sft": false,
+            "unique_genotypes_retained": true,
+            "mean_pairwise_hamming_unbiased_retained": true
+          },
+          "passes": false,
+          "biological_significance_claim": false
+        },
+        "kl_to_sft_mc": {
+          "nats": 0.19068293645977974,
+          "standard_error": 0.01857305559874203
+        }
+      },
+      "seed_20260921_affinity_entropy": {
+        "development": {
+          "pair_accuracy": 0.9208613201775617,
+          "pairs": 5807,
+          "per_block_accuracy": {
+            "5": 0.899863893728223,
+            "7": 0.9321105851979347,
+            "11": 0.9306094816065275
+          },
+          "spearman": 0.834797796987217,
+          "top_k_mean": {
+            "16": 9.547687290830616,
+            "32": 9.561505942783954
+          },
+          "per_block_spearman": {
+            "5": 0.842722501783211,
+            "7": 0.8379136802061395,
+            "11": 0.8201043769068527
+          }
+        },
+        "diversity": {
+          "sample_count": 1024,
+          "unique_genotypes": 1005,
+          "duplicate_fraction": 0.0185546875,
+          "largest_observed_genotype_fraction": 0.001953125,
+          "entropy_nats_mc": 10.557193085551262,
+          "entropy_mc_standard_error": 0.026555637311461138,
+          "entropy_effective_support_mc": 38453.04192356443,
+          "collision_probability_unbiased": 3.627504887585533e-05,
+          "mean_pairwise_hamming_unbiased": 7.544160098973607,
+          "allele_one_frequencies": [
+            0.55859375,
+            0.462890625,
+            0.5185546875,
+            0.5712890625,
+            0.625,
+            0.5029296875,
+            0.5283203125,
+            0.583984375,
+            0.6337890625,
+            0.91015625,
+            0.447265625,
+            0.4521484375,
+            0.5498046875,
+            0.4677734375,
+            0.5537109375,
+            0.4833984375
+          ],
+          "sites_with_minor_allele_below_1pct": 0
+        },
+        "sample_rescore_max_error": 3.814697265625e-06,
+        "seed": 20260921,
+        "arm": {
+          "name": "affinity_entropy",
+          "weighted": true,
+          "entropy_coefficient": 0.03
+        },
+        "training_seconds": 127.16367979999632,
+        "peak_cuda_allocated_mib": 2082.8974609375,
+        "checkpoint_sha256": "7beeaf564df7050d4b1b1ea915f4c34269d1a80aa98e87545cb96995bdad32a7",
+        "decoder_state_sha256": "1313ce496114b5c8549804e694c22f40dcc934bf14963cc077548d648367b32a",
+        "safe_strict_reload": true,
+        "reload_max_error": 0.0,
+        "encoder_unchanged": true,
+        "selection_details": {
+          "16": {
+            "selected_genotypes": [
+              "1001111111100011",
+              "1001110111100010",
+              "1001110111100111",
+              "1010100111101011",
+              "1101111111101111",
+              "1101111111100010",
+              "0001111111101011",
+              "1011100111101111",
+              "1011101111101010",
+              "1001111111100100",
+              "1011101111101111",
+              "1011100111100010",
+              "1001111111110011",
+              "1101110111101110",
+              "1001111011101011",
+              "1011100111100110"
+            ],
+            "overlap_with_sft": 1,
+            "mean_minus_effective_sem": 9.475266735105695,
+            "per_block_top_k_mean": {
+              "5": 9.568867456020058,
+              "7": 9.568723093870839,
+              "11": 9.53428481028696
+            },
+            "leave_one_block_out_top_k_mean": {
+              "5": 9.547687290830616,
+              "7": 9.53428481028696,
+              "11": 9.568723093870839
+            }
+          },
+          "32": {
+            "selected_genotypes": [
+              "1001111111100011",
+              "1001110111100010",
+              "1001110111100111",
+              "1010100111101011",
+              "1101111111101111",
+              "1101111111100010",
+              "0001111111101011",
+              "1011100111101111",
+              "1011101111101010",
+              "1001111111100100",
+              "1011101111101111",
+              "1011100111100010",
+              "1001111111110011",
+              "1101110111101110",
+              "1001111011101011",
+              "1011100111100110",
+              "1010101111101111",
+              "1001110111101101",
+              "1000111111101011",
+              "1101110111100011",
+              "1001110111111110",
+              "1101111111101000",
+              "1010101111101110",
+              "0101111111101011",
+              "1000111111100011",
+              "1000111111101111",
+              "1011100111101000",
+              "1000111111101110",
+              "1001111011100110",
+              "1101111111100001",
+              "1011100111111011",
+              "1001011111100011"
+            ],
+            "overlap_with_sft": 3,
+            "mean_minus_effective_sem": 9.488946396056892,
+            "per_block_top_k_mean": {
+              "5": 9.567649233898766,
+              "7": 9.564780626081326,
+              "11": 9.5336088567445
+            },
+            "leave_one_block_out_top_k_mean": {
+              "5": 9.561505942783954,
+              "7": 9.5336088567445,
+              "11": 9.564780626081326
+            }
+          }
+        },
+        "schedule_key": "20260921_weighted",
+        "regularization_sample_count": 512,
+        "unlabelled_regularization_unique_overlap_with_development": 12,
+        "screen": {
+          "checks": {
+            "top_16_at_least_sft": false,
+            "top_32_at_least_sft": true,
+            "unique_genotypes_retained": true,
+            "mean_pairwise_hamming_unbiased_retained": true
+          },
+          "passes": false,
+          "biological_significance_claim": false
+        },
+        "control_comparison": {
+          "checks": {
+            "top_16_at_least_control": false,
+            "top_32_at_least_control": true,
+            "at_least_one_strict_improvement": true
+          },
+          "passes": false
+        },
+        "kl_to_sft_mc": {
+          "nats": 0.21037174575030804,
+          "standard_error": 0.019743208770047073
+        }
+      },
+      "seed_20260921_affinity_plain": {
+        "development": {
+          "pair_accuracy": 0.9050365867838679,
+          "pairs": 5807,
+          "per_block_accuracy": {
+            "5": 0.8859955720092914,
+            "7": 0.9089429145152035,
+            "11": 0.9201712738271083
+          },
+          "spearman": 0.8160799661804656,
+          "top_k_mean": {
+            "16": 9.56151238689961,
+            "32": 9.558698916982332
+          },
+          "per_block_spearman": {
+            "5": 0.8120479167251151,
+            "7": 0.8199169477114813,
+            "11": 0.7978401108777028
+          }
+        },
+        "diversity": {
+          "sample_count": 1024,
+          "unique_genotypes": 1004,
+          "duplicate_fraction": 0.01953125,
+          "largest_observed_genotype_fraction": 0.0029296875,
+          "entropy_nats_mc": 10.369637532159686,
+          "entropy_mc_standard_error": 0.029017717024451547,
+          "entropy_effective_support_mc": 31876.920517009017,
+          "collision_probability_unbiased": 4.009347507331378e-05,
+          "mean_pairwise_hamming_unbiased": 7.3986933345552295,
+          "allele_one_frequencies": [
+            0.5556640625,
+            0.4462890625,
+            0.51953125,
+            0.521484375,
+            0.6611328125,
+            0.5244140625,
+            0.5087890625,
+            0.6103515625,
+            0.6826171875,
+            0.9521484375,
+            0.435546875,
+            0.44921875,
+            0.5859375,
+            0.4619140625,
+            0.5693359375,
+            0.478515625
+          ],
+          "sites_with_minor_allele_below_1pct": 0
+        },
+        "sample_rescore_max_error": 2.86102294921875e-06,
+        "seed": 20260921,
+        "arm": {
+          "name": "affinity_plain",
+          "weighted": true,
+          "entropy_coefficient": 0.0
+        },
+        "training_seconds": 38.720543599978555,
+        "peak_cuda_allocated_mib": 1418.07421875,
+        "checkpoint_sha256": "80103b737f517d28a4a97d23403dbebf444b9cdd18d26d1e593cf52439cc1578",
+        "decoder_state_sha256": "119e91dad45d7ef309a594f9406e7e4707adb3158af2578b2375aa58e2bb4f8b",
+        "safe_strict_reload": true,
+        "reload_max_error": 0.0,
+        "encoder_unchanged": true,
+        "selection_details": {
+          "16": {
+            "selected_genotypes": [
+              "1010100111101011",
+              "1001111111100011",
+              "1000111111101011",
+              "1001110111100010",
+              "1000111111101111",
+              "1010101111101111",
+              "0001111111101011",
+              "1000111111101110",
+              "1010101111101110",
+              "1000111111100011",
+              "1001110111100111",
+              "1010100111111111",
+              "1101111111101111",
+              "1011101111101010",
+              "1001110111111110",
+              "1101110111101110"
+            ],
+            "overlap_with_sft": 1,
+            "mean_minus_effective_sem": 9.488813849170405,
+            "per_block_top_k_mean": {
+              "5": 9.557239535491831,
+              "7": 9.5717255783468,
+              "11": 9.535880643889875
+            },
+            "leave_one_block_out_top_k_mean": {
+              "5": 9.56151238689961,
+              "7": 9.535880643889875,
+              "11": 9.5717255783468
+            }
+          },
+          "32": {
+            "selected_genotypes": [
+              "1010100111101011",
+              "1001111111100011",
+              "1000111111101011",
+              "1001110111100010",
+              "1000111111101111",
+              "1010101111101111",
+              "0001111111101011",
+              "1000111111101110",
+              "1010101111101110",
+              "1000111111100011",
+              "1001110111100111",
+              "1010100111111111",
+              "1101111111101111",
+              "1011101111101010",
+              "1001110111111110",
+              "1101110111101110",
+              "1011100111101111",
+              "1001111111110011",
+              "1101111111100010",
+              "1001111111100100",
+              "1010101111111011",
+              "1011100111100010",
+              "1001111011101011",
+              "1100110111101011",
+              "1000111111100110",
+              "0010101111101011",
+              "1001110111101101",
+              "1011101111101111",
+              "0000111111100011",
+              "0010101111101010",
+              "1001111111111000",
+              "1000110111101001"
+            ],
+            "overlap_with_sft": 3,
+            "mean_minus_effective_sem": 9.484425801711549,
+            "per_block_top_k_mean": {
+              "5": 9.498187911772593,
+              "7": 9.573061243965094,
+              "11": 9.535925226801611
+            },
+            "leave_one_block_out_top_k_mean": {
+              "5": 9.558698916982332,
+              "7": 9.535925226801611,
+              "11": 9.573061243965094
+            }
+          }
+        },
+        "schedule_key": "20260921_weighted",
+        "regularization_sample_count": 0,
+        "unlabelled_regularization_unique_overlap_with_development": 0,
+        "screen": {
+          "checks": {
+            "top_16_at_least_sft": false,
+            "top_32_at_least_sft": false,
+            "unique_genotypes_retained": true,
+            "mean_pairwise_hamming_unbiased_retained": true
+          },
+          "passes": false,
+          "biological_significance_claim": false
+        },
+        "control_comparison": {
+          "checks": {
+            "top_16_at_least_control": false,
+            "top_32_at_least_control": true,
+            "at_least_one_strict_improvement": true
+          },
+          "passes": false
+        },
+        "kl_to_sft_mc": {
+          "nats": 0.18691090308129787,
+          "standard_error": 0.01899603927915598
+        }
+      }
+    },
+    "runtime": {
+      "torch_version": "2.11.0+cu126",
+      "cuda_version": "12.6",
+      "gpu": "NVIDIA GeForce GTX 1650 SUPER",
+      "deterministic_algorithms": true
+    },
+    "initial_identity": {
+      "decoder_state_sha256": "c8ea340526ea1bbb53d018fb4db2a081a4a727bae76fbf1be34882862e3efb4a",
+      "encoder_state_sha256": "2138dd5f2f82d504b9d80f76238d4faae1eb39428b750e510f7d386102fed2aa",
+      "geometry_digest": "cf4c951fe4e97d728616e11819a99e82cec8d7d8aaf6c55eff9f4ffd526d8b92",
+      "prepared_artifact_sha256": "70be19f822c05d4efaa84d01ab75940516001e147b218f18a09c9d5b6bfbe4f7",
+      "sft_checkpoint_sha256": "e0da8b1221ee5218be881df183c39a2f4fc80d57c1814211d83312c277b4ca58",
+      "weights_sha256": "be4ba36edec22a9bfaa4946ff6b2815f1f19d8a3d7e0eada8b796d5a0eae9fd4"
+    },
+    "deterministic_geometry_repeat_verified": true,
+    "sft": {
+      "development": {
+        "pair_accuracy": 0.9016231548147239,
+        "pairs": 5807,
+        "per_block_accuracy": {
+          "5": 0.8510906649245064,
+          "7": 0.9281985083189902,
+          "11": 0.9255802912006752
+        },
+        "spearman": 0.8138942963973991,
+        "top_k_mean": {
+          "16": 9.578368253048493,
+          "32": 9.558906516574641
+        },
+        "per_block_spearman": {
+          "5": 0.760284217032278,
+          "7": 0.821591716697627,
+          "11": 0.8267623626029827
+        }
+      },
+      "diversity": {
+        "sample_count": 1024,
+        "unique_genotypes": 1001,
+        "duplicate_fraction": 0.0224609375,
+        "largest_observed_genotype_fraction": 0.001953125,
+        "entropy_nats_mc": 10.317693653516471,
+        "entropy_mc_standard_error": 0.02862164650903166,
+        "entropy_effective_support_mc": 30263.37920709706,
+        "collision_probability_unbiased": 4.391190127077224e-05,
+        "mean_pairwise_hamming_unbiased": 7.340555886485826,
+        "allele_one_frequencies": [
+          0.6025390625,
+          0.578125,
+          0.59765625,
+          0.5634765625,
+          0.5390625,
+          0.6240234375,
+          0.50390625,
+          0.4736328125,
+          0.740234375,
+          0.9599609375,
+          0.4482421875,
+          0.556640625,
+          0.5947265625,
+          0.4814453125,
+          0.4931640625,
+          0.53125
+        ],
+        "sites_with_minor_allele_below_1pct": 0
+      },
+      "sample_rescore_max_error": 4.76837158203125e-06,
+      "selection_details": {
+        "16": {
+          "selected_genotypes": [
+            "1101110111111011",
+            "1101111011111101",
+            "1101110011111101",
+            "1101011111111001",
+            "1101111111101111",
+            "1101010011111001",
+            "1100110011111101",
+            "1101111011101111",
+            "1100110011111111",
+            "1101110111101101",
+            "1001111011111101",
+            "1101110011111110",
+            "1001110111111101",
+            "1101110011111010",
+            "1101110011101011",
+            "1101011011111110"
+          ],
+          "overlap_with_sft": 16,
+          "mean_minus_effective_sem": 9.505947697323572,
+          "per_block_top_k_mean": {
+            "5": 9.472292462874387,
+            "7": 9.578368253048493,
+            "11": 9.50817286099333
+          },
+          "leave_one_block_out_top_k_mean": {
+            "5": 9.578368253048493,
+            "7": 9.50817286099333,
+            "11": 9.578368253048493
+          }
+        },
+        "32": {
+          "selected_genotypes": [
+            "1101110111111011",
+            "1101111011111101",
+            "1101110011111101",
+            "1101011111111001",
+            "1101111111101111",
+            "1101010011111001",
+            "1100110011111101",
+            "1101111011101111",
+            "1100110011111111",
+            "1101110111101101",
+            "1001111011111101",
+            "1101110011111110",
+            "1001110111111101",
+            "1101110011111010",
+            "1101110011101011",
+            "1101011011111110",
+            "1101010111111110",
+            "1111000011111111",
+            "1110100011111111",
+            "1001011111111101",
+            "1101010011111010",
+            "1100111111111101",
+            "1101110011101001",
+            "1111000111111101",
+            "1110100011111001",
+            "1101111111110001",
+            "1001111011101011",
+            "1110100111111001",
+            "1101111011110001",
+            "1111100111111011",
+            "1001111111110011",
+            "1101010011101001"
+          ],
+          "overlap_with_sft": 32,
+          "mean_minus_effective_sem": 9.485480816436933,
+          "per_block_top_k_mean": {
+            "5": 9.48818353876879,
+            "7": 9.574592775535718,
+            "11": 9.519726852358296
+          },
+          "leave_one_block_out_top_k_mean": {
+            "5": 9.558906516574641,
+            "7": 9.519726852358296,
+            "11": 9.574592775535718
+          }
+        }
+      }
+    },
+    "affinity_entropy_two_seed_screen": false,
+    "output_sha256": {
+      "development_pairs.csv": "253783c63a463d35bf7df904a06216a3e5ecb320bbd3410ae72775953a8372a3",
+      "fresh_development.csv": "7f93cb8690c645a717e0ffb7d9d26e2fdee4a6a346535d2a3e97a9d0b9872edc",
+      "schedule_20260920_uniform.npy": "3e2387dbff9428e3e71ee6f0b53c8e4aaf0e3ae78684990a529938d444135a19",
+      "schedule_20260920_weighted.npy": "3b367885ac9c96aa213dbe5677f139b734513d91ecdabc02aa3674f1ff0fad40",
+      "schedule_20260921_uniform.npy": "a192c261202d03182cb06c08180593575da1ec626fcb9d047d7d93df11548320",
+      "schedule_20260921_weighted.npy": "4e005d4e90584675a77b639e6357ff9ed3eddcfe2eacbbc29fbd23f817fec19b",
+      "seed_20260920_affinity_entropy\\development_scores.csv": "e7fe9a24d8ccc759af1d49ffacc81400139b5c6a21eacecbaac396f10e7fc26b",
+      "seed_20260920_affinity_entropy\\entropy_training_samples.csv": "1767b78115f3c2fbdcc8d27c4203520480a681f7356173a4a2ad995ec5301586",
+      "seed_20260920_affinity_entropy\\samples.csv": "7f014de82aa27835754a9f15e9827e8fee39104c947b0a581cfcde4fe68ab2b9",
+      "seed_20260920_affinity_plain\\development_scores.csv": "d955795cd1ad17cd4eb186801abcf765ecbde8e0c9dc44c92621bfcb37593123",
+      "seed_20260920_affinity_plain\\samples.csv": "c8a98f42e8fe4d27a129e855d605b6e729f1599d54b6745e6d6bd66fcd531a72",
+      "seed_20260920_continued_sft_entropy\\development_scores.csv": "2121029a327f1fb22eb90f41c47afed06965ad44a90dbaf6f7067f7eb0b9e3a2",
+      "seed_20260920_continued_sft_entropy\\entropy_training_samples.csv": "b1ed354d609beb910e00b55616005cb4893f4c874e3dbf34431daf5b7618ea6d",
+      "seed_20260920_continued_sft_entropy\\samples.csv": "6a0010d6e4214ffc1ead1d021535897d5f4f75db2aa1889b61ddc39dca365d5c",
+      "seed_20260921_affinity_entropy\\development_scores.csv": "16d81db7511e1e4414d2d43bb4139c8f1442371b54229c6407350a88151c82d3",
+      "seed_20260921_affinity_entropy\\entropy_training_samples.csv": "273bc2fbc045ad8d068fee3518c3d7400f9f518cb31cc370d06878645fff83ab",
+      "seed_20260921_affinity_entropy\\samples.csv": "888cf42b85bf06de59e883096a5cebd6e8ca3b437c4fe5782df3d58b27e8504d",
+      "seed_20260921_affinity_plain\\development_scores.csv": "25f199269c1149cb4c9283dc111397317e4dae4d13a4c246e792cc2a15c1651d",
+      "seed_20260921_affinity_plain\\samples.csv": "062f66f6abce2c2dab767e660cb5ca5416c44b235363116291e64f2a81e6f7e4",
+      "seed_20260921_continued_sft_entropy\\development_scores.csv": "70a227ebd638e324e1a8242513ccac1808197c7d58c35833cf9b509964c3a34d",
+      "seed_20260921_continued_sft_entropy\\entropy_training_samples.csv": "3b53560f23b1f7c4c39124cd3032c663e8fedb0f12cda43a53ee877d1d58bed0",
+      "seed_20260921_continued_sft_entropy\\samples.csv": "235680e4e8ec7f9b89333eb56530ea1d97618918975da038f2bd4e239e13ae38",
+      "sft\\development_scores.csv": "ff256ed953671f10a222663e397607703f04e46c54349cade2b7604dfd850d0d",
+      "sft\\samples.csv": "714bf6b9f0027106ee2b32ef9d00a8698ce5f46a196dde40e347f4a6e2d010cc",
+      "training_population.csv": "5275a4b5ab9cf2816b4801f6d2482551a701ab6d4821492ccd5037909b285876"
+    }
+  },
+  "independent_audit": {
+    "status": "passed",
+    "audit_script_sha256": "648271dfe6ee841d096f36685ff02c8237a0d3fdad6dce2896fe30f4ae78e8ae",
+    "results_sha256": "7493e96629586fb8216b36f65f25461140d1517f68c28056bd4da8f803c20b12",
+    "verified_artifact_hashes": 25,
+    "verified_checkpoint_hashes": 6,
+    "train_only_weights_recomputed": true,
+    "schedules_reproduced": true,
+    "schedules": {
+      "20260920_uniform": {
+        "labelled_draws": 1024,
+        "unique_genotypes": 964,
+        "mean_measured_affinity": 9.532587227418219
+      },
+      "20260920_weighted": {
+        "labelled_draws": 1024,
+        "unique_genotypes": 964,
+        "mean_measured_affinity": 9.539882103418728
+      },
+      "20260921_uniform": {
+        "labelled_draws": 1024,
+        "unique_genotypes": 975,
+        "mean_measured_affinity": 9.530347016398824
+      },
+      "20260921_weighted": {
+        "labelled_draws": 1024,
+        "unique_genotypes": 966,
+        "mean_measured_affinity": 9.538764969094641
+      }
+    },
+    "fresh_cohort_exclusion_verified": true,
+    "reserved_test_labels_evaluated": false,
+    "affinity_entropy_two_seed_screen": false,
+    "models": {
+      "sft": {
+        "top_k": {
+          "16": 9.578368253048493,
+          "32": 9.558906516574641
+        },
+        "unique": 1001,
+        "hamming": 7.340555886485826,
+        "posthoc_top_k_mean_hamming": {
+          "16": 3.466666666666667,
+          "32": 4.443548387096774
+        }
+      },
+      "seed_20260920_continued_sft_entropy": {
+        "top_k": {
+          "16": 9.558373766223024,
+          "32": 9.558263718248192
+        },
+        "unique": 1013,
+        "hamming": 7.593616355083089,
+        "screen_passes": false,
+        "posthoc_top_k_mean_hamming": {
+          "16": 3.683333333333333,
+          "32": 4.235887096774194
+        }
+      },
+      "seed_20260920_affinity_entropy": {
+        "top_k": {
+          "16": 9.579276282606976,
+          "32": 9.574433385010536
+        },
+        "unique": 1005,
+        "hamming": 7.55602394916911,
+        "screen_passes": true,
+        "posthoc_top_k_mean_hamming": {
+          "16": 3.941666666666667,
+          "32": 4.171370967741935
+        }
+      },
+      "seed_20260920_affinity_plain": {
+        "top_k": {
+          "16": 9.590488606056287,
+          "32": 9.573368915117069
+        },
+        "unique": 1001,
+        "hamming": 7.308662481671554,
+        "screen_passes": true,
+        "posthoc_top_k_mean_hamming": {
+          "16": 3.658333333333333,
+          "32": 4.125
+        }
+      },
+      "seed_20260921_continued_sft_entropy": {
+        "top_k": {
+          "16": 9.567087462259156,
+          "32": 9.554887208425937
+        },
+        "unique": 1005,
+        "hamming": 7.430638288123167,
+        "screen_passes": false,
+        "posthoc_top_k_mean_hamming": {
+          "16": 3.7416666666666667,
+          "32": 4.056451612903226
+        }
+      },
+      "seed_20260921_affinity_entropy": {
+        "top_k": {
+          "16": 9.547687290830616,
+          "32": 9.561505942783954
+        },
+        "unique": 1005,
+        "hamming": 7.544160098973607,
+        "screen_passes": false,
+        "posthoc_top_k_mean_hamming": {
+          "16": 4.058333333333334,
+          "32": 4.332661290322581
+        }
+      },
+      "seed_20260921_affinity_plain": {
+        "top_k": {
+          "16": 9.56151238689961,
+          "32": 9.558698916982332
+        },
+        "unique": 1004,
+        "hamming": 7.3986933345552295,
+        "screen_passes": false,
+        "posthoc_top_k_mean_hamming": {
+          "16": 3.966666666666667,
+          "32": 4.358870967741935
+        }
+      }
+    }
+  },
+  "deterministic_replay": {
+    "arm": "seed_20260920_affinity_entropy",
+    "replay_script_sha256": "284af525acdd268052213fb9d857534ed42b262a9ee3c4ac0a169c79a416552f",
+    "encoding_digest_matches": true,
+    "replayed_decoder_sha256": "f9afe31f6705edb11ee9c1e277a0449e47b5190891f07717454c54866b4d11e6",
+    "original_decoder_sha256": "f9afe31f6705edb11ee9c1e277a0449e47b5190891f07717454c54866b4d11e6",
+    "decoder_bitwise_identical": true,
+    "encoder_unchanged": true,
+    "reserved_test_labels_evaluated": false
+  },
+  "validation": {
+    "targeted_tests": {
+      "passed": 33
+    },
+    "full_suite": {
+      "passed": 1762,
+      "skipped": 3,
+      "warnings": 13,
+      "seconds": 111.97,
+      "exit_code": 0,
+      "log_sha256": "74b237e4407d60be62b6f184e3daefd4dbbe9d78968c88f7ac6e8cde4aa77a97"
+    },
+    "earlier_full_suite_attempt": {
+      "exit_code": 1,
+      "native_windows_access_violation": true,
+      "concurrent_training": true,
+      "cuda_visible_devices": "-1",
+      "root_cause_established": false
+    },
+    "code_git_commit": "5e381ec7649e35183d76be563848596475bfe7cf"
+  },
+  "scope": "Development pilot, same antibody lineage and three development blocks. Two continuation seeds share one SFT initialization. No final-test labels evaluated, no checkpoint promoted. Shortlist Hamming is explicitly post-hoc and does not change the fixed screen."
+}
