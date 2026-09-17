@@ -103,3 +103,12 @@ def test_changed_source_bytes_are_rejected(tmp_path):
     source.write_bytes(b"new")
     with pytest.raises(ValueError, match="SHA-256 changed"):
         audit.read_pinned_sources(tmp_path, manifest)
+
+
+@pytest.mark.parametrize("field,value", [("Cartn_x", "nan"), ("Cartn_y", "?"),
+                                         ("occupancy", "0"), ("occupancy", "inf")])
+def test_coordinate_presence_is_not_enough(field, value):
+    atom = {"Cartn_x": "1", "Cartn_y": "2", "Cartn_z": "3", "occupancy": "1"}
+    atom[field] = value
+    with pytest.raises(ValueError):
+        audit.check_coordinate_atom(atom)

@@ -647,6 +647,60 @@ def test_an_alternate_location_is_rejected(tmp_path):
 
 
 @needs_biotite
+@pytest.mark.parametrize("structure_format", ["pdb", "mmcif"])
+@pytest.mark.parametrize("occupancy", ["0.00", "-0.10", "1.10", "nan"])
+def test_unusable_atom_occupancy_is_rejected(tmp_path, structure_format, occupancy):
+    decoded = fx.toy_decoded_residues()
+    residues = decoded + fx.toy_context_residues()
+    path = _write_structure(tmp_path, residues, structure_format=structure_format)
+    if structure_format == "pdb":
+        lines = path.read_text().splitlines()
+        index = next(i for i, line in enumerate(lines) if line.startswith("ATOM  "))
+        lines[index] = lines[index][:54] + f"{occupancy:>6}" + lines[index][60:]
+        path.write_text("\n".join(lines) + "\n")
+    else:
+        values = ["1.00"] * fx.atom_row_count(residues)
+        values[0] = occupancy
+        fx.write_cif(path, residues, column_overrides={"occupancy": values})
+    document = fx.build_manifest_document(
+        relative_path=path.name, structure_path=path,
+        structure_format=structure_format, decoded_residues=decoded,
+    )
+    with pytest.raises(StructurePreparationError, match="occupancy"):
+        prepare_structure(validate_manifest(document), path)
+
+
+@needs_biotite
+@pytest.mark.parametrize("structure_format", ["pdb", "mmcif"])
+def test_nonfinite_discarded_atom_is_still_rejected(tmp_path, structure_format):
+    decoded = fx.toy_decoded_residues()
+    # The encoder only keeps N/CA/C. An invalid O record must not disappear
+    # before the selected chain is validated.
+    bad = replace(decoded[0], atoms=decoded[0].atoms +
+                  (fx.Atom("O", "O", float("nan"), 0.0, 0.0),))
+    path, _, document = _toy(
+        tmp_path, structure_format=structure_format, decoded_residues=decoded,
+        file_residues=(bad,) + decoded[1:] + fx.toy_context_residues(),
+    )
+    with pytest.raises(StructurePreparationError, match="non-finite coordinate"):
+        prepare_structure(validate_manifest(document), path)
+
+
+@needs_biotite
+def test_mmcif_occupancy_is_not_silently_defaulted(tmp_path):
+    from biotite.structure.io.pdbx import CIFFile
+
+    path, _, document = _toy(tmp_path, structure_format="mmcif")
+    cif = CIFFile.read(path)
+    del cif.block["atom_site"]["occupancy"]
+    cif.write(path)
+    document["source"]["sha256"] = decl.sha256_file(path)
+    document["source"]["size_bytes"] = path.stat().st_size
+    with pytest.raises(StructurePreparationError, match="missing.*occupancy"):
+        prepare_structure(validate_manifest(document), path)
+
+
+@needs_biotite
 def test_a_water_sharing_a_selected_chain_is_rejected_by_name(tmp_path):
     """The documented restrictive v1 rule: solvent is refused, never filtered."""
     good = fx.toy_decoded_residues()

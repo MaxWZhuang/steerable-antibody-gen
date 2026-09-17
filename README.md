@@ -1,12 +1,17 @@
 # Steerable antibody generation with pretrained antigen-conditioned policies
 
-This project studies how antigen conditioning, inference-time guidance, and
-post-training shape antibody generation. It focuses on **fixed-length HCDR3 editing
-with the heavy-chain framework and light-chain context held fixed**. The aim is to
-understand how a policy uses antigen information, how external guidance changes
-sampling, and what post-training changes in the policy itself.
+The current experiment studies **ESM-IF1 post-training on the CR9114/H1 binding
+benchmark**, with 16 binary heavy-chain sites and one fixed structural context.
+The working template is 5CJQ; the benchmark sequence-to-structure mapping is
+verified, and model-input preparation is the next integration step. See the
+[experiment recommendation](reference/fixed-target-posttraining-recommendation.md)
+and [mapping audit](reference/cr9114-5cjq-mapping.md).
 
-## Approach
+The broader research program examines antigen conditioning, inference-time
+guidance, and fixed-length HCDR3 editing. The custom-model implementation and
+longer-term architecture described below support that broader direction.
+
+## Broader research approach
 
 The proposed architecture starts from a pretrained protein model, adapts VH/VL
 behavior where needed, and fuses antigen information into residue predictions. A
@@ -79,7 +84,8 @@ guided sampler visits. Sparse internal features are a later diagnostic option.
 
 ## Current capabilities
 
-The repository provides a custom antibody model and supporting tools:
+The repository provides a custom antibody model, an ESM-IF1 policy integration,
+and supporting tools:
 
 | Area | Available implementation |
 |---|---|
@@ -100,9 +106,9 @@ replaces only the antigen encoder.
 The ESM-IF1 dependency layer is not backbone integration: it makes the upstream
 package import and run, and nothing more. Install it with
 `pip install -e ".[esm-if1]"` and call `esmif1_compat.install()` before the first
-`esm.inverse_folding` import. The extra deliberately omits `torch-scatter`, which
-has no wheel for any platform; the module substitutes the single function ESM
-calls from it. Measured readiness on the training box — hardware budget, verified
+`esm.inverse_folding` import. The extra deliberately omits `torch-scatter`; the
+module substitutes the single function ESM calls from it, avoiding a native
+extension build on the Windows training box. Measured readiness — hardware budget, verified
 weight loading, and the batch range beyond which throughput regresses — is recorded
 in
 [the training-box evidence](reference/evidence/esm-if1-training-box-2026-09-14.json).
@@ -141,6 +147,7 @@ for CR9114/H1. Source files are hash-pinned and the benchmark VH mapping is
 verified; model-input preparation remains pending. Its engineered H1-derived stem is proxy context,
 not an established match to the assayed antigen construct.
 
-The checkout has no antibody-antigen corpus, benchmark manifests are incomplete,
-and training hardware measurements are unrecorded. Implemented components alone
-do not establish that a trained checkpoint meets the scientific criteria.
+Benchmark manifests and the experiment runner remain incomplete. Hardware and
+weight-loading readiness are recorded in the training-box evidence above;
+real-context scoring and training validation remain separate milestones.
+Implemented components alone do not establish biological improvement.

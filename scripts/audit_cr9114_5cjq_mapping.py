@@ -14,6 +14,7 @@ import gzip
 import hashlib
 import io
 import json
+import math
 from pathlib import Path
 import re
 import struct
@@ -150,6 +151,18 @@ def residue_key(row):
             "" if insertion in (".", "?") else insertion)
 
 
+def check_coordinate_atom(atom):
+    """Presence of an ATOM row is not evidence of finite, occupied geometry."""
+    try:
+        coordinates = [float(atom[name]) for name in ("Cartn_x", "Cartn_y", "Cartn_z")]
+        occupancy = float(atom["occupancy"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("Missing or invalid atom coordinates/occupancy") from error
+    require(all(math.isfinite(value) for value in coordinates), "Non-finite atom coordinate")
+    require(math.isfinite(occupancy) and 0.0 < occupancy <= 1.0,
+            "Atom occupancy must be finite and in (0, 1]")
+
+
 def map_vh(somatic, polymer, observed):
     from biotite.sequence import ProteinSequence
 
@@ -215,6 +228,7 @@ def audit(root, sources_path):
         require(atom["pdbx_PDB_model_num"] == "1", "Unexpected extra coordinate model")
         require(atom["label_alt_id"] in (".", "?"), "Alternate coordinates present")
         require(atom["group_PDB"] == "ATOM", "Unexpected hetero atom")
+        check_coordinate_atom(atom)
         observed.setdefault(residue_key(atom), []).append(atom)
     correspondence = map_vh(somatic, cif_rows(cif["pdbx_poly_seq_scheme"]), observed)
     validation = validation_metrics(contents["validation"])

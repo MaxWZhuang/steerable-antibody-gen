@@ -44,6 +44,8 @@ Within the selected model:
   finite coordinates, matched by exact atom-name identity. Zero is a missing
   atom, more than one is ambiguous; both are named and refused. No residue is
   ever dropped, and no atom is ever chosen by distance or residue number.
+- all selected-chain atoms must have finite coordinates and finite occupancy
+  in ``(0, 1]``, including atoms omitted from the encoder's backbone array.
 
 The correspondence must cover the **entire observed selected decoded chain** in
 file residue order, with no omissions and no reordering: v1 has no cropping, and
@@ -150,6 +152,7 @@ REQUIRED_MMCIF_COLUMNS = (
     "auth_seq_id",
     "group_PDB",
     "label_alt_id",
+    "occupancy",
     "pdbx_PDB_ins_code",
     "pdbx_PDB_model_num",
     "type_symbol",
@@ -371,6 +374,7 @@ class _ParsedModel:
     hetero: np.ndarray
     altloc_id: np.ndarray
     coord: np.ndarray
+    occupancy: np.ndarray
     model_count: int
 
 
@@ -574,7 +578,8 @@ def _parse_mmcif(path: Path, manifest: StructureManifest) -> _ParsedModel:
             "derives 'hetero' as group_PDB == 'HETATM', so any other value would be "
             "silently read as an ordinary atom record."
         )
-    for column in ("auth_seq_id", "auth_comp_id", "auth_atom_id"):
+    for column in ("auth_seq_id", "auth_comp_id", "auth_atom_id", "occupancy",
+                   "Cartn_x", "Cartn_y", "Cartn_z"):
         values = atom_site[column].as_array(str)[row_slice][selected]
         bad = sorted({value for value in values.tolist() if value in _UNRESOLVED})
         if bad:
@@ -586,7 +591,8 @@ def _parse_mmcif(path: Path, manifest: StructureManifest) -> _ParsedModel:
 
     try:
         array = pdbx.get_structure(
-            cif, model=ordinal, altloc="all", use_author_fields=True
+            cif, model=ordinal, altloc="all", use_author_fields=True,
+            extra_fields=["occupancy"],
         )
     except Exception as error:
         raise StructurePreparationError(
@@ -725,7 +731,7 @@ def _parse_pdb(path: Path, manifest: StructureManifest) -> _ParsedModel:
         )
     _check_pdb_segments(path, manifest, ordinal)
     try:
-        array = pdb_file.get_structure(model=ordinal, altloc="all")
+        array = pdb_file.get_structure(model=ordinal, altloc="all", extra_fields=["occupancy"])
     except Exception as error:
         raise StructurePreparationError(
             f"cannot parse PDB {path.name} model ordinal {ordinal}: {error}"
@@ -759,6 +765,7 @@ def _parsed_model_from_atom_array(array: Any, model_count: int) -> _ParsedModel:
         hetero=np.asarray(array.hetero, dtype=bool),
         altloc_id=np.asarray(array.altloc_id),
         coord=np.asarray(array.coord, dtype=np.float32),
+        occupancy=np.asarray(array.occupancy, dtype=np.float64),
         model_count=model_count,
     )
 
@@ -808,6 +815,19 @@ def _check_selected_chain_records(
         ins_code = str(parsed.ins_code[row])
         atom_name = str(parsed.atom_name[row])
         where = f"{chain_id}/{res_id}{ins_code} {res_name!r} atom {atom_name!r}"
+
+        occupancy = float(parsed.occupancy[row])
+        if not math.isfinite(occupancy) or not 0.0 < occupancy <= 1.0:
+            raise StructurePreparationError(
+                f"{source_label}: {where} has occupancy {occupancy!r}; selected "
+                "atoms must have finite occupancy in (0, 1]. Zero-occupancy "
+                "coordinates are not observed geometry and are never filled in."
+            )
+        if not np.all(np.isfinite(parsed.coord[row])):
+            raise StructurePreparationError(
+                f"{source_label}: {where} has a non-finite coordinate. Every "
+                "selected-chain atom is checked, including atoms not encoded."
+            )
 
         altloc = str(parsed.altloc_id[row])
         if altloc not in _NO_ALTLOC:
@@ -1929,7 +1949,8 @@ STRUCTURAL_CHECKS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
         "selected_chain_content_supported",
         "every selected-chain record is a non-hetero canonical amino acid with no "
-        "alternate-location identifier; unsupported content is rejected, never filtered",
+        "alternate-location identifier, finite coordinates, and occupancy in (0, 1]; "
+        "unsupported content is rejected, never filtered",
         _ALL_FORMATS,
     ),
     (
