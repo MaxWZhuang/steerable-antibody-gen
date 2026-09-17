@@ -1,0 +1,13 @@
+{
+  "schema_version": "cr9114-shortlist/1",
+  "budgets": [16, 32],
+  "admission_multipliers": [1, 2, 4, 8],
+  "calibration_cohorts": 4,
+  "calibration_count_per_cohort": 2048,
+  "calibration_seed": 20260923,
+  "fresh_development_count": 2048,
+  "fresh_development_seed": 20260924,
+  "affinity_loss_tolerance": 0.02,
+  "minimum_mean_hamming_gain": 0.25,
+  "quality_threshold_training_quantile": 0.75
+}
