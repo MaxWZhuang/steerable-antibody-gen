@@ -1094,6 +1094,31 @@ def _upstream_coords(num_residues: int) -> torch.Tensor:
 
 
 @pytest.mark.skipif(not ESM_IF1_STACK, reason="optional 'esm-if1' extra not installed")
+def test_experiment_feature_path_matches_native_policy_and_has_embedding_gradients(upstream_stack):
+    from types import SimpleNamespace
+    from smallAntibodyGen.experiments.regularization import decoder_statistics, off_diagonal_cosine
+
+    model, alphabet = _upstream_model()
+    space = ConstrainedEditSpace(CONTEXT, SITES)
+    policy = ConstrainedEditPolicy(model, space, alphabet=alphabet)
+    geometry = policy.encode_geometry(_upstream_coords(len(CONTEXT)))
+    bound = SimpleNamespace(policy=policy, space=space, geometry=geometry)
+    sequences = space.enumerate_sequences()
+    scores, z = decoder_statistics(model.decoder, bound, sequences)
+    expected = policy.log_prob(sequences, geometry)
+    torch.testing.assert_close(scores, expected, rtol=1e-6, atol=1e-6)
+    weight = model.decoder.output_projection.weight
+    actual_grad, = torch.autograd.grad(scores.sum(), weight, retain_graph=True)
+    expected_grad, = torch.autograd.grad(expected.sum(), weight)
+    torch.testing.assert_close(actual_grad, expected_grad, rtol=1e-6, atol=1e-6)
+    off_diagonal_cosine(z).backward()
+    gradients = [p.grad for p in model.decoder.parameters() if p.grad is not None]
+    assert gradients and all(torch.isfinite(g).all() for g in gradients)
+    assert sum(g.abs().sum() for g in gradients) > 0
+    assert all(p.grad is None for p in model.encoder.parameters())
+
+
+@pytest.mark.skipif(not ESM_IF1_STACK, reason="optional 'esm-if1' extra not installed")
 def test_local_token_table_matches_the_upstream_alphabet(upstream_stack):
     """The one place the local replica could drift from upstream."""
     from esm.data import Alphabet
