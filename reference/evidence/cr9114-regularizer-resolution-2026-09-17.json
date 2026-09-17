@@ -1,0 +1,160 @@
+{
+  "schema_version": "cr9114-regularizer-resolution/1",
+  "prior_results_sha256": "fd41e1786df5a5f1476b05690005954667bf947e16adcd26140bc3fbd98f93de",
+  "regularizer_contrasts_against_kl": {
+    "seed_20260925_kl_entropy": {
+      "16": {
+        "conditional_affinity_delta": 0.00232169534839477,
+        "assay_sem_proxy_for_delta": 0.009052569465615138,
+        "shared_candidates": 14,
+        "swapped_candidates": 2,
+        "identical_set": false
+      },
+      "32": {
+        "conditional_affinity_delta": 0.0029495859044443296,
+        "assay_sem_proxy_for_delta": 0.005760235119105748,
+        "shared_candidates": 29,
+        "swapped_candidates": 3,
+        "identical_set": false
+      },
+      "entropy": {
+        "delta_nats": 0.11349164601415396,
+        "independent_draws_sem_proxy": 0.04333450245128023
+      }
+    },
+    "seed_20260925_kl_embedding": {
+      "16": {
+        "conditional_affinity_delta": -0.00026285368768685924,
+        "assay_sem_proxy_for_delta": 0.006401133256298745,
+        "shared_candidates": 15,
+        "swapped_candidates": 1,
+        "identical_set": false
+      },
+      "32": {
+        "conditional_affinity_delta": 0.0,
+        "assay_sem_proxy_for_delta": 0.0,
+        "shared_candidates": 32,
+        "swapped_candidates": 0,
+        "identical_set": true
+      },
+      "entropy": {
+        "delta_nats": 0.0002993382513523102,
+        "independent_draws_sem_proxy": 0.04415253727510254
+      }
+    },
+    "seed_20260926_kl_entropy": {
+      "16": {
+        "conditional_affinity_delta": -0.007365766818735353,
+        "assay_sem_proxy_for_delta": 0.01144918280932975,
+        "shared_candidates": 13,
+        "swapped_candidates": 3,
+        "identical_set": false
+      },
+      "32": {
+        "conditional_affinity_delta": 0.0012299106448336317,
+        "assay_sem_proxy_for_delta": 0.006545511949844792,
+        "shared_candidates": 28,
+        "swapped_candidates": 4,
+        "identical_set": false
+      },
+      "entropy": {
+        "delta_nats": 0.1488510314375162,
+        "independent_draws_sem_proxy": 0.04111430525179928
+      }
+    },
+    "seed_20260926_kl_embedding": {
+      "16": {
+        "conditional_affinity_delta": -0.0027072715112561596,
+        "assay_sem_proxy_for_delta": 0.006401133256298745,
+        "shared_candidates": 15,
+        "swapped_candidates": 1,
+        "identical_set": false
+      },
+      "32": {
+        "conditional_affinity_delta": 0.0010487396661831294,
+        "assay_sem_proxy_for_delta": 0.003520563962932922,
+        "shared_candidates": 31,
+        "swapped_candidates": 1,
+        "identical_set": false
+      },
+      "entropy": {
+        "delta_nats": -0.00025964248925447464,
+        "independent_draws_sem_proxy": 0.04125453117222692
+      }
+    },
+    "seed_20260927_kl_entropy": {
+      "16": {
+        "conditional_affinity_delta": -0.0003578311645137111,
+        "assay_sem_proxy_for_delta": 0.006401133256298745,
+        "shared_candidates": 15,
+        "swapped_candidates": 1,
+        "identical_set": false
+      },
+      "32": {
+        "conditional_affinity_delta": -0.0021728059952385026,
+        "assay_sem_proxy_for_delta": 0.0046015254664792254,
+        "shared_candidates": 30,
+        "swapped_candidates": 2,
+        "identical_set": false
+      },
+      "entropy": {
+        "delta_nats": 0.08264352567493916,
+        "independent_draws_sem_proxy": 0.043333510339555625
+      }
+    },
+    "seed_20260927_kl_embedding": {
+      "16": {
+        "conditional_affinity_delta": 0.0,
+        "assay_sem_proxy_for_delta": 0.0,
+        "shared_candidates": 16,
+        "swapped_candidates": 0,
+        "identical_set": true
+      },
+      "32": {
+        "conditional_affinity_delta": 0.0,
+        "assay_sem_proxy_for_delta": 0.0,
+        "shared_candidates": 32,
+        "swapped_candidates": 0,
+        "identical_set": true
+      },
+      "entropy": {
+        "delta_nats": -0.0009713433682918549,
+        "independent_draws_sem_proxy": 0.043023303051664984
+      }
+    }
+  },
+  "affinity_only_movement_from_sft": {
+    "seed_20260925_affinity": {
+      "kl_to_sft_mc": {
+        "nats": 0.07028512097895145,
+        "standard_error": 0.013195859127924833
+      },
+      "overlap_with_sft": {
+        "16": 7,
+        "32": 11
+      }
+    },
+    "seed_20260926_affinity": {
+      "kl_to_sft_mc": {
+        "nats": 0.1777425417676568,
+        "standard_error": 0.019683757154461454
+      },
+      "overlap_with_sft": {
+        "16": 1,
+        "32": 2
+      }
+    },
+    "seed_20260927_affinity": {
+      "kl_to_sft_mc": {
+        "nats": 0.11451954208314419,
+        "standard_error": 0.017519512439252545
+      },
+      "overlap_with_sft": {
+        "16": 4,
+        "32": 8
+      }
+    }
+  },
+  "uncertainty_scope": "Assay-error proxy assumes independent genotype errors and cancels shared identities. Entropy SE proxy ignores shared-RNG covariance. Neither is a calibrated noise floor or formal significance test.",
+  "interpretation": "Affinity contrasts are below their assay-SEM proxy when any candidates change. Embedding sets match at both budgets for the third seed; other seeds have small swaps. Entropy increases are about 1.9-3.6 independent-MC-SE proxies. Affinity-only policies move modestly but measurably from SFT; the extra regularizers mostly perturb those policies weakly."
+}
