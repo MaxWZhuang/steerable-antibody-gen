@@ -20,6 +20,14 @@ def check_close(actual, expected):
     np.testing.assert_allclose(actual, expected, rtol=1e-9, atol=1e-10)
 
 
+def shortlist_hamming(genotypes):
+    """Post-hoc shortlist diagnostic; not part of the predeclared decision gate."""
+    bits = np.array([list(map(int, g)) for g in genotypes])
+    ones = bits.sum(axis=0)
+    n = len(bits)
+    return float(np.sum(2 * ones * (n - ones)) / (n * (n - 1)))
+
+
 def run(directory):
     destination = directory / "independent_audit.json"
     require(not destination.exists(), "Audit evidence already exists")
@@ -98,6 +106,7 @@ def run(directory):
         require(np.isfinite(scores).all() and (scores <= 1e-6).all(), "Invalid policy scores")
         ordered = fresh.assign(score=scores.loc[fresh.genotype].to_numpy()).sort_values(["score", "genotype"], ascending=[False, True])
         top = {str(k): float(ordered.head(k)["mean"].mean()) for k in (16, 32)}
+        shortlist_diversity = {str(k): shortlist_hamming(ordered.head(k).genotype) for k in (16, 32)}
         for k, mean in top.items():
             check_close(mean, result["development"]["top_k_mean"][k])
             require(ordered.head(int(k)).genotype.tolist() == result["selection_details"][k]["selected_genotypes"], "Selection mismatch")
@@ -125,7 +134,8 @@ def run(directory):
         check_close(np.sum(counts * (counts - 1)) / (n * (n - 1)), result["diversity"]["collision_probability_unbiased"])
         check_close(one_counts / n, result["diversity"]["allele_one_frequencies"])
         if name == "sft":
-            checks[name] = {"top_k": top, "unique": len(counts), "hamming": hamming}
+            checks[name] = {"top_k": top, "unique": len(counts), "hamming": hamming,
+                            "posthoc_top_k_mean_hamming": shortlist_diversity}
             continue
         require(sha256(folder / f"decoder_step_{config['steps']:04d}.pt") == result["checkpoint_sha256"], "Checkpoint changed")
         check_close((samples.log_q - samples.reference_log_q).mean(), result["kl_to_sft_mc"]["nats"])
@@ -154,7 +164,8 @@ def run(directory):
             comparison = {f"top_{k}_at_least_control": top[k] >= control[k] for k in ("16", "32")}
             comparison["at_least_one_strict_improvement"] = any(top[k] > control[k] for k in ("16", "32"))
             require(comparison == result["control_comparison"]["checks"] and all(comparison.values()) == result["control_comparison"]["passes"], "Control comparison mismatch")
-        checks[name] = {"top_k": top, "unique": len(counts), "hamming": hamming, "screen_passes": all(gate.values())}
+        checks[name] = {"top_k": top, "unique": len(counts), "hamming": hamming, "screen_passes": all(gate.values()),
+                        "posthoc_top_k_mean_hamming": shortlist_diversity}
     joint = all(results["arms"][f"seed_{seed}_affinity_entropy"]["screen"]["passes"] and
                 results["arms"][f"seed_{seed}_affinity_entropy"]["control_comparison"]["passes"] for seed in config["seeds"])
     require(joint == results["affinity_entropy_two_seed_screen"], "Joint decision mismatch")
