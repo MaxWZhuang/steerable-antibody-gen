@@ -195,6 +195,7 @@ sequence, where the difference is declared per residue; non-backbone atoms
 | a mapped residue missing `N`, `CA` or `C` | the missing-coordinate convention is still an open gate in `esmif1_policy.md`; picking one here would close it silently |
 | two atoms with the same backbone name in one residue | ambiguous |
 | a non-finite coordinate in a selected chain | `NaN` already means inter-chain padding in this packing |
+| missing, non-finite, zero, negative, or greater-than-one atom occupancy on a selected chain | a coordinate row must not turn an unobserved atom into usable geometry; occupancy must be in `(0, 1]` |
 | one residue's records split across two blocks, **including two blocks separated by another chain's records or by a `TER`** | ambiguous identity; biotite drops `TER` lines, so the two segments would otherwise become one residue |
 | an mmCIF model serial that occupies more than one run of rows | a model is one contiguous block; an ordinal over interleaved serials selects a mixture of models |
 | an mmCIF `pdbx_PDB_model_num` that is not an integer | parsed from the raw text, so a serial past `2**31 - 1` is not coerced either |

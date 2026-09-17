@@ -1,0 +1,45 @@
+{
+  "kind": "structure_integration_bug_review",
+  "review_date": "2026-09-16",
+  "baseline_commit": "193a595",
+  "scope": {
+    "automated": "Entire repository pytest suite; compileall for scripts and package; AST scan of 147 Python files for duplicate definitions; local-only-file guard; byte-for-byte reproduction of CR9114 mapping artifacts.",
+    "manual": "Structure declaration and parsing, raw author identifiers, source pinning, correspondence and site-order contracts, packing and portable artifact validation, report/source verification, policy binding, mapping-audit provenance, and README consistency. This is not an assertion that every repository path is bug-free."
+  },
+  "fixed_findings": [
+    {
+      "id": "SR-01",
+      "problem": "PDB/mmCIF preparation discarded occupancy information, so zero-occupancy coordinates could be accepted as usable geometry. The mapping audit also checked atom presence without checking occupancy.",
+      "fix": "Read occupancy explicitly, require the mmCIF field, reject unresolved values on selected chains, and require finite occupancy in (0, 1]. Apply the same numeric check in the mapping audit.",
+      "regression_coverage": "PDB and mmCIF zero, negative, greater-than-one, and nonfinite occupancy; missing mmCIF occupancy; mapping-audit invalid occupancy."
+    },
+    {
+      "id": "SR-02",
+      "problem": "Only N/CA/C coordinates were checked for finiteness, despite the declared rejection rule applying to every selected-chain atom. A discarded O/side-chain coordinate could be invalid without a refusal.",
+      "fix": "Validate all selected atom coordinates before extracting the backbone; reject unresolved mmCIF coordinates and validate coordinate values in the mapping audit.",
+      "regression_coverage": "Nonfinite non-backbone atom in PDB and mmCIF; missing/nonfinite coordinate in the mapping audit."
+    }
+  ],
+  "documentation_corrections": [
+    "README now identifies the selected CR9114/H1 ESM-IF1 experiment and labels the HCDR3 architecture as the broader research direction.",
+    "Removed contradictory assertions that this checkout has no corpus and no recorded hardware measurements.",
+    "Replaced an unsupported universal torch-scatter wheel claim with the actual Windows dependency rationale."
+  ],
+  "verification": {
+    "baseline_full_suite": {"passed": 1664, "skipped": 3},
+    "final_full_suite": {"passed": 1679, "skipped": 3, "warnings": 13},
+    "skip_reasons": [
+      "Missing-transformers error-path test cannot run because transformers is installed.",
+      "Windows sandbox does not permit the symlink creation used by one path-containment test.",
+      "Optional TensorBoard dependency is not installed."
+    ],
+    "focused_structure_and_mapping_suite": {"passed": 138, "skipped": 1},
+    "compileall": "passed",
+    "duplicate_definition_scan": {"python_files": 147, "candidates": 0},
+    "mapping_json_and_csv_reproduction": "byte-identical to committed evidence",
+    "git_diff_check": "passed",
+    "local_only_guard_at_baseline_commit": "passed"
+  },
+  "model_scoring_run": false,
+  "training_run": false
+}
