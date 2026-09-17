@@ -72,6 +72,7 @@ def run(directory):
     check_close(results["population"]["probability_ratio"], probability.max() / probability.min())
     check_close(results["population"]["uniform_expected_affinity"], expected_pool["mean"].mean())
     check_close(results["population"]["weighted_expected_affinity"], probability @ expected_pool["mean"].to_numpy())
+    schedule_summary = {}
     for seed in config["seeds"]:
         for weighted in (False, True):
             key = f"{seed}_{'weighted' if weighted else 'uniform'}"
@@ -80,6 +81,9 @@ def run(directory):
                 size=(config["steps"], config["batch_size"]))
             actual = np.load(directory / f"schedule_{key}.npy", allow_pickle=False)
             np.testing.assert_array_equal(actual, expected)
+            exposed = population.iloc[actual.ravel()]
+            schedule_summary[key] = {"labelled_draws": len(exposed), "unique_genotypes": exposed.genotype.nunique(),
+                                     "mean_measured_affinity": float(exposed["mean"].mean())}
     require(set(pairs.split) == {"development"}, "Wrong pair split")
     fresh_by_id = fresh.set_index("genotype")
     require(set(pairs.chosen_genotype) | set(pairs.rejected_genotype) <= set(fresh.genotype), "Pair outside cohort")
@@ -157,7 +161,7 @@ def run(directory):
     audit = {"status": "passed", "audit_script_sha256": sha256(Path(__file__)),
              "results_sha256": sha256(directory / "results.json"), "verified_artifact_hashes": len(results["output_sha256"]),
              "verified_checkpoint_hashes": len(results["arms"]), "train_only_weights_recomputed": True,
-             "schedules_reproduced": True, "fresh_cohort_exclusion_verified": True,
+             "schedules_reproduced": True, "schedules": schedule_summary, "fresh_cohort_exclusion_verified": True,
              "reserved_test_labels_evaluated": False, "affinity_entropy_two_seed_screen": joint, "models": checks}
     save_json(destination, audit)
     print(json.dumps(audit, indent=2))
