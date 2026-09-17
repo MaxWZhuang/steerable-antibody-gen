@@ -7,7 +7,9 @@ verified and the structural input is prepared. Released-model scoring checks and
 a bounded supervised pilot have completed; see the [pilot results](reference/cr9114-5cjq-pilot.md).
 The first [direct-DPO and SFT-to-DPO pilots](reference/cr9114-dpo-pilot.md) also
 completed: pair ordering improved, while SFT retained stronger top-candidate
-selection on the development pool. The reserved test remains untouched.
+selection on the development pool. [Follow-up diagnostics](reference/cr9114-dpo-diagnostics.md)
+replicate that tradeoff on additional development variants and show substantial
+DPO diversity loss. They do not rule out broader overfitting; test labels remain untouched.
 See the
 [experiment recommendation](reference/fixed-target-posttraining-recommendation.md)
 and [prepared context](reference/cr9114-5cjq-context.md).

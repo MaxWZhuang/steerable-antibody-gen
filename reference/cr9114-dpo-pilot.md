@@ -1,6 +1,9 @@
 # CR9114 direct-DPO and SFT-to-DPO pilots
 
 **2026-09-16: both bounded pilots completed and checkpoint reloads verified.**
+The [subsequent overfitting and diversity investigation](cr9114-dpo-diagnostics.md)
+replicates the selection tradeoff on 2,048 additional development candidates and
+finds substantial distributional concentration in both DPO arms.
 The [fixed protocol](../specs/cr9114_dpo.md) and
 [run configuration](../configs/experiments/cr9114_dpo_pilot.json) were committed
 before launch at `a06134e`. The [run evidence](evidence/cr9114-dpo-pilot-2026-09-16.json)
