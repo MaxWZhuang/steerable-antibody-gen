@@ -10,6 +10,9 @@ completed: pair ordering improved, while SFT retained stronger top-candidate
 selection on the development pool. [Follow-up diagnostics](reference/cr9114-dpo-diagnostics.md)
 replicate that tradeoff on additional development variants and show substantial
 DPO diversity loss. They do not rule out broader overfitting; test labels remain untouched.
+An [explicit entropy-control comparison](reference/cr9114-diversity-pilot.md)
+subsequently restored much of that diversity across two DPO seeds, but no setting
+passed the joint affinity/diversity screen. SFT remains the selection baseline.
 See the
 [experiment recommendation](reference/fixed-target-posttraining-recommendation.md)
 and [prepared context](reference/cr9114-5cjq-context.md).
