@@ -1,0 +1,28 @@
+{
+  "schema_version": "cr9114-affinity-pilot/1",
+  "seeds": [20260920, 20260921],
+  "arms": [
+    {"name": "continued_sft_entropy", "weighted": false, "entropy_coefficient": 0.03},
+    {"name": "affinity_entropy", "weighted": true, "entropy_coefficient": 0.03},
+    {"name": "affinity_plain", "weighted": true, "entropy_coefficient": 0.0}
+  ],
+  "positive_quantile": 0.75,
+  "uncertainty_multiplier": 1.0,
+  "max_weight_ratio": 20.0,
+  "uniform_fraction": 0.25,
+  "steps": 256,
+  "batch_size": 4,
+  "likelihood_normalizer": 16,
+  "learning_rate": 0.00001,
+  "weight_decay": 0.01,
+  "gradient_clip": 1.0,
+  "entropy_every": 4,
+  "entropy_samples": 8,
+  "evaluation_samples": 1024,
+  "evaluation_sample_seed": 20260922,
+  "fresh_development_count": 2048,
+  "fresh_development_seed": 20260922,
+  "diversity_retention_fraction": 0.8,
+  "deterministic_algorithms": true,
+  "cublas_workspace_config": ":4096:8"
+}
