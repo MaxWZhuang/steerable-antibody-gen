@@ -70,3 +70,11 @@ identity and contents, initial log(2) DPO loss, unchanged encoder/reference file
 finite gradients, strict checkpoint reload and score parity. Commit code and
 protocol before fitting. Keep large checkpoints and sample CSVs local; commit
 compact evidence and an outcome report afterward.
+
+Implementation preflight correction: the original and freshly encoded GPU
+geometry tensors have different byte hashes despite identical model weights and
+structural inputs, with reference-score agreement at floating-point tolerance.
+The runner therefore builds a new reference cache tied to its own encoding for
+every variant used by either fixed schedule, verifies all of them against the
+historical cache, and uses only the new scores for optimization. The failed
+preflight performed no training and its local artifacts are retained.
