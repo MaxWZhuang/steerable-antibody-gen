@@ -47,6 +47,12 @@ spreads them across blocks 7 and 11. That does not establish generalization to
 another lineage or antigen. Reserved test labels remain untouched, and 3,046
 eligible development identities have not yet been evaluated.
 
+A post-hoc split-locus decomposition checks whether mixing blocks alone explains
+the gain. Excluding the four split-defining sites, mean pair Hamming still rises
+from 3.6750 to 4.5833 at K=16 and from 3.9456 to 4.8125 at K=32. Block mixing
+explains part, but not all, of the observed increase. This diagnostic changes no
+selection rule or screening decision.
+
 The four-arm, three-seed regularization comparison was specified before seeing
 these results. It keeps the affinity objective fixed and compares no regularizer,
 explicit SFT-reference KL, KL+entropy, and KL+trainable embedding cosine. The same

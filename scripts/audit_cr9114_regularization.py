@@ -6,6 +6,7 @@ import argparse
 from collections import Counter
 import gc
 import hashlib
+import itertools
 import json
 from pathlib import Path
 
@@ -40,6 +41,17 @@ def cosine(features):
     return float(sum(np.dot(row, total - row) for row in z) / (n * (n - 1)))
 
 
+def split_distance_decomposition(ids, loci=(2, 5, 8, 10)):
+    """Post-hoc descriptive check: diversity on split-defining versus other sites."""
+    pairs = list(itertools.combinations(ids, 2))
+    split = [sum(a[i] != b[i] for i in loci) for a, b in pairs]
+    other = [sum(a[i] != b[i] for i in range(16) if i not in loci) for a, b in pairs]
+    within = [d for s, d in zip(split, other) if s == 0]
+    return {"split_defining_loci_0based": list(loci), "split_locus_mean_hamming": float(np.mean(split)),
+            "other_locus_mean_hamming": float(np.mean(other)), "within_block_pair_count": len(within),
+            "within_block_mean_hamming": float(np.mean(within)) if within else None}
+
+
 def audit(directory):
     result = json.loads((directory / "results.json").read_text())
     config = result["config"]
@@ -72,19 +84,26 @@ def audit(directory):
     original = pd.read_csv(shortlist_dir / "fresh_development.csv", dtype={"genotype": "string"})
     pd.testing.assert_frame_equal(fresh, original)
     require(set(fresh.split) == {"development"} and not set(fresh.genotype) & set(population.genotype), "Split leakage")
+    require([int("".join(g[i] for i in (2, 5, 8, 10)), 2) for g in fresh.genotype] == fresh.block.tolist(), "Split-defining loci changed")
     frozen = np.load(directory / "frozen_development_embeddings.npy", allow_pickle=False)
     ids_to_position = {g: i for i, g in enumerate(fresh.genotype)}
     reports = {}
+    decomposition = {}
     for name, measured in [("sft", result["sft"]), *result["arms"].items()]:
         folder = directory / name
         scores = pd.read_csv(folder / "development_scores.csv", dtype={"genotype": "string"})
         require(scores.genotype.tolist() == fresh.genotype.tolist(), "Score order changed")
         features = np.load(folder / "development_embeddings.npy", allow_pickle=False)
+        decomposition[name] = {}
         for mode, multiplier in (("ordinary", 1), ("diverse", shortlist["calibration"]["selected_multiplier"])):
+            decomposition[name][mode] = {}
             for k in (16, 32):
                 ids = independent_selection(scores, k, multiplier)
                 cell = measured["portfolios"][mode][str(k)]
                 require(ids == cell["selected_genotypes"], "Selector changed")
+                decomposition[name][mode][str(k)] = split_distance_decomposition(ids)
+                components = decomposition[name][mode][str(k)]
+                close(components["split_locus_mean_hamming"] + components["other_locus_mean_hamming"], cell["diversity"]["mean_hamming"])
                 subset = fresh.set_index("genotype").loc[ids]
                 close(cell["mean_affinity"], subset["mean"].mean())
                 close(cell["mean_minus_sem"], (subset["mean"] - subset.effective_sem).mean())
@@ -137,6 +156,7 @@ def audit(directory):
         print(f"Audited {name}", flush=True)
     evidence = {"passes": True, "output_artifacts_checked": len(result["output_sha256"]), "checkpoints_checked": 12,
         "training_weights_and_schedules_recomputed": True, "frozen_and_live_embedding_metrics_recomputed": True,
+        "posthoc_split_locus_decomposition": decomposition,
         "reserved_test_labels_evaluated": False, "arms": reports}
     save_json(directory / "independent_audit.json", evidence)
     print(json.dumps(evidence))
