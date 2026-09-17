@@ -18,7 +18,9 @@ import torch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from smallAntibodyGen.experiments.diversity import negative_entropy_surrogate  # noqa: E402
-from smallAntibodyGen.experiments.dpo import dpo_per_pair_loss, load_reference_cache  # noqa: E402
+from smallAntibodyGen.experiments.dpo import (  # noqa: E402
+    dpo_per_pair_loss, genotype_digest, load_reference_cache, write_reference_cache,
+)
 from run_cr9114_dpo_pilot import load_inputs, score_sequences, training_schedule  # noqa: E402
 from run_cr9114_esmif1_pilot import require, save_json, sha256, stable_subset, state_digest  # noqa: E402
 from prepare_cr9114_preferences import construct_pairs  # noqa: E402
@@ -97,11 +99,12 @@ def run(config_path, output):
     fresh = fresh_cohort(records, excluded, config["fresh_development_count"], config["fresh_development_seed"])
     dev_pairs, pair_audit = construct_pairs(fresh, manifest["config"])
     require(not set(fresh.genotype) & set(genotypes), "Training preference/evaluation identity overlap")
-    cache_path = ROOT / "outputs/cr9114_dpo_pilot_20260916/sft_dpo/reference_cache.json"
-    cache_sha = "e1aea46a8b7e05bfa26b51a9293b0cd8837a05d45fc14f768fef7927344f07ac"
-    require(sha256(cache_path) == cache_sha, "SFT reference cache changed")
-    identity = json.loads(cache_path.read_text())["identity"]
-    ref_values = load_reference_cache(cache_path, identity, genotypes)
+    source_cache_path = ROOT / "outputs/cr9114_dpo_pilot_20260916/sft_dpo/reference_cache.json"
+    source_cache_sha = "e1aea46a8b7e05bfa26b51a9293b0cd8837a05d45fc14f768fef7927344f07ac"
+    require(sha256(source_cache_path) == source_cache_sha, "SFT reference cache changed")
+    source_identity = json.loads(source_cache_path.read_text())["identity"]
+    identity = source_identity.copy()
+    source_ref_values = load_reference_cache(source_cache_path, source_identity, genotypes)
     output.mkdir(parents=True)
     fresh.to_csv(output / "fresh_development.csv", index=False)
     dev_pairs.to_csv(output / "development_pairs.csv", index=False)
@@ -114,7 +117,7 @@ def run(config_path, output):
                "config_sha256": sha256(config_path), "script_sha256": sha256(Path(__file__)),
                "fresh_cohort_sha256": sha256(output / "fresh_development.csv"),
                "fresh_pairs_sha256": sha256(output / "development_pairs.csv"), "fresh_pair_audit": pair_audit,
-               "reference_cache_sha256": cache_sha, "reference_identity": identity,
+               "source_reference_cache_sha256": source_cache_sha, "source_reference_identity": source_identity,
                "schedule_sha256": {str(seed): sha256(output / f"schedule_{seed}.npy") for seed in config["seeds"]},
                "reserved_test_labels_evaluated": False, "checkpoint_promoted": False, "arms": {}}
     save_json(output / "results.json", results)
@@ -142,16 +145,32 @@ def run(config_path, output):
     model.decoder.load_state_dict(sft_state, strict=True)
     require(state_digest(model.decoder) == identity["decoder_state_sha256"]
             and state_digest(model.encoder) == identity["encoder_state_sha256"]
-            and bound.geometry.digest == identity["geometry_digest"]
             and sha256(ROOT / "src/smallAntibodyGen/models/esmif1_policy.py") == identity["policy_source_sha256"]
             and sha256(ROOT / "src/smallAntibodyGen/esmif1_compat.py") == identity["compat_source_sha256"],
             "Reference identity mismatch")
     sequences = [bound.space.sequence_for(tuple(map(int, g))) for g in genotypes]
-    fresh_check = score_sequences(bound.policy, bound.geometry, sequences[:16], 4)
-    np.testing.assert_allclose(fresh_check, ref_values[:16], rtol=2e-5, atol=2e-4)
     idx = {g: i for i, g in enumerate(genotypes)}
     chosen_idx = pairs.chosen_genotype.map(idx).to_numpy(dtype=int)
     rejected_idx = pairs.rejected_genotype.map(idx).to_numpy(dtype=int)
+    # GPU encoding bytes need not reproduce across processes. Bind the new cache
+    # to THIS encoding and score every endpoint in BOTH fixed training schedules.
+    scheduled_rows = np.concatenate([s.ravel() for s in schedules.values()])
+    used = np.unique(np.concatenate([chosen_idx[scheduled_rows], rejected_idx[scheduled_rows]]))
+    print(f"Rebuilding exact reference scores for {len(used)} scheduled variants", flush=True)
+    fresh_values = score_sequences(bound.policy, bound.geometry, [sequences[i] for i in used], 16)
+    np.testing.assert_allclose(fresh_values, source_ref_values[used], rtol=2e-5, atol=2e-4)
+    used_genotypes = [genotypes[i] for i in used]
+    identity.update(geometry_digest=bound.geometry.digest, genotype_order_sha256=genotype_digest(used_genotypes))
+    cache_path = output / "reference_cache.json"
+    write_reference_cache(cache_path, identity, used_genotypes, fresh_values)
+    fresh_values = load_reference_cache(cache_path, identity, used_genotypes)
+    cache_sha = sha256(cache_path)
+    ref_values = np.full(len(genotypes), np.nan)
+    ref_values[used] = fresh_values
+    results.update(reference_identity=identity, reference_cache_sha256=cache_sha,
+                   rebuilt_reference_variants=len(used),
+                   source_reference_max_score_error=float(np.max(np.abs(fresh_values - source_ref_values[used]))))
+    save_json(output / "results.json", results)
     old_sequences = [bound.space.sequence_for(tuple(map(int, g))) for g in old_scores.genotype]
     initial_old = score_sequences(bound.policy, bound.geometry, old_sequences, 16)
     np.testing.assert_allclose(initial_old, old_scores.final_log_q, rtol=2e-5, atol=2e-4)
@@ -267,7 +286,7 @@ def run(config_path, output):
             results["arms"][name] = result
             save_json(output / "results.json", results)
             print(f"{name}: accuracy={result['development']['pair_accuracy']:.3%}, unique={result['diversity']['unique_genotypes']}, screen={result['screen']['passes']}", flush=True)
-    require(sha256(cache_path) == cache_sha, "Reference cache changed")
+    require(sha256(cache_path) == cache_sha and sha256(source_cache_path) == source_cache_sha, "Reference cache changed")
     results["two_seed_screen"] = {str(coefficient): all(r["screen"]["passes"] for r in results["arms"].values()
         if r["entropy_coefficient"] == coefficient) for coefficient in config["entropy_coefficients"]}
     results["reference_cache_unchanged"] = True
