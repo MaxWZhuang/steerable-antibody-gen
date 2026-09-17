@@ -1,0 +1,69 @@
+{
+  "schema_version": "cr9114-diversity-strategy-audit/1",
+  "date": "2026-09-17",
+  "source_evidence_sha256": "572082991e46338ebc1ae18e8e0df49ddbd4fdb603aafe316c6079fb14c37716",
+  "script_sha256": "a41dc4c334941d17ae8e08f6c3a87a242eac2be12d8ef196e23059f8d2d7f4d0",
+  "new_training_performed": false,
+  "new_assay_labels_read": false,
+  "best_method_established": false,
+  "comparisons": {
+    "20260920": {
+      "entropy_minus_plain_top_k_affinity": {
+        "16": -0.011212323449310446,
+        "32": 0.0010644698934676455
+      },
+      "entropy_minus_plain_sample_hamming": 0.24736146749755594,
+      "entropy_unique_count": 1005,
+      "plain_unique_count": 1001,
+      "entropy_minus_sft_shortlist_hamming": {
+        "16": 0.4750000000000001,
+        "32": -0.27217741935483897
+      },
+      "entropy_passes_sft_screen": true,
+      "plain_passes_sft_diversity_gates": true
+    },
+    "20260921": {
+      "entropy_minus_plain_top_k_affinity": {
+        "16": -0.013825096068993403,
+        "32": 0.002807025801622842
+      },
+      "entropy_minus_plain_sample_hamming": 0.14546676441837736,
+      "entropy_unique_count": 1005,
+      "plain_unique_count": 1004,
+      "entropy_minus_sft_shortlist_hamming": {
+        "16": 0.5916666666666668,
+        "32": -0.11088709677419306
+      },
+      "entropy_passes_sft_screen": false,
+      "plain_passes_sft_diversity_gates": true
+    }
+  },
+  "objective_scale": {
+    "variable_sites": 16,
+    "entropy_coefficient_per_site_nll": 0.03,
+    "equivalent_entropy_coefficient_sequence_nll": 0.48,
+    "note": "Multiply the entire nominal objective by 16; this does not assert identical Adam/clipping trajectories or an implementation bug.",
+    "explicit_reference_kl_in_affinity_training_loss": false
+  },
+  "uniform_policy_benchmark": {
+    "support": 65536,
+    "draws": 1024,
+    "expected_unique": 1016.0491958697519,
+    "entropy_nats": 11.090354888959125,
+    "expected_hamming": 8.0,
+    "collision_probability": 1.52587890625e-05,
+    "note": "Analytic comparison only; no genotypes were scored or joined to assay labels."
+  },
+  "hamming_counterexample": {
+    "support": 2,
+    "expected_hamming": 8.0,
+    "entropy_nats": 0.6931471805599453,
+    "collision_probability": 0.5,
+    "interpretation": "Mean Hamming alone does not certify broad joint support."
+  },
+  "cosine_counterexample": {
+    "mean_iid_cosine_support_two": 0.0,
+    "mean_iid_cosine_support_four": 0.0,
+    "interpretation": "Average cosine similarity alone is not a mode-count or functional-diversity guarantee; this is not an empirical criticism of combined objectives."
+  }
+}
