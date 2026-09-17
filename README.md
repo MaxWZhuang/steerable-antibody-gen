@@ -13,6 +13,10 @@ DPO diversity loss. They do not rule out broader overfitting; test labels remain
 An [explicit entropy-control comparison](reference/cr9114-diversity-pilot.md)
 subsequently restored much of that diversity across two DPO seeds, but no setting
 passed the joint affinity/diversity screen. SFT remains the selection baseline.
+An [affinity-weighted likelihood comparison](reference/cr9114-affinity-pilot.md)
+then retained diversity and improved top-32 affinity in both seeds, but top-16
+performance did not repeat across seeds. Its two-seed screen also fails; no
+checkpoint is promoted.
 See the
 [experiment recommendation](reference/fixed-target-posttraining-recommendation.md)
 and [prepared context](reference/cr9114-5cjq-context.md).
