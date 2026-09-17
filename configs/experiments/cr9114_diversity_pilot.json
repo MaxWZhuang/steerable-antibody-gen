@@ -1,0 +1,19 @@
+{
+  "schema_version": "cr9114-diversity-pilot/1",
+  "seeds": [20260916, 20260918],
+  "entropy_coefficients": [0.0, 0.03, 0.1],
+  "steps": 256,
+  "pairs_per_batch": 2,
+  "beta": 0.1,
+  "learning_rate": 0.00001,
+  "weight_decay": 0.01,
+  "gradient_clip": 1.0,
+  "entropy_every": 4,
+  "entropy_samples": 8,
+  "evaluation_samples": 1024,
+  "evaluation_sample_seed": 20260919,
+  "fresh_development_count": 2048,
+  "fresh_development_seed": 20260919,
+  "diversity_retention_fraction": 0.8,
+  "scope": "Six fixed final-step arms from one frozen SFT initialization; two DPO schedule seeds, not two SFT seeds. Fresh on-policy entropy draws are never joined to assay labels. All support is eligible for unlabelled regularization, so fresh evaluation means held-out measurements, not guaranteed never-generated identities. No checkpoint selection or final-test evaluation."
+}
