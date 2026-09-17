@@ -3,6 +3,11 @@
 Completed 2026-09-16 using the existing parent and 256-step SFT pilot scores.
 No additional model training or test-label evaluation was performed.
 
+**Subsequent work:** both [bounded DPO pilots](cr9114-dpo-pilot.md) have now
+completed using these frozen pairs. The pre-DPO checklist below records the
+handoff from this construction/evaluation stage; multi-seed and confirmatory
+evaluation remain outstanding.
+
 - [Explicit pair-selection configuration](../configs/experiments/cr9114_preferences.json)
 - [Reproducible builder and evaluator](../scripts/prepare_cr9114_preferences.py)
 - [Source hashes, audits and complete results](evidence/cr9114-preferences-development-2026-09-16.json)

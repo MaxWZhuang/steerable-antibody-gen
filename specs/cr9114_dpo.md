@@ -80,3 +80,8 @@ Pre-launch validation on 2026-09-16: the full repository suite passed with
 1,721 tests and three skips. A separate input preflight verified all 114,395
 training pairs, 38,066 reference genotypes, 1,399 development pairs and the
 256-by-2 sampled schedule against the pinned artifacts.
+
+Both arms subsequently completed. The [run report](../reference/cr9114-dpo-pilot.md)
+records their verified caches, gradients, checkpoint reloads and the observed
+pair-ordering versus top-candidate-selection tradeoff. The fixed pilot settings
+were not revised after viewing those results.

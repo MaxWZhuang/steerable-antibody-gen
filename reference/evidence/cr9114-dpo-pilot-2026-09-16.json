@@ -1,7 +1,7 @@
 {
   "kind": "cr9114_dpo_pilot_evidence",
   "date": "2026-09-16",
-  "status": "partial",
+  "status": "completed",
   "artifact_directory": "outputs/cr9114_dpo_pilot_20260916",
   "run": {
     "config": {
@@ -181,6 +181,146 @@
         "development_scores.csv": "4b830f1f72b0c6969075d4926dc428bdf91aeab4b19f6c3ece594dbc3944c5cc",
         "development_pair_scores.csv": "fd01432210e68371e50f854cb7b120a705f3b01bf9aab4bb697f4cfa7cf9b339"
       }
+    },
+    "sft_dpo": {
+      "result": {
+        "status": "completed",
+        "arm": "sft_dpo",
+        "steps": 256,
+        "pair_exposures": 512,
+        "sequence_exposures": 1024,
+        "reference_scoring_seconds": 385.37067810000735,
+        "training_seconds": 36.600553399999626,
+        "peak_cuda_allocated_mib": 1364.7978515625,
+        "initial_loss": 0.6931471824645996,
+        "mean_last_32_training_losses": 0.24214683874288312,
+        "encoder_unchanged": true,
+        "decoder_changed": true,
+        "reference_cache_unchanged": true,
+        "decoder_state_sha256": "1d4527681e6e0881d3e8f45fa8779dec9216ad272e65a20a95f18d80375e3926",
+        "final_checkpoint": "decoder_step_0256.pt",
+        "final_checkpoint_sha256": "dffacadd87a6b80ef62658610a61973ed20f1d6175c4c92a99c00fd0da260f06",
+        "safe_strict_checkpoint_reload": true,
+        "reload_max_error": 1.52587890625e-05,
+        "development": {
+          "initial_policy": {
+            "variant_and_block_balanced_accuracy": 0.8921380747705971,
+            "unweighted_pair_accuracy": 0.8784846318799142,
+            "per_block_accuracy": {
+              "5": 0.8210610418664133,
+              "7": 0.9225180375180366,
+              "11": 0.9328351449275358
+            },
+            "leave_one_block_out_range": [
+              0.871789539692225,
+              0.9276765912227862
+            ],
+            "score_ties": 0
+          },
+          "adapted_policy": {
+            "variant_and_block_balanced_accuracy": 0.9647350455974283,
+            "unweighted_pair_accuracy": 0.958541815582559,
+            "per_block_accuracy": {
+              "5": 0.9210290827740513,
+              "7": 0.9924242424242422,
+              "11": 0.9807518115942029
+            },
+            "leave_one_block_out_range": [
+              0.9508904471841271,
+              0.9865880270092225
+            ],
+            "score_ties": 0
+          },
+          "additive_ridge": {
+            "variant_and_block_balanced_accuracy": 0.9756948484068793,
+            "unweighted_pair_accuracy": 0.9728377412437456,
+            "per_block_accuracy": {
+              "5": 0.9484819431128154,
+              "7": 0.9901515151515149,
+              "11": 0.9884510869565216
+            },
+            "leave_one_block_out_range": [
+              0.9684665150346685,
+              0.9893013010540181
+            ],
+            "score_ties": 0
+          },
+          "adapted_minus_initial_pp": 7.259697082683115,
+          "adapted_minus_additive_pp": -1.095980280945097,
+          "spearman_initial": 0.8080052263936096,
+          "spearman_adapted": 0.7937044380357285,
+          "measured_top_k": {
+            "16": {
+              "same_pool_oracle_mean": 9.614066757480497,
+              "initial_policy": {
+                "mean_measured_h1": 9.560279015252341,
+                "regret_to_same_pool_oracle": 0.05378774222815608
+              },
+              "adapted_policy": {
+                "mean_measured_h1": 9.511778322642286,
+                "regret_to_same_pool_oracle": 0.10228843483821137
+              },
+              "additive_ridge": {
+                "mean_measured_h1": 9.487290752966334,
+                "regret_to_same_pool_oracle": 0.12677600451416282
+              }
+            },
+            "32": {
+              "same_pool_oracle_mean": 9.60072465736254,
+              "initial_policy": {
+                "mean_measured_h1": 9.55281750327662,
+                "regret_to_same_pool_oracle": 0.04790715408592128
+              },
+              "adapted_policy": {
+                "mean_measured_h1": 9.51711882260657,
+                "regret_to_same_pool_oracle": 0.08360583475597139
+              },
+              "additive_ridge": {
+                "mean_measured_h1": 9.50208208423822,
+                "regret_to_same_pool_oracle": 0.09864257312432123
+              }
+            }
+          },
+          "uncertainty_note": "Pairs share variants. Leave-one-block-out ranges are sensitivity summaries, not confidence intervals. Only three development blocks: no confirmatory cluster interval or power claim."
+        },
+        "reserved_test_evaluated": false,
+        "checkpoint_promoted": false
+      },
+      "reference_checks": {
+        "identity": {
+          "reference": "sft_dpo",
+          "source_checkpoint_sha256": "e0da8b1221ee5218be881df183c39a2f4fc80d57c1814211d83312c277b4ca58",
+          "decoder_state_sha256": "c8ea340526ea1bbb53d018fb4db2a081a4a727bae76fbf1be34882862e3efb4a",
+          "encoder_state_sha256": "2138dd5f2f82d504b9d80f76238d4faae1eb39428b750e510f7d386102fed2aa",
+          "prepared_artifact_sha256": "70be19f822c05d4efaa84d01ab75940516001e147b218f18a09c9d5b6bfbe4f7",
+          "geometry_digest": "6aff5223334b71276c9e0a956ec6efb4e36416e10f2ea28f7fb2b0d5953c85c3",
+          "genotype_order_sha256": "22753141ed712bccf1142305e7f2a9ba9beb3d154f4adec62828bee94325deb8",
+          "probability_contract": "ESM-IF1 binary 16-site constrained summed log q; temperature 1; dropout off",
+          "policy_source_sha256": "5857128508e7c5d2c6b136a5ab61fe1658e6f1e439f1a678d4779263d5289f6b",
+          "compat_source_sha256": "79fc85f13bb06a819cb405b46317c6b425dcaf664e6dcd50daf9e451bb75ffd4",
+          "torch_version": "2.11.0+cu126",
+          "esm_version": "2.0.0",
+          "score_batch_size": 16,
+          "precision": "float32"
+        },
+        "cache_sha256": "e1aea46a8b7e05bfa26b51a9293b0cd8837a05d45fc14f768fef7927344f07ac",
+        "reference_seconds": 385.37067810000735,
+        "cache_fresh_max_error": 1.9073486328125e-06,
+        "initial_development_max_error": 1.4305114747870107e-05,
+        "initial_decoder_state_sha256": "c8ea340526ea1bbb53d018fb4db2a081a4a727bae76fbf1be34882862e3efb4a"
+      },
+      "training_checks": {
+        "logged_steps": 256,
+        "minimum_gradient_norm": 0.004798575304448605,
+        "maximum_gradient_norm": 8.654741287231445
+      },
+      "output_files": {
+        "result.json": "8f7a1e72812146d9181cbfaf0a68ec52de6c8fee3f6049139016f95d2a3689f6",
+        "reference_checks.json": "87cc1be2a3b1f9460df33b32012656df0e44f31440868c698c499fc978f1e55c",
+        "history.json": "b8465c735640cd19cf2a80af012e4ba726058ee5b419c108243a8494e56a56e1",
+        "development_scores.csv": "e700dd547f42f2781b206dce5d6a3b848b69ec9ed56281dca7aaacd2265350dc",
+        "development_pair_scores.csv": "45c8675b6504f7884d6a415184af1842b8f6519d238f5f67a431678476587bc5"
+      }
     }
   },
   "validation": {
@@ -194,5 +334,20 @@
     "Same 512-candidate development pool and three blocks; no confirmatory uncertainty claim.",
     "SFT-to-DPO includes earlier supervised compute; direct DPO does not.",
     "5CJQ is the declared structural proxy, not an exact assay construct."
-  ]
+  ],
+  "independent_postrun_audit": {
+    "evaluation": {
+      "direct_dpo": {
+        "accuracy_recomputed": 0.9496334077535976,
+        "implicit_reward_recomputed": true
+      },
+      "sft_dpo": {
+        "accuracy_recomputed": 0.9647350455974286,
+        "implicit_reward_recomputed": true
+      }
+    },
+    "reference_genotypes_identical": true,
+    "reference_encoder_identical": true,
+    "reference_decoders_and_scores_distinct": true
+  }
 }

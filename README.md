@@ -5,6 +5,9 @@ benchmark**, with 16 binary heavy-chain sites and one fixed structural context.
 The working template is 5CJQ; the benchmark sequence-to-structure mapping is
 verified and the structural input is prepared. Released-model scoring checks and
 a bounded supervised pilot have completed; see the [pilot results](reference/cr9114-5cjq-pilot.md).
+The first [direct-DPO and SFT-to-DPO pilots](reference/cr9114-dpo-pilot.md) also
+completed: pair ordering improved, while SFT retained stronger top-candidate
+selection on the development pool. The reserved test remains untouched.
 See the
 [experiment recommendation](reference/fixed-target-posttraining-recommendation.md)
 and [prepared context](reference/cr9114-5cjq-context.md).
@@ -160,6 +163,7 @@ records the first real-context scoring and training results; test data remain re
 The [preference-pair development evaluation](reference/cr9114-preferences-development.md)
 now supplies separate training/development pairs and quantifies SFT ordering
 headroom. The [DPO pilot](specs/cr9114_dpo.md) implements the objective,
-checkpoint-specific reference caches, and matched direct-DPO/SFT-to-DPO runs;
-runtime results must be read from completed run evidence.
+checkpoint-specific reference caches, and matched direct-DPO/SFT-to-DPO runs.
+[Completed run evidence](reference/evidence/cr9114-dpo-pilot-2026-09-16.json)
+records both branches and their development tradeoff; this remains a single-seed pilot.
 Implemented components alone do not establish biological improvement.
