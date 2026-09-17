@@ -3,9 +3,10 @@
 The current experiment studies **ESM-IF1 post-training on the CR9114/H1 binding
 benchmark**, with 16 binary heavy-chain sites and one fixed structural context.
 The working template is 5CJQ; the benchmark sequence-to-structure mapping is
-verified, and model-input preparation is the next integration step. See the
+verified and the structural input is prepared. Released-model scoring validation
+is the next integration step. See the
 [experiment recommendation](reference/fixed-target-posttraining-recommendation.md)
-and [mapping audit](reference/cr9114-5cjq-mapping.md).
+and [prepared context](reference/cr9114-5cjq-context.md).
 
 The broader research program examines antigen conditioning, inference-time
 guidance, and fixed-length HCDR3 editing. The custom-model implementation and
@@ -135,16 +136,17 @@ locations, missing backbone atoms, non-canonical residues and solvent sharing a
 selected chain are **rejected by name rather than filtered out**. It writes a
 portable artifact and a deterministic report in which every model-integration
 check is recorded as NOT RUN, because it supplies no model and loads no weights.
-No real structure has been prepared with it; its adapter tests run on generated
-synthetic files. The separate [CR9114/5CJQ mapping audit](reference/cr9114-5cjq-mapping.md)
-verifies the 16 benchmark sites and 121-residue VH against pinned release files.
+The [CR9114/5CJQ context](reference/cr9114-5cjq-context.md) is now prepared and
+source-verified: 121 decoded VH residues, 16 editable sites, partner VL, and the
+antigen trimer. Missing antigen regions are explicit fragment breaks. Its adapter
+unit tests use generated synthetic files; real-context model scoring is pending.
 Schema, exact supported and rejected
 cases, and limitations are in
 [the structural-input specification](specs/esmif1_structure.md).
 
 **Working template selected, 2026-09-16:** [5CJQ](reference/5cjq-structural-template.md)
 for CR9114/H1. Source files are hash-pinned and the benchmark VH mapping is
-verified; model-input preparation remains pending. Its engineered H1-derived stem is proxy context,
+verified and the structural input is prepared. Its engineered H1-derived stem is proxy context,
 not an established match to the assayed antigen construct.
 
 Benchmark manifests and the experiment runner remain incomplete. Hardware and
