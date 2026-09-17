@@ -186,3 +186,11 @@ completed twelve runs under a [fixed protocol](specs/cr9114_shortlist.md), holdi
 affinity training constant while comparing reference KL, entropy, and embedding
 diversity. No regularizer retained or improved both ordinary affinity budgets
 against its direct matched control in every seed; no checkpoint was promoted.
+
+A [larger-budget affinity-only diagnostic](specs/cr9114_budget_pressure.md) continues
+that same seed-20260925 control to 16,384 updates and 65,536 labelled exposures with
+the reference and diversity penalties disabled (AdamW weight decay is retained),
+measuring exact distributional movement over all 65,536 legal identities at the two
+endpoints and conditional measured affinity on training labels
+and the 8,704 already-evaluated development identities only. Its protocol, code and
+independent audit were committed before fitting; results are not yet recorded.
