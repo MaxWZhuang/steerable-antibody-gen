@@ -67,6 +67,11 @@ def run(directory):
     check_close(population.affinity_probability, probability)
     check_close(population.uniform_probability, np.full(len(population), 1 / len(population)))
     check_close(results["population"]["pooled_sample_variance"], variance)
+    check_close(results["population"]["mean_threshold"], threshold)
+    check_close(results["population"]["effective_sampling_population"], 1 / np.sum(probability ** 2))
+    check_close(results["population"]["probability_ratio"], probability.max() / probability.min())
+    check_close(results["population"]["uniform_expected_affinity"], expected_pool["mean"].mean())
+    check_close(results["population"]["weighted_expected_affinity"], probability @ expected_pool["mean"].to_numpy())
     for seed in config["seeds"]:
         for weighted in (False, True):
             key = f"{seed}_{'weighted' if weighted else 'uniform'}"
@@ -94,12 +99,19 @@ def run(directory):
             require(ordered.head(int(k)).genotype.tolist() == result["selection_details"][k]["selected_genotypes"], "Selection mismatch")
             check_close((ordered.head(int(k))["mean"] - ordered.head(int(k)).effective_sem).mean(),
                         result["selection_details"][k]["mean_minus_effective_sem"])
+            baseline_ids = set(results["sft"]["selection_details"][k]["selected_genotypes"])
+            require(len(set(ordered.head(int(k)).genotype) & baseline_ids) == result["selection_details"][k]["overlap_with_sft"], "Selection overlap mismatch")
+            for block, group in ordered.groupby("block"):
+                check_close(group.head(int(k))["mean"].mean(), result["selection_details"][k]["per_block_top_k_mean"][str(int(block))])
+                check_close(ordered[ordered.block != block].head(int(k))["mean"].mean(),
+                            result["selection_details"][k]["leave_one_block_out_top_k_mean"][str(int(block))])
         margin = scores.loc[pairs.chosen_genotype].to_numpy() - scores.loc[pairs.rejected_genotype].to_numpy()
         credit = (margin > 1e-6).astype(float) + .5 * (np.abs(margin) <= 1e-6)
         check_close(np.average(credit, weights=pairs.pair_weight), result["development"]["pair_accuracy"])
         samples = pd.read_csv(folder / "samples.csv", dtype={"genotype": "string"})
         n = len(samples)
         require(n == config["evaluation_samples"], "Sample count changed")
+        require(np.isfinite(samples.log_q).all() and (samples.log_q <= 1e-6).all(), "Invalid sample probabilities")
         counts = np.array(list(Counter(samples.genotype).values()))
         one_counts = np.array([list(map(int, g)) for g in samples.genotype]).sum(axis=0)
         hamming = float(np.sum(2 * one_counts * (n - one_counts)) / (n * (n - 1)))
@@ -125,6 +137,7 @@ def run(directory):
             require(len(regularization) == result["regularization_sample_count"] == len(expected_steps) * config["entropy_samples"], "Entropy sample count mismatch")
             require(set(regularization.columns) == {"step", "genotype", "log_q"}, "Labels in entropy samples")
             require(regularization.groupby("step").size().to_dict() == {s: config["entropy_samples"] for s in expected_steps}, "Entropy batch count mismatch")
+            require(len(set(regularization.genotype) & set(fresh.genotype)) == result["unlabelled_regularization_unique_overlap_with_development"], "Unlabelled overlap mismatch")
         else:
             require(result["regularization_sample_count"] == 0, "Unexpected entropy samples")
         baseline = checks["sft"]
