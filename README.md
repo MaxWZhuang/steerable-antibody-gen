@@ -157,4 +157,7 @@ and general benchmark manifests remain incomplete. Hardware and weight-loading
 readiness are recorded in the training-box evidence above. The
 [completed pilot report](reference/evidence/cr9114-5cjq-pilot-2026-09-16.json)
 records the first real-context scoring and training results; test data remain reserved.
+The [preference-pair development evaluation](reference/cr9114-preferences-development.md)
+now supplies separate training/development pairs and quantifies SFT ordering
+headroom. The DPO objective, reference-score caches and trainer remain to be implemented.
 Implemented components alone do not establish biological improvement.

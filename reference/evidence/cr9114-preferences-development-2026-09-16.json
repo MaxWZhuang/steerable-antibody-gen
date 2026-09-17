@@ -1,0 +1,300 @@
+{
+  "kind": "cr9114_preference_pairs_and_development_evaluation",
+  "date": "2026-09-16",
+  "config": {
+    "schema_version": "cr9114-preferences/1",
+    "seed": 20260916,
+    "minimum_mean_gap": 0.1,
+    "uncertainty_multiplier": 2.0,
+    "maximum_pairs_per_variant": 8,
+    "matching_rounds": 64,
+    "score_tie_tolerance": 1e-06,
+    "top_k": [
+      16,
+      32
+    ],
+    "pair_scope": "Same split and same genotype block only; never train/development or test pairs.",
+    "variance_rule": "Fit pooled within-genotype sample variance using eligible training genotypes only. Effective variance of each mean is max(its sample variance, training pooled variance)/replicate count.",
+    "preference_rule": "Choose the higher recomputed H1 mean only when its gap strictly exceeds both minimum_mean_gap and uncertainty_multiplier times sqrt(effective variance of each mean summed). This is a heuristic uncertainty screen, not a calibrated hypothesis test or simultaneous confidence guarantee.",
+    "pair_sampling": "Seeded random disjoint matchings within each block for at most 64 rounds; accept eligible, previously unseen pairs while both endpoints have degree below eight. Selection never uses model scores.",
+    "weighting": "Each represented variant has equal total contribution within its block; each represented block has equal weight. Pair weight is (1/degree_chosen + 1/degree_rejected)/(represented variants in block * represented blocks). Weights sum to one per split.",
+    "evaluation_scope": "Use the existing 512 scored development genotypes. Report weighted pair accuracy, paired differences, per-block results, leave-one-block-out ranges, and measured top-K. Three development blocks do not support a reliable confirmatory cluster confidence interval; no independent-pair binomial interval is used.",
+    "reserved_test_evaluation": false
+  },
+  "config_sha256": "29b1453baa848dba250c349418a02cc15ac2033e00a8aac4e3327bf15064a4ab",
+  "script_sha256": "5ab59a738def61cb5345a4c65cb703859c430dac50ec59cc37e1d80ede85d445",
+  "git_commit": "fc108317b4ce1933cbcf21bd9e1fa2358830c2d6",
+  "git_worktree_dirty": true,
+  "scope": "Development exploration on existing pilot scores; no new training or final-test evaluation.",
+  "pilot_source_commit": "3cc00431ae76b501bbdcba9000d17aeb0a3d4e55",
+  "prepared_artifact": "data/processed/cr9114_5cjq_context/cr9114_5cjq.prepared.json",
+  "prepared_artifact_sha256": "70be19f822c05d4efaa84d01ab75940516001e147b218f18a09c9d5b6bfbe4f7",
+  "data_sha256": "ee31f8fc26fce2730d2ae772e7a095aa334b4c6c5d8e7fbfe4b4a5a1c9a794fe",
+  "input_files": {
+    "run.json": "af922166c3b3fda92378815bba5426143322360af570b03fbf91be194bb756a1",
+    "cohort.json": "f36848f8d4fe5c9b2b92674dd5ee2152d4e3923607ac7f08dd372e94ff2aaa53",
+    "split.csv": "93e4188c88f9dfb8e1d8d41650d5b8eec3ae6c0a473eed3e3c9cf56e41871951",
+    "development_scores.csv": "169b4afe31bf89ee1d47c9cbb1f1b8e783110898ef48d8337908250c6b76c2d2",
+    "checkpoint_reload.json": "0db56f4bf6524d72983f81ed195c5cc4955659eca92ebd8078efedfe3dc24b82"
+  },
+  "training_pooled_sample_variance": 0.015734210674519238,
+  "training_pooled_sd": 0.1254360820279366,
+  "train": {
+    "candidate_variants": 38790,
+    "represented_variants": 38066,
+    "unrepresented_variants": 724,
+    "pair_count": 114395,
+    "maximum_variant_degree": 8,
+    "represented_blocks": 10,
+    "pair_weight_sum": 1.0,
+    "hamming_distance_histogram": {
+      "1": 106,
+      "2": 913,
+      "3": 4026,
+      "4": 10981,
+      "5": 20128,
+      "6": 26372,
+      "7": 24585,
+      "8": 16546,
+      "9": 7802,
+      "10": 2410,
+      "11": 486,
+      "12": 40
+    },
+    "per_block": [
+      {
+        "block": 0,
+        "candidates": 3728,
+        "represented_variants": 3727,
+        "pairs": 13378
+      },
+      {
+        "block": 1,
+        "candidates": 3699,
+        "represented_variants": 3698,
+        "pairs": 13318
+      },
+      {
+        "block": 3,
+        "candidates": 4082,
+        "represented_variants": 3985,
+        "pairs": 11474
+      },
+      {
+        "block": 4,
+        "candidates": 3609,
+        "represented_variants": 3608,
+        "pairs": 12693
+      },
+      {
+        "block": 6,
+        "candidates": 4025,
+        "represented_variants": 3877,
+        "pairs": 9113
+      },
+      {
+        "block": 9,
+        "candidates": 3746,
+        "represented_variants": 3743,
+        "pairs": 13124
+      },
+      {
+        "block": 10,
+        "candidates": 4090,
+        "represented_variants": 3939,
+        "pairs": 10997
+      },
+      {
+        "block": 12,
+        "candidates": 3663,
+        "represented_variants": 3655,
+        "pairs": 12049
+      },
+      {
+        "block": 14,
+        "candidates": 4069,
+        "represented_variants": 3905,
+        "pairs": 9077
+      },
+      {
+        "block": 15,
+        "candidates": 4079,
+        "represented_variants": 3929,
+        "pairs": 9172
+      }
+    ]
+  },
+  "development": {
+    "candidate_variants": 512,
+    "represented_variants": 498,
+    "unrepresented_variants": 14,
+    "pair_count": 1399,
+    "maximum_variant_degree": 8,
+    "represented_blocks": 3,
+    "pair_weight_sum": 1.0,
+    "hamming_distance_histogram": {
+      "1": 1,
+      "2": 8,
+      "3": 50,
+      "4": 136,
+      "5": 227,
+      "6": 301,
+      "7": 327,
+      "8": 220,
+      "9": 87,
+      "10": 30,
+      "11": 10,
+      "12": 2
+    },
+    "per_block": [
+      {
+        "block": 5,
+        "candidates": 149,
+        "represented_variants": 149,
+        "pairs": 539
+      },
+      {
+        "block": 7,
+        "candidates": 173,
+        "represented_variants": 165,
+        "pairs": 375
+      },
+      {
+        "block": 11,
+        "candidates": 190,
+        "represented_variants": 184,
+        "pairs": 485
+      }
+    ]
+  },
+  "development_metrics": {
+    "parent": {
+      "variant_and_block_balanced_accuracy": 0.6616051357643857,
+      "unweighted_pair_accuracy": 0.6490350250178699,
+      "per_block_accuracy": {
+        "5": 0.672802812400128,
+        "7": 0.7293650793650794,
+        "11": 0.5826475155279502
+      },
+      "leave_one_block_out_range": [
+        0.6277251639640391,
+        0.7010839458826037
+      ],
+      "score_ties": 0
+    },
+    "sft": {
+      "variant_and_block_balanced_accuracy": 0.8921380747706615,
+      "unweighted_pair_accuracy": 0.8784846318799142,
+      "per_block_accuracy": {
+        "5": 0.8210610418664113,
+        "7": 0.9225180375180375,
+        "11": 0.9328351449275363
+      },
+      "leave_one_block_out_range": [
+        0.8717895396922245,
+        0.927676591222787
+      ],
+      "score_ties": 0
+    },
+    "additive_ridge": {
+      "variant_and_block_balanced_accuracy": 0.975694848406951,
+      "unweighted_pair_accuracy": 0.9728377412437456,
+      "per_block_accuracy": {
+        "5": 0.9484819431128159,
+        "7": 0.9901515151515151,
+        "11": 0.9884510869565217
+      },
+      "leave_one_block_out_range": [
+        0.9684665150346687,
+        0.9893013010540184
+      ],
+      "score_ties": 0
+    },
+    "sft_minus_parent_pp": 23.05329390062758,
+    "sft_minus_additive_pp": -8.355677363628944,
+    "sft_mathematical_headroom_pp": 10.786192522933845,
+    "paired_weight_mass": {
+      "sft_better_than_parent": 0.31351071594542557,
+      "sft_worse_than_parent": 0.08297777693914986,
+      "equal_credit": 0.6035115071154245
+    },
+    "measured_top_k": {
+      "16": {
+        "same_pool_oracle_mean": 9.614066757480497,
+        "models": {
+          "parent": {
+            "mean_measured_h1": 9.457868830245477,
+            "regret_to_same_pool_oracle": 0.15619792723502002
+          },
+          "sft": {
+            "mean_measured_h1": 9.560279015252341,
+            "regret_to_same_pool_oracle": 0.05378774222815608
+          },
+          "additive_ridge": {
+            "mean_measured_h1": 9.487290752966334,
+            "regret_to_same_pool_oracle": 0.12677600451416282
+          }
+        }
+      },
+      "32": {
+        "same_pool_oracle_mean": 9.60072465736254,
+        "models": {
+          "parent": {
+            "mean_measured_h1": 9.471815109764849,
+            "regret_to_same_pool_oracle": 0.1289095475976918
+          },
+          "sft": {
+            "mean_measured_h1": 9.55281750327662,
+            "regret_to_same_pool_oracle": 0.04790715408592128
+          },
+          "additive_ridge": {
+            "mean_measured_h1": 9.50208208423822,
+            "regret_to_same_pool_oracle": 0.09864257312432123
+          }
+        }
+      }
+    },
+    "uncertainty_note": "Pairs share variants. Leave-one-block-out ranges are sensitivity summaries, not confidence intervals. Only three development blocks: no confirmatory cluster interval or power claim."
+  },
+  "split_isolation_verified": true,
+  "reserved_test_evaluated": false,
+  "output_files": {
+    "development_pair_scores.csv": {
+      "sha256": "bdf99e64a2d91d720269ae50a5f5caf07aab6fe60ccbadf7909df3e9b083ad16",
+      "size_bytes": 226767
+    },
+    "development_pairs.csv": {
+      "sha256": "57aac13cd02b4ff915d2ee88b1a8f230e7116b70f35f1f432283b99e1a260324",
+      "size_bytes": 209929
+    },
+    "eligible_non_test_records.csv": {
+      "sha256": "82fdd8f3d361cdf292544829e5888963e315d3c743b604ea0c56f7ad3a80263f",
+      "size_bytes": 5500357
+    },
+    "training_pairs.csv": {
+      "sha256": "e94db1a57d0a5810e5f8646711f5772f6729089067d7a09a2bb9601874baca39",
+      "size_bytes": 16485524
+    }
+  },
+  "artifact_directory": "outputs/cr9114_preferences_verified_20260916",
+  "verification": {
+    "tests_passed": 47,
+    "byte_identical_reproduction": [
+      "training_pairs.csv",
+      "development_pairs.csv",
+      "development_pair_scores.csv",
+      "eligible_non_test_records.csv"
+    ],
+    "independent_csv_audit": {
+      "train": {
+        "pairs": 114395,
+        "unique_variants": 38066
+      },
+      "development": {
+        "pairs": 1399,
+        "unique_variants": 498
+      }
+    },
+    "test_labels_evaluated": false
+  }
+}

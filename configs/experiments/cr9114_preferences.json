@@ -1,0 +1,17 @@
+{
+  "schema_version": "cr9114-preferences/1",
+  "seed": 20260916,
+  "minimum_mean_gap": 0.1,
+  "uncertainty_multiplier": 2.0,
+  "maximum_pairs_per_variant": 8,
+  "matching_rounds": 64,
+  "score_tie_tolerance": 0.000001,
+  "top_k": [16, 32],
+  "pair_scope": "Same split and same genotype block only; never train/development or test pairs.",
+  "variance_rule": "Fit pooled within-genotype sample variance using eligible training genotypes only. Effective variance of each mean is max(its sample variance, training pooled variance)/replicate count.",
+  "preference_rule": "Choose the higher recomputed H1 mean only when its gap strictly exceeds both minimum_mean_gap and uncertainty_multiplier times sqrt(effective variance of each mean summed). This is a heuristic uncertainty screen, not a calibrated hypothesis test or simultaneous confidence guarantee.",
+  "pair_sampling": "Seeded random disjoint matchings within each block for at most 64 rounds; accept eligible, previously unseen pairs while both endpoints have degree below eight. Selection never uses model scores.",
+  "weighting": "Each represented variant has equal total contribution within its block; each represented block has equal weight. Pair weight is (1/degree_chosen + 1/degree_rejected)/(represented variants in block * represented blocks). Weights sum to one per split.",
+  "evaluation_scope": "Use the existing 512 scored development genotypes. Report weighted pair accuracy, paired differences, per-block results, leave-one-block-out ranges, and measured top-K. Three development blocks do not support a reliable confirmatory cluster confidence interval; no independent-pair binomial interval is used.",
+  "reserved_test_evaluation": false
+}
