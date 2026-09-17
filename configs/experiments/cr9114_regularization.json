@@ -1,0 +1,26 @@
+{
+  "schema_version": "cr9114-regularization/1",
+  "seeds": [20260925, 20260926, 20260927],
+  "arms": [
+    {"name": "affinity", "kl": 0.0, "entropy": 0.0, "embedding": 0.0},
+    {"name": "kl", "kl": 0.1, "entropy": 0.0, "embedding": 0.0},
+    {"name": "kl_entropy", "kl": 0.1, "entropy": 0.1, "embedding": 0.0},
+    {"name": "kl_embedding", "kl": 0.1, "entropy": 0.0, "embedding": 0.1}
+  ],
+  "positive_quantile": 0.75,
+  "uncertainty_multiplier": 1.0,
+  "max_weight_ratio": 20.0,
+  "uniform_fraction": 0.25,
+  "steps": 256,
+  "batch_size": 4,
+  "sequence_normalizer": 16,
+  "learning_rate": 0.00001,
+  "weight_decay": 0.01,
+  "gradient_clip": 1.0,
+  "regularization_every": 4,
+  "regularization_samples": 8,
+  "evaluation_samples": 1024,
+  "evaluation_sample_seed": 20260928,
+  "shortlist_directory": "outputs/cr9114_shortlist_20260917",
+  "checkpoint_promoted": false
+}

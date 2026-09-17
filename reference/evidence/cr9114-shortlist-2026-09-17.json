@@ -1,0 +1,533 @@
+{
+  "schema_version": "cr9114-shortlist-evidence/1",
+  "completed_date": "2026-09-17",
+  "run": {
+    "schema_version": "cr9114-shortlist-result/1",
+    "status": "completed",
+    "config": {
+      "schema_version": "cr9114-shortlist/1",
+      "budgets": [
+        16,
+        32
+      ],
+      "admission_multipliers": [
+        1,
+        2,
+        4,
+        8
+      ],
+      "calibration_cohorts": 4,
+      "calibration_count_per_cohort": 2048,
+      "calibration_seed": 20260923,
+      "fresh_development_count": 2048,
+      "fresh_development_seed": 20260924,
+      "affinity_loss_tolerance": 0.02,
+      "minimum_mean_hamming_gain": 0.25,
+      "quality_threshold_training_quantile": 0.75
+    },
+    "git_commit": "353ded5f744d69033954a53195c7cf1ec3824d9b",
+    "config_sha256": "61638d0e343003ac4bc9b3f0cb9d0d60d07c1edbb767e559f0097898d376c977",
+    "input_records_sha256": "82fdd8f3d361cdf292544829e5888963e315d3c743b604ea0c56f7ad3a80263f",
+    "initial_identity": {
+      "decoder_state_sha256": "c8ea340526ea1bbb53d018fb4db2a081a4a727bae76fbf1be34882862e3efb4a",
+      "encoder_state_sha256": "2138dd5f2f82d504b9d80f76238d4faae1eb39428b750e510f7d386102fed2aa",
+      "geometry_digest": "cf4c951fe4e97d728616e11819a99e82cec8d7d8aaf6c55eff9f4ffd526d8b92",
+      "sft_checkpoint_sha256": "e0da8b1221ee5218be881df183c39a2f4fc80d57c1814211d83312c277b4ca58",
+      "weights_sha256": "be4ba36edec22a9bfaa4946ff6b2815f1f19d8a3d7e0eada8b796d5a0eae9fd4",
+      "prepared_artifact_sha256": "70be19f822c05d4efaa84d01ab75940516001e147b218f18a09c9d5b6bfbe4f7"
+    },
+    "prior_cohort_sha256": {
+      "outputs/cr9114_5cjq_pilot_20260916/development_scores.csv": "169b4afe31bf89ee1d47c9cbb1f1b8e783110898ef48d8337908250c6b76c2d2",
+      "outputs/cr9114_dpo_diagnostics_20260916/fresh_development.csv": "28de3dc5b7034283804eac1cd9170bd74bd2e4405d8423b01dadac2f7b4bbb8e",
+      "outputs/cr9114_diversity_pilot_20260916_v3/fresh_development.csv": "aa6a0ec8a98caf8904e607fd99e99bdf7f8527fbd0fe2f240cbec09cd26bf154",
+      "outputs/cr9114_affinity_pilot_20260916/fresh_development.csv": "7f93cb8690c645a717e0ffb7d9d26e2fdee4a6a346535d2a3e97a9d0b9872edc"
+    },
+    "previous_development_count": 6656,
+    "remaining_unevaluated_eligible_development": 3046,
+    "calibration": {
+      "selected_multiplier": 4,
+      "options": [
+        {
+          "multiplier": 1,
+          "cells": [
+            {
+              "cohort": 0,
+              "k": 16,
+              "affinity_delta": 0.0,
+              "hamming_delta": 0.0
+            },
+            {
+              "cohort": 0,
+              "k": 32,
+              "affinity_delta": 0.0,
+              "hamming_delta": 0.0
+            },
+            {
+              "cohort": 1,
+              "k": 16,
+              "affinity_delta": 0.0,
+              "hamming_delta": 0.0
+            },
+            {
+              "cohort": 1,
+              "k": 32,
+              "affinity_delta": 0.0,
+              "hamming_delta": 0.0
+            },
+            {
+              "cohort": 2,
+              "k": 16,
+              "affinity_delta": 0.0,
+              "hamming_delta": 0.0
+            },
+            {
+              "cohort": 2,
+              "k": 32,
+              "affinity_delta": 0.0,
+              "hamming_delta": 0.0
+            },
+            {
+              "cohort": 3,
+              "k": 16,
+              "affinity_delta": 0.0,
+              "hamming_delta": 0.0
+            },
+            {
+              "cohort": 3,
+              "k": 32,
+              "affinity_delta": 0.0,
+              "hamming_delta": 0.0
+            }
+          ],
+          "passes_quality": true,
+          "mean_hamming_gain": 0.0
+        },
+        {
+          "multiplier": 2,
+          "cells": [
+            {
+              "cohort": 0,
+              "k": 16,
+              "affinity_delta": 0.004536750732237138,
+              "hamming_delta": 0.6833333333333336
+            },
+            {
+              "cohort": 0,
+              "k": 32,
+              "affinity_delta": -0.0028571011335998264,
+              "hamming_delta": 0.6935483870967749
+            },
+            {
+              "cohort": 1,
+              "k": 16,
+              "affinity_delta": -0.010069971295452618,
+              "hamming_delta": 1.1583333333333337
+            },
+            {
+              "cohort": 1,
+              "k": 32,
+              "affinity_delta": -0.0011467835157752404,
+              "hamming_delta": 0.6794354838709671
+            },
+            {
+              "cohort": 2,
+              "k": 16,
+              "affinity_delta": -0.0003219121383963852,
+              "hamming_delta": 0.47499999999999964
+            },
+            {
+              "cohort": 2,
+              "k": 32,
+              "affinity_delta": -0.004709462346177418,
+              "hamming_delta": 0.439516129032258
+            },
+            {
+              "cohort": 3,
+              "k": 16,
+              "affinity_delta": -0.0009603390978778492,
+              "hamming_delta": 0.5249999999999995
+            },
+            {
+              "cohort": 3,
+              "k": 32,
+              "affinity_delta": 0.009007434045086526,
+              "hamming_delta": 0.35483870967741904
+            }
+          ],
+          "passes_quality": true,
+          "mean_hamming_gain": 0.6261256720430106
+        },
+        {
+          "multiplier": 4,
+          "cells": [
+            {
+              "cohort": 0,
+              "k": 16,
+              "affinity_delta": 0.010789470042126936,
+              "hamming_delta": 1.3666666666666671
+            },
+            {
+              "cohort": 0,
+              "k": 32,
+              "affinity_delta": -0.002790089546319763,
+              "hamming_delta": 1.05241935483871
+            },
+            {
+              "cohort": 1,
+              "k": 16,
+              "affinity_delta": -0.008313170597757491,
+              "hamming_delta": 1.5333333333333337
+            },
+            {
+              "cohort": 1,
+              "k": 32,
+              "affinity_delta": -0.006698235477166747,
+              "hamming_delta": 1.342741935483871
+            },
+            {
+              "cohort": 2,
+              "k": 16,
+              "affinity_delta": 0.0031596205890984663,
+              "hamming_delta": 1.0999999999999996
+            },
+            {
+              "cohort": 2,
+              "k": 32,
+              "affinity_delta": -0.005333746986380561,
+              "hamming_delta": 0.951612903225806
+            },
+            {
+              "cohort": 3,
+              "k": 16,
+              "affinity_delta": 0.008996053654332314,
+              "hamming_delta": 0.8249999999999993
+            },
+            {
+              "cohort": 3,
+              "k": 32,
+              "affinity_delta": -0.009150300344586526,
+              "hamming_delta": 1.040322580645161
+            }
+          ],
+          "passes_quality": true,
+          "mean_hamming_gain": 1.1515120967741934
+        },
+        {
+          "multiplier": 8,
+          "cells": [
+            {
+              "cohort": 0,
+              "k": 16,
+              "affinity_delta": 0.010421271394889686,
+              "hamming_delta": 1.958333333333333
+            },
+            {
+              "cohort": 0,
+              "k": 32,
+              "affinity_delta": -0.016823442614779083,
+              "hamming_delta": 1.806451612903226
+            },
+            {
+              "cohort": 1,
+              "k": 16,
+              "affinity_delta": 0.003376815895162366,
+              "hamming_delta": 2.0083333333333333
+            },
+            {
+              "cohort": 1,
+              "k": 32,
+              "affinity_delta": -0.018524239202772463,
+              "hamming_delta": 1.866935483870967
+            },
+            {
+              "cohort": 2,
+              "k": 16,
+              "affinity_delta": 0.004012503705245862,
+              "hamming_delta": 1.3583333333333334
+            },
+            {
+              "cohort": 2,
+              "k": 32,
+              "affinity_delta": -0.024954475130350318,
+              "hamming_delta": 1.689516129032258
+            },
+            {
+              "cohort": 3,
+              "k": 16,
+              "affinity_delta": -0.01821869017648048,
+              "hamming_delta": 1.5999999999999996
+            },
+            {
+              "cohort": 3,
+              "k": 32,
+              "affinity_delta": -0.012095738905717468,
+              "hamming_delta": 1.570564516129032
+            }
+          ],
+          "passes_quality": false,
+          "mean_hamming_gain": 1.7323084677419351
+        }
+      ],
+      "affinity_loss_tolerance": 0.02,
+      "quality_threshold": 9.482658815267193
+    },
+    "locked_selection_sha256": "2349b7f2fb93f3201860602137e87a10cb725a6e1277ee33183f678325822974",
+    "reserved_test_labels_evaluated": false,
+    "model_trained": false,
+    "checkpoint_promoted": false,
+    "portfolios": {
+      "ordinary": {
+        "16": {
+          "selected_genotypes": [
+            "1101110111111001",
+            "1101010111111111",
+            "1101111111101011",
+            "1101111111101101",
+            "1100110111111111",
+            "1001111011111111",
+            "1001110111111011",
+            "1101110011111100",
+            "1101110111111100",
+            "1001111111111101",
+            "1101111011111100",
+            "1101110111111010",
+            "1001111111101111",
+            "1100110011111001",
+            "1101011111101101",
+            "1001110111111001"
+          ],
+          "mean_affinity": 9.572041412074592,
+          "mean_minus_sem": 9.49962085634967,
+          "quality_threshold": 9.482658815267193,
+          "quality_qualified_count": 16,
+          "quality_qualified_diversity": {
+            "unique": 16,
+            "mean_hamming": 3.675,
+            "minimum_hamming": 1,
+            "hamming_le_one_pair_fraction": 0.041666666666666664,
+            "identity_collision_pair_fraction": 0.0,
+            "hamming_le_one_components": 11,
+            "largest_component": 3
+          },
+          "block_counts": {
+            "7": 16
+          },
+          "diversity": {
+            "unique": 16,
+            "mean_hamming": 3.675,
+            "minimum_hamming": 1,
+            "hamming_le_one_pair_fraction": 0.041666666666666664,
+            "identity_collision_pair_fraction": 0.0,
+            "hamming_le_one_components": 11,
+            "largest_component": 3
+          }
+        },
+        "32": {
+          "selected_genotypes": [
+            "1101110111111001",
+            "1101010111111111",
+            "1101111111101011",
+            "1101111111101101",
+            "1100110111111111",
+            "1001111011111111",
+            "1001110111111011",
+            "1101110011111100",
+            "1101110111111100",
+            "1001111111111101",
+            "1101111011111100",
+            "1101110111111010",
+            "1001111111101111",
+            "1100110011111001",
+            "1101011111101101",
+            "1001110111111001",
+            "1001011011111111",
+            "1100111111111011",
+            "1101010011111000",
+            "1101011111111010",
+            "1111000011111011",
+            "1110100111111101",
+            "1101010111111000",
+            "1111000111111111",
+            "1101111011110011",
+            "1101110111110011",
+            "1101010011101101",
+            "1101010111101001",
+            "1001010011111111",
+            "1001010011111011",
+            "1001010111111101",
+            "1001010011111101"
+          ],
+          "mean_affinity": 9.55985445784082,
+          "mean_minus_sem": 9.4874339021159,
+          "quality_threshold": 9.482658815267193,
+          "quality_qualified_count": 31,
+          "quality_qualified_diversity": {
+            "unique": 31,
+            "mean_hamming": 4.197849462365592,
+            "minimum_hamming": 1,
+            "hamming_le_one_pair_fraction": 0.023655913978494623,
+            "identity_collision_pair_fraction": 0.0,
+            "hamming_le_one_components": 20,
+            "largest_component": 6
+          },
+          "block_counts": {
+            "7": 29,
+            "11": 3
+          },
+          "diversity": {
+            "unique": 32,
+            "mean_hamming": 4.296370967741935,
+            "minimum_hamming": 1,
+            "hamming_le_one_pair_fraction": 0.02217741935483871,
+            "identity_collision_pair_fraction": 0.0,
+            "hamming_le_one_components": 21,
+            "largest_component": 6
+          }
+        }
+      },
+      "diverse": {
+        "16": {
+          "selected_genotypes": [
+            "1101110111111001",
+            "1101011011101110",
+            "1110101011111101",
+            "1111000011111011",
+            "1001111011110011",
+            "1001111111101111",
+            "1001010011111111",
+            "1100110011111100",
+            "1101011111110111",
+            "1010100111111011",
+            "1001011111111100",
+            "1100110111111111",
+            "1101011111101101",
+            "1101010011111000",
+            "1101011111111010",
+            "1101111011110101"
+          ],
+          "mean_affinity": 9.564898190174876,
+          "mean_minus_sem": 9.492477634449955,
+          "quality_threshold": 9.482658815267193,
+          "quality_qualified_count": 16,
+          "quality_qualified_diversity": {
+            "unique": 16,
+            "mean_hamming": 5.233333333333333,
+            "minimum_hamming": 3,
+            "hamming_le_one_pair_fraction": 0.0,
+            "identity_collision_pair_fraction": 0.0,
+            "hamming_le_one_components": 16,
+            "largest_component": 1
+          },
+          "block_counts": {
+            "7": 13,
+            "11": 3
+          },
+          "diversity": {
+            "unique": 16,
+            "mean_hamming": 5.233333333333333,
+            "minimum_hamming": 3,
+            "hamming_le_one_pair_fraction": 0.0,
+            "identity_collision_pair_fraction": 0.0,
+            "hamming_le_one_components": 16,
+            "largest_component": 1
+          }
+        },
+        "32": {
+          "selected_genotypes": [
+            "1101110111111001",
+            "1111001011111110",
+            "1001011011101101",
+            "1110100111101111",
+            "1101111111101110",
+            "1001111011110011",
+            "1010100011111001",
+            "0101010011111111",
+            "1100110011111100",
+            "1101011111110111",
+            "1001011111111000",
+            "1101010011101010",
+            "1011001111111101",
+            "1111000011101001",
+            "1111100111111010",
+            "1101110011100111",
+            "1000110111101101",
+            "1100110111111111",
+            "1001111111111101",
+            "1111000111111111",
+            "1001010011111011",
+            "1101111011110101",
+            "1110101011111101",
+            "1110100011111110",
+            "1001010011111100",
+            "1100111111101001",
+            "1001010111101001",
+            "1100111111110011",
+            "0100110011111011",
+            "1101011011110010",
+            "1111001111111000",
+            "1101010111110000"
+          ],
+          "mean_affinity": 9.537314376773129,
+          "mean_minus_sem": 9.46390245488255,
+          "quality_threshold": 9.482658815267193,
+          "quality_qualified_count": 29,
+          "quality_qualified_diversity": {
+            "unique": 29,
+            "mean_hamming": 5.586206896551724,
+            "minimum_hamming": 3,
+            "hamming_le_one_pair_fraction": 0.0,
+            "identity_collision_pair_fraction": 0.0,
+            "hamming_le_one_components": 29,
+            "largest_component": 1
+          },
+          "block_counts": {
+            "7": 22,
+            "11": 10
+          },
+          "diversity": {
+            "unique": 32,
+            "mean_hamming": 5.699596774193548,
+            "minimum_hamming": 3,
+            "hamming_le_one_pair_fraction": 0.0,
+            "identity_collision_pair_fraction": 0.0,
+            "hamming_le_one_components": 32,
+            "largest_component": 1
+          }
+        }
+      }
+    },
+    "screen": {
+      "checks": {
+        "16": {
+          "affinity_within_tolerance": true,
+          "mean_hamming_gain": true,
+          "near_duplicate_fraction_not_increased": true
+        },
+        "32": {
+          "affinity_within_tolerance": false,
+          "mean_hamming_gain": true,
+          "near_duplicate_fraction_not_increased": true
+        }
+      },
+      "passes": false
+    },
+    "output_sha256": {
+      "calibration.csv": "a59e0d194b8c6d084d3c34d215fde25545ffb375e4ef13bf61edaf564a497de2",
+      "development_scores.csv": "60205f2024e01a4e1ec01661578f4626dc9e23e693400e1da3d2b12fb9501434",
+      "fresh_development.csv": "b7d99ab1f62b78d0de614ffc6f8dd6e1f953ab923a88bd2c41ade23276c44d0c",
+      "locked_selection.json": "2349b7f2fb93f3201860602137e87a10cb725a6e1277ee33183f678325822974",
+      "selections_before_evaluation.json": "7242b7f295104f8afc0a6c6c045923aca823854ce3a95392a015b472eddb1bed"
+    }
+  },
+  "independent_audit": {
+    "passes": true,
+    "artifacts_checked": 5,
+    "calibration_recomputed": true,
+    "selections_recomputed": true,
+    "fresh_identity_exclusion_verified": true,
+    "metrics_recomputed": true,
+    "screen_recomputed": true,
+    "reserved_test_labels_evaluated": false
+  },
+  "results_sha256": "c351e10c5d20827f549236b915cd4e1765dd3121c4ac50dfcd7d0a9f2815abfb"
+}

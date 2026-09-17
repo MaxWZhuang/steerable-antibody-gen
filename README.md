@@ -176,3 +176,10 @@ checkpoint-specific reference caches, and matched direct-DPO/SFT-to-DPO runs.
 [Completed run evidence](reference/evidence/cr9114-dpo-pilot-2026-09-16.json)
 records both branches and their development tradeoff; this remains a single-seed pilot.
 Implemented components alone do not establish biological improvement.
+
+The [diversity-method audit](reference/cr9114-diversity-method-audit.md) distinguishes
+global sampling diversity from variety among strong shortlisted candidates. A
+[locked shortlist comparison](reference/cr9114-shortlist.md) improved sequence
+distance but missed its affinity tolerance at 32 candidates; its selector is not
+promoted. The [matched follow-up protocol](specs/cr9114_shortlist.md) holds affinity
+training fixed while comparing reference KL, entropy, and embedding diversity.
