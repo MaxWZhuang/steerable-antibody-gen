@@ -1,8 +1,9 @@
 # Prepared CR9114 / 5CJQ structural context
 
 Prepared and source-verified on 2026-09-16. The model input is available locally
-in `data/processed/cr9114_5cjq_context/` (git-ignored). No weights were loaded,
-and no model scoring, training, or antibody generation was run.
+in `data/processed/cr9114_5cjq_context/` (git-ignored). Preparation itself loads no
+weights. The subsequent [scoring and supervised pilot](cr9114-5cjq-pilot.md)
+completed successfully; its result is separate from the original preparation report.
 
 | Component | Retained context |
 |---|---|
@@ -62,6 +63,6 @@ the artifact, re-verifies against source files, and validates the policy edit
 space. A second run produced byte-identical coordinates, manifest, and prepared
 artifact; report paths differ by output location.
 
-The next integration check is released-model scoring parity on this actual
-context, including cached versus uncached geometry. Preparation alone does not
+Released-model scoring parity on this context, including cached versus uncached
+geometry, is now recorded in the subsequent pilot. Preparation alone does not
 establish scoring correctness or biological performance.
