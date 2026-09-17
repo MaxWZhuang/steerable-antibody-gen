@@ -143,7 +143,7 @@ def run(config_path, output):
     output.mkdir(parents=True)
     provenance = {"config": config, "config_sha256": sha256(config_path), "git_commit": revision,
                   "prepared_artifact_sha256": sha256(ROOT / config["prepared_artifact"]),
-                  "torch_version": torch.__version__, "gpu": torch.cuda.get_device_name(0)}
+                  "torch_version": str(torch.__version__), "gpu": torch.cuda.get_device_name(0)}
     save_json(output / "run.json", provenance)
     train, train_score, dev = load_cohort(config, build_edit_space(prepared), output)
     print(f"Cohort: {len(train)} training positives, {len(dev)} development scoring records; test reserved.", flush=True)

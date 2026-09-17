@@ -3,8 +3,9 @@
 The current experiment studies **ESM-IF1 post-training on the CR9114/H1 binding
 benchmark**, with 16 binary heavy-chain sites and one fixed structural context.
 The working template is 5CJQ; the benchmark sequence-to-structure mapping is
-verified and the structural input is prepared. Released-model scoring validation
-is the next integration step. See the
+verified and the structural input is prepared. Released-model scoring checks and
+a bounded supervised pilot have completed; see the [pilot results](reference/cr9114-5cjq-pilot.md).
+See the
 [experiment recommendation](reference/fixed-target-posttraining-recommendation.md)
 and [prepared context](reference/cr9114-5cjq-context.md).
 
@@ -139,7 +140,8 @@ check is recorded as NOT RUN, because it supplies no model and loads no weights.
 The [CR9114/5CJQ context](reference/cr9114-5cjq-context.md) is now prepared and
 source-verified: 121 decoded VH residues, 16 editable sites, partner VL, and the
 antigen trimer. Missing antigen regions are explicit fragment breaks. Its adapter
-unit tests use generated synthetic files; real-context model scoring is pending.
+unit tests use generated synthetic files; real-context scoring parity and a
+256-step decoder-only pilot passed on the training GPU.
 Schema, exact supported and rejected
 cases, and limitations are in
 [the structural-input specification](specs/esmif1_structure.md).
@@ -152,6 +154,7 @@ not an established match to the assayed antigen construct.
 The [bounded CR9114 pilot](reference/cr9114-5cjq-pilot.md) now provides released-model
 scoring checks and decoder-only supervised training. The full four-arm experiment
 and general benchmark manifests remain incomplete. Hardware and weight-loading
-readiness are recorded in the training-box evidence above; successful real-context
-scoring and training require a completed pilot report.
+readiness are recorded in the training-box evidence above. The
+[completed pilot report](reference/evidence/cr9114-5cjq-pilot-2026-09-16.json)
+records the first real-context scoring and training results; test data remain reserved.
 Implemented components alone do not establish biological improvement.
