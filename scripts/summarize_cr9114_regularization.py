@@ -71,7 +71,8 @@ def summarize(directory, test_log):
                    "Arms retaining both ordinary affinity budgets against their direct control in all three seeds: "
                    + ", ".join(uniformly_better) + ". This is a descriptive comparison, not a significance claim.")
     lines = ["# Matched reference-KL and diversity comparison", "", "2026-09-17. All twelve predeclared runs completed; no checkpoint was promoted.", "", finding, "",
-        "## Measured results", "", "All affinities below use the same 2,048 development candidates and selected sets.",
+        "## Measured results", "", "All arms rank the same 2,048 development candidates. Within each portfolio,",
+        "affinity and diversity are computed on the same selected identities.",
         "Higher measured H1 affinity is better; Hamming counts differing editable sites.", "",
         "| Seed | Arm | Ordinary top-16 affinity | Ordinary top-32 affinity | Top-32 Hamming | Diverse top-32 affinity | Diverse top-32 Hamming |",
         "|---|---|---:|---:|---:|---:|---:|"]
@@ -102,7 +103,10 @@ def summarize(directory, test_log):
             f"and scheduled embedding={norms['scheduled_embedding']:.6g}. The regularizer norms",
             "include their coefficients and four-update multiplier. This uses one fixed",
             "eight-sample batch and one labelled training minibatch, changes no parameters,",
-            "and is not a typical-gradient estimate or a coefficient-tuning procedure."]
+            "and is not a typical-gradient estimate or a coefficient-tuning procedure.",
+            "The small embedding contribution in this probe limits a negative result:",
+            "this does not rule out differently scaled or differently pooled embedding",
+            "variants. Gradient norms also do not directly measure Adam update magnitudes."]
     lines += ["", "## How the comparison isolates the mechanism", "",
         "The [protocol](../specs/cr9114_shortlist.md) was committed before the new shortlist",
         "development result. Each arm starts from the same SFT checkpoint, with a frozen",
