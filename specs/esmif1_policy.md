@@ -141,7 +141,11 @@ named as a policy error rather than surfacing from inside `index_select`.
   documents them; it does not decide which one "missing residue" should mean.
 - **Geometry longer than the context is permitted** (upstream's multichain route
   scores a short chain against complex-length coordinates) but no residue
-  correspondence between the two is checked, because none is declared.
+  correspondence between the two is checked here, because none is declared *to
+  this module*. When one is declared, `smallAntibodyGen.structure.policy_adapter.bind_policy`
+  checks it: it refuses unless the decoded chain occupies rows
+  `0 .. len(context) - 1` of the packed coordinates. See
+  [the structural-input specification](esmif1_structure.md).
 - **Single chain in, single chain decoded.** Multichain packing is the caller's
   responsibility.
 - **`FixedGeometry` is a process-local cache, not a portable artifact.** It
@@ -161,6 +165,18 @@ These remain open and none of them is addressed here:
 1. **Declared structural input:** pin the structure, chain selection, residue
    mapping, missing-coordinate convention, and the relation between the
    structural antigen and the measured H1 target.
+   *Partly addressed, 2026-09-15:* `smallAntibodyGen.structure`
+   ([specification](esmif1_structure.md)) implements the declaration, the
+   correspondence and the packing for a hash-pinned local file, and refuses
+   missing/alternate coordinates rather than choosing a convention.
+   *Selection update, 2026-09-16:* the user selected
+   [5CJQ as the working template](../reference/5cjq-structural-template.md);
+   source files are hash-pinned. The
+   [mapping audit](../reference/cr9114-5cjq-mapping.md) verifies the 16 benchmark
+   sites across a complete 121-residue VH and records two fixed template
+   mismatches. Assembly/chain/domain selection, missing-region handling, and
+   exact assay-construct correspondence remain open. No model input has been prepared, so this
+   gate stays open.
 2. **Artifact pinning:** exact source/weight hashes for
    `esm_if1_gvp4_t16_142M_UR50`, plus upstream score parity against the released
    checkpoint rather than a randomly initialized model.

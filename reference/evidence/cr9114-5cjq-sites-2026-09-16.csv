@@ -1,0 +1,17 @@
+site_id,genotype_index,imgt_position,vh_index_0based,vh_position_1based,allele_0,allele_1,label_seq_id,author_chain,author_res_id,insertion_code,structure_residue,complete_backbone
+pos1,0,30,28,29,F,S,29,H,29,,S,True
+pos2,1,35,29,30,S,N,30,H,30,,N,True
+pos3,2,36,30,31,S,N,31,H,31,,N,True
+pos4,3,57,51,52,I,S,52,H,52,,S,True
+pos5,4,64,56,57,T,S,57,H,56,,S,True
+pos6,5,65,57,58,A,T,58,H,57,,T,True
+pos7,6,66,58,59,N,A,59,H,58,,A,True
+pos8,7,79,70,71,T,S,71,H,70,,S,True
+pos9,8,82,73,74,K,I,74,H,73,,I,True
+pos10,9,83,74,75,S,F,75,H,74,,F,True
+pos11,10,84,75,76,T,S,76,H,75,,S,True
+pos12,11,85,76,77,S,N,77,H,76,,N,True
+pos13,12,92,83,84,S,N,84,H,82,A,N,True
+pos14,13,95,86,87,R,T,87,H,83,,T,True
+pos15,14,103,94,95,Y,F,95,H,91,,F,True
+pos16,15,113,105,106,Y,S,106,H,100,B,S,True

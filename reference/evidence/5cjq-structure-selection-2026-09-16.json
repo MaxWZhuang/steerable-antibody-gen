@@ -1,0 +1,88 @@
+{
+  "kind": "structure_selection_evidence",
+  "schema_version": "1",
+  "decision_date": "2026-09-16",
+  "retrieval_date": "2026-09-16",
+  "pdb_id": "5CJQ",
+  "status": "user_selected_working_template_not_prepared_model_input",
+  "authorization": "User: cool, why don't we work off of 5cjq",
+  "experiment": "CR9114 / H1 fixed-target retrospective benchmark",
+  "structural_relationship": "Engineered H1-derived HA stem #4900 bound to CR9114; proxy context, not an established match to the assayed antigen construct.",
+  "source_page": "https://www.rcsb.org/structure/5CJQ",
+  "primary_publication": "https://doi.org/10.1126/science.aac7263",
+  "validation_report_url": "https://files.rcsb.org/validation/view/5cjq_full_validation.pdf",
+  "reported_resolution_angstrom": 3.6,
+  "reported_R_free": 0.369,
+  "files": [
+    {
+      "relative_path": "data/raw/cr9114_structure/5CJQ.cif",
+      "source_url": "https://files.rcsb.org/download/5CJQ.cif",
+      "size_bytes": 530923,
+      "sha256": "29d3c01238bc6fb8e22550206e687168c4e34a9b728c52d70ae701248742416d"
+    },
+    {
+      "relative_path": "data/raw/cr9114_structure/5CJQ.pdb",
+      "source_url": "https://files.rcsb.org/download/5CJQ.pdb",
+      "size_bytes": 449712,
+      "sha256": "fba3701f5b13a6c3d347be1023e17bbfcdc71bfe203fc838fbcc8dd6f024b30e"
+    }
+  ],
+  "audit_method": "Parse downloaded PDB ATOM columns using author chain/residue identifiers including insertion codes; group residues and count N/CA/C atoms, altlocs, HETATM records and nonfinite coordinates; compare observed counts with SEQRES. One implicit model; asymmetric-unit coordinates, no assembly transforms or edits applied. This is an inventory, not a residue mapping or local density-quality assessment. mmCIF is hash-pinned but was not independently coordinate-audited.",
+  "author_chain_inventory": {
+    "H": {
+      "role": "CR9114 heavy",
+      "seqres_residue_count": 230,
+      "observed_residue_count": 217,
+      "seqres_minus_observed_count": 13,
+      "atom_count": 1613,
+      "altloc_atom_count": 0,
+      "hetero_atom_count": 0,
+      "nonfinite_atom_count": 0,
+      "residues_without_exactly_one_N_CA_C": []
+    },
+    "L": {
+      "role": "CR9114 light",
+      "seqres_residue_count": 215,
+      "observed_residue_count": 211,
+      "seqres_minus_observed_count": 4,
+      "atom_count": 1568,
+      "altloc_atom_count": 0,
+      "hetero_atom_count": 0,
+      "nonfinite_atom_count": 0,
+      "residues_without_exactly_one_N_CA_C": []
+    },
+    "A": {
+      "role": "engineered HA1",
+      "seqres_residue_count": 66,
+      "observed_residue_count": 52,
+      "seqres_minus_observed_count": 14,
+      "atom_count": 397,
+      "altloc_atom_count": 0,
+      "hetero_atom_count": 0,
+      "nonfinite_atom_count": 0,
+      "residues_without_exactly_one_N_CA_C": []
+    },
+    "B": {
+      "role": "engineered HA2",
+      "seqres_residue_count": 193,
+      "observed_residue_count": 154,
+      "seqres_minus_observed_count": 39,
+      "atom_count": 1234,
+      "altloc_atom_count": 0,
+      "hetero_atom_count": 0,
+      "nonfinite_atom_count": 0,
+      "residues_without_exactly_one_N_CA_C": []
+    }
+  },
+  "assembly_choice": "Unresolved: downloaded asymmetric unit is not an explicit choice of model context or biological assembly.",
+  "pending": [
+    "Establish the assay construct provenance and justify its relationship to engineered stem #4900.",
+    "Ground benchmark sequence and 16-site allele definitions in authoritative release artifacts, then map them to structure residues with insertion codes.",
+    "Assess local structural validation and missing regions for the intended antibody/antigen context.",
+    "Declare assembly, retained chains, decoded sequence extent, and treatment of unobserved residues; current adapter has no cropping support.",
+    "Create a valid structural-input manifest and run the preparation CLI; this selection record is not that manifest."
+  ],
+  "model_preparation_run": false,
+  "model_weights_loaded": false,
+  "training_run": false
+}

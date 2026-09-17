@@ -177,7 +177,7 @@ class FileEntry:
             )
         if self.size_bytes < 0:
             raise ManifestValidationError("size_bytes must not be negative")
-        if not isinstance(self.sha256, str) or not _SHA256_RE.match(self.sha256):
+        if not isinstance(self.sha256, str) or not _SHA256_RE.fullmatch(self.sha256):
             raise ManifestValidationError(
                 f"sha256 must be 64 lowercase hex characters, got {self.sha256!r}"
             )

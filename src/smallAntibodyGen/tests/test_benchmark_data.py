@@ -55,6 +55,8 @@ CR9114_VERIFIED_RETRIEVAL_DATE = "2026-09-14"
 CR9114_SUPPLIED_DECISIONS = frozenset(
     {
         "assay_direction_and_units",
+        # Verified by the pinned 2026-09-16 CR9114/5CJQ mapping evidence.
+        "editable_site_table_source",
         "file_hashes",
         "release_version",
         "retrieval_date",

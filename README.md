@@ -91,6 +91,7 @@ The repository provides a custom antibody model and supporting tools:
 | Interpretability | Synthetic antigen-pathway probe |
 | ESM-IF1 dependency layer | `smallAntibodyGen.esmif1_compat` makes the archived `fair-esm` inverse-folding stack importable on this repo's torch/numpy versions |
 | ESM-IF1 editing policy | `smallAntibodyGen.models.esmif1_policy` scores and samples a fixed-geometry, two-alleles-per-site constrained edit space through the native decoder |
+| ESM-IF1 structural input | `smallAntibodyGen.structure` turns a hash-pinned local PDB/mmCIF file plus an explicit residue correspondence into the policy's encoder inputs, failing closed on anything unsupported or ambiguous |
 
 The pretrained antibody backbone, controlled experiment runner, masked-diffusion
 objective, and preference trainer are not yet integrated. The existing ESM option
@@ -117,6 +118,28 @@ declares no structure, maps no benchmark site onto a residue index, and trains
 nothing; its tests run on a toy backbone plus an optional randomly initialized
 upstream model that downloads nothing. Exact semantics, limitations, and the
 pending gates are in [the policy specification](specs/esmif1_policy.md).
+
+The ESM-IF1 structural input layer is the declaration between a local structure
+file and those coordinates. It pins the file by SHA-256, makes every choice the
+parsers would otherwise make silently — author versus label numbering, which data
+block, which model, which alternate location — into a declared field, and carries
+an explicit residue correspondence plus the site order the policy's positional
+sort would otherwise lose. Its v1 rules are restrictive on purpose: alternate
+locations, missing backbone atoms, non-canonical residues and solvent sharing a
+selected chain are **rejected by name rather than filtered out**. It writes a
+portable artifact and a deterministic report in which every model-integration
+check is recorded as NOT RUN, because it supplies no model and loads no weights.
+No real structure has been prepared with it; its adapter tests run on generated
+synthetic files. The separate [CR9114/5CJQ mapping audit](reference/cr9114-5cjq-mapping.md)
+verifies the 16 benchmark sites and 121-residue VH against pinned release files.
+Schema, exact supported and rejected
+cases, and limitations are in
+[the structural-input specification](specs/esmif1_structure.md).
+
+**Working template selected, 2026-09-16:** [5CJQ](reference/5cjq-structural-template.md)
+for CR9114/H1. Source files are hash-pinned and the benchmark VH mapping is
+verified; model-input preparation remains pending. Its engineered H1-derived stem is proxy context,
+not an established match to the assayed antigen construct.
 
 The checkout has no antibody-antigen corpus, benchmark manifests are incomplete,
 and training hardware measurements are unrecorded. Implemented components alone

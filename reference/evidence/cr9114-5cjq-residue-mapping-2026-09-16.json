@@ -1,0 +1,3703 @@
+{
+  "kind": "cr9114_5cjq_residue_mapping_evidence",
+  "schema_version": "1",
+  "audit_date": "2026-09-16",
+  "status": "mapping_verified_model_input_not_prepared",
+  "sources": {
+    "kind": "cr9114_5cjq_mapping_sources",
+    "schema_version": "1",
+    "retrieval_date": "2026-09-16",
+    "note": "Antibody supplements and archived upstream code freshly retrieved and byte-verified; structure and landscape reuse the previously pinned downloads. Validation XML freshly downloaded. Only antibody fragment labels, not assembly instructions, are used from supplementary file 2.",
+    "files": {
+      "germline": {
+        "relative_path": "data/raw/cr9114_structure/elife-71393-supp4-v3.dna",
+        "source_url": "https://cdn.elifesciences.org/articles/71393/elife-71393-supp4-v3.dna",
+        "size_bytes": 44463,
+        "sha256": "e8e8ee0e6d6b6562b5fe66c1621e9bc76c3adb23d02c6065f0253f172a88b4ad"
+      },
+      "somatic": {
+        "relative_path": "data/raw/cr9114_structure/elife-71393-supp5-v3.dna",
+        "source_url": "https://cdn.elifesciences.org/articles/71393/elife-71393-supp5-v3.dna",
+        "size_bytes": 44836,
+        "sha256": "d8d68a25fb015b025f2d8bc9498ddb02b95a76bbfdda1c5d9f4af3c969d7a7b3"
+      },
+      "fragment_labels": {
+        "relative_path": "data/raw/cr9114_structure/elife-71393-supp2-v3.xlsx",
+        "source_url": "https://cdn.elifesciences.org/articles/71393/elife-71393-supp2-v3.xlsx",
+        "size_bytes": 15549,
+        "sha256": "5bfa9a2d8bfe69f403933beaabe2348ff34ee313cc465c51da681e92ddec02be"
+      },
+      "site_code": {
+        "relative_path": "data/raw/cr9114_structure/mutation_info.61c1673.py",
+        "source_url": "https://raw.githubusercontent.com/klawrence26/bnab-landscapes/61c1673a101ea739d5b7e9b282f6bcfad41d7e90/CR9114/Epistasis_linear_models/mutation_info.py",
+        "size_bytes": 845,
+        "sha256": "172d165aff38c01e086d35d55be99314426a67c7e9b7e2f903dd7c8dd508e211"
+      },
+      "binary_code": {
+        "relative_path": "data/raw/cr9114_structure/nuc_to_aa.61c1673.py",
+        "source_url": "https://raw.githubusercontent.com/klawrence26/bnab-landscapes/61c1673a101ea739d5b7e9b282f6bcfad41d7e90/CR9114/Seq_pipeline/nuc_to_aa.py",
+        "size_bytes": 2398,
+        "sha256": "d81b01e0f7f78a5c8b90d1beadab85108bc243307cd64a300e154d8060cede68"
+      },
+      "structure": {
+        "relative_path": "data/raw/cr9114_structure/5CJQ.cif",
+        "source_url": "https://files.rcsb.org/download/5CJQ.cif",
+        "size_bytes": 530923,
+        "sha256": "29d3c01238bc6fb8e22550206e687168c4e34a9b728c52d70ae701248742416d"
+      },
+      "validation": {
+        "relative_path": "data/raw/cr9114_structure/5cjq_validation.xml.gz",
+        "source_url": "https://files.rcsb.org/pub/pdb/validation_reports/cj/5cjq/5cjq_validation.xml.gz",
+        "size_bytes": 35638,
+        "sha256": "bb09aa2a1ee619ae13b0b1bea80c1f36be800207c0a8f2d86150fc6daa2fd771"
+      },
+      "landscape": {
+        "relative_path": "data/raw/cr9114_cr6261_landscape/elife-71393-fig1-data1-v3.csv",
+        "source_url": "https://cdn.elifesciences.org/articles/71393/elife-71393-fig1-data1-v3.csv",
+        "size_bytes": 12258680,
+        "sha256": "ee31f8fc26fce2730d2ae772e7a095aa334b4c6c5d8e7fbfe4b4a5a1c9a794fe"
+      }
+    }
+  },
+  "paper": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8476123/",
+  "upstream_commit": "61c1673a101ea739d5b7e9b282f6bcfad41d7e90",
+  "method": "Translate the two pinned antibody plasmid VH regions between the published scFv linker and annotated Myc tag. Check their 16 differences against translated binary_dict_list alleles, ordered IMGT mut_names, and supplementary fragment amino-acid labels. Uniquely align the somatic VH without gaps to the deposited heavy-chain polymer sequence; use mmCIF polymer scheme to map sequential indices to author identifiers including insertion codes; require backbone coordinates for all VH residues. This is not an IMGT renumbering of the entire antibody.",
+  "reference_sequences": {
+    "germline_vh": "QVQLVQSGAEVKKPGSSVKVSCKASGGTFSSYAISWVRQAPGQGLEWMGGIIPIFGTANYAQKFQGRVTITADKSTSTAYMELSSLRSEDTAVYYCARHGNYYYYYGMDVWGQGTTVTVSS",
+    "somatic16_vh": "QVQLVQSGAEVKKPGSSVKVSCKASGGTSNNYAISWVRQAPGQGLEWMGGISPIFGSTAYAQKFQGRVTISADIFSNTAYMELNSLTSEDTAVYFCARHGNYYYYSGMDVWGQGTTVTVSS"
+  },
+  "vh_length": 121,
+  "verified_genotype_count": 65536,
+  "allele_convention": "0 = released germline, 1 = released somatic16; pos1 is leftmost genotype character",
+  "sites": [
+    {
+      "site_id": "pos1",
+      "genotype_index": 0,
+      "imgt_position": "30",
+      "vh_index_0based": 28,
+      "vh_position_1based": 29,
+      "allele_0": "F",
+      "allele_1": "S",
+      "label_seq_id": 29,
+      "author_chain": "H",
+      "author_res_id": 29,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "complete_backbone": true,
+      "validation": {
+        "rsrz": 1.5,
+        "rscc": 0.973,
+        "ramachandran": "Favored",
+        "sidechain_rotamer": "m",
+        "geometry_outlier_counts": {
+          "bond-outlier": 0,
+          "angle-outlier": 0,
+          "clash": 0,
+          "plane-outlier": 0
+        }
+      }
+    },
+    {
+      "site_id": "pos2",
+      "genotype_index": 1,
+      "imgt_position": "35",
+      "vh_index_0based": 29,
+      "vh_position_1based": 30,
+      "allele_0": "S",
+      "allele_1": "N",
+      "label_seq_id": 30,
+      "author_chain": "H",
+      "author_res_id": 30,
+      "insertion_code": "",
+      "structure_residue": "N",
+      "complete_backbone": true,
+      "validation": {
+        "rsrz": -0.8,
+        "rscc": 0.952,
+        "ramachandran": "Favored",
+        "sidechain_rotamer": "m-40",
+        "geometry_outlier_counts": {
+          "bond-outlier": 0,
+          "angle-outlier": 0,
+          "clash": 0,
+          "plane-outlier": 0
+        }
+      }
+    },
+    {
+      "site_id": "pos3",
+      "genotype_index": 2,
+      "imgt_position": "36",
+      "vh_index_0based": 30,
+      "vh_position_1based": 31,
+      "allele_0": "S",
+      "allele_1": "N",
+      "label_seq_id": 31,
+      "author_chain": "H",
+      "author_res_id": 31,
+      "insertion_code": "",
+      "structure_residue": "N",
+      "complete_backbone": true,
+      "validation": {
+        "rsrz": 0.986,
+        "rscc": 0.854,
+        "ramachandran": "Favored",
+        "sidechain_rotamer": "p0",
+        "geometry_outlier_counts": {
+          "bond-outlier": 0,
+          "angle-outlier": 0,
+          "clash": 0,
+          "plane-outlier": 0
+        }
+      }
+    },
+    {
+      "site_id": "pos4",
+      "genotype_index": 3,
+      "imgt_position": "57",
+      "vh_index_0based": 51,
+      "vh_position_1based": 52,
+      "allele_0": "I",
+      "allele_1": "S",
+      "label_seq_id": 52,
+      "author_chain": "H",
+      "author_res_id": 52,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "complete_backbone": true,
+      "validation": {
+        "rsrz": 0.349,
+        "rscc": 0.879,
+        "ramachandran": "Favored",
+        "sidechain_rotamer": "t",
+        "geometry_outlier_counts": {
+          "bond-outlier": 0,
+          "angle-outlier": 0,
+          "clash": 0,
+          "plane-outlier": 0
+        }
+      }
+    },
+    {
+      "site_id": "pos5",
+      "genotype_index": 4,
+      "imgt_position": "64",
+      "vh_index_0based": 56,
+      "vh_position_1based": 57,
+      "allele_0": "T",
+      "allele_1": "S",
+      "label_seq_id": 57,
+      "author_chain": "H",
+      "author_res_id": 56,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "complete_backbone": true,
+      "validation": {
+        "rsrz": -0.083,
+        "rscc": 0.916,
+        "ramachandran": "Favored",
+        "sidechain_rotamer": "t",
+        "geometry_outlier_counts": {
+          "bond-outlier": 0,
+          "angle-outlier": 0,
+          "clash": 0,
+          "plane-outlier": 0
+        }
+      }
+    },
+    {
+      "site_id": "pos6",
+      "genotype_index": 5,
+      "imgt_position": "65",
+      "vh_index_0based": 57,
+      "vh_position_1based": 58,
+      "allele_0": "A",
+      "allele_1": "T",
+      "label_seq_id": 58,
+      "author_chain": "H",
+      "author_res_id": 57,
+      "insertion_code": "",
+      "structure_residue": "T",
+      "complete_backbone": true,
+      "validation": {
+        "rsrz": -0.451,
+        "rscc": 0.893,
+        "ramachandran": "Favored",
+        "sidechain_rotamer": "m",
+        "geometry_outlier_counts": {
+          "bond-outlier": 0,
+          "angle-outlier": 0,
+          "clash": 0,
+          "plane-outlier": 0
+        }
+      }
+    },
+    {
+      "site_id": "pos7",
+      "genotype_index": 6,
+      "imgt_position": "66",
+      "vh_index_0based": 58,
+      "vh_position_1based": 59,
+      "allele_0": "N",
+      "allele_1": "A",
+      "label_seq_id": 59,
+      "author_chain": "H",
+      "author_res_id": 58,
+      "insertion_code": "",
+      "structure_residue": "A",
+      "complete_backbone": true,
+      "validation": {
+        "rsrz": -0.208,
+        "rscc": 0.957,
+        "ramachandran": "Favored",
+        "sidechain_rotamer": null,
+        "geometry_outlier_counts": {
+          "bond-outlier": 0,
+          "angle-outlier": 0,
+          "clash": 0,
+          "plane-outlier": 0
+        }
+      }
+    },
+    {
+      "site_id": "pos8",
+      "genotype_index": 7,
+      "imgt_position": "79",
+      "vh_index_0based": 70,
+      "vh_position_1based": 71,
+      "allele_0": "T",
+      "allele_1": "S",
+      "label_seq_id": 71,
+      "author_chain": "H",
+      "author_res_id": 70,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "complete_backbone": true,
+      "validation": {
+        "rsrz": 0.511,
+        "rscc": 0.909,
+        "ramachandran": "Favored",
+        "sidechain_rotamer": "p",
+        "geometry_outlier_counts": {
+          "bond-outlier": 0,
+          "angle-outlier": 0,
+          "clash": 0,
+          "plane-outlier": 0
+        }
+      }
+    },
+    {
+      "site_id": "pos9",
+      "genotype_index": 8,
+      "imgt_position": "82",
+      "vh_index_0based": 73,
+      "vh_position_1based": 74,
+      "allele_0": "K",
+      "allele_1": "I",
+      "label_seq_id": 74,
+      "author_chain": "H",
+      "author_res_id": 73,
+      "insertion_code": "",
+      "structure_residue": "I",
+      "complete_backbone": true,
+      "validation": {
+        "rsrz": 0.722,
+        "rscc": 0.95,
+        "ramachandran": "Favored",
+        "sidechain_rotamer": "pt",
+        "geometry_outlier_counts": {
+          "bond-outlier": 0,
+          "angle-outlier": 0,
+          "clash": 1,
+          "plane-outlier": 0
+        }
+      }
+    },
+    {
+      "site_id": "pos10",
+      "genotype_index": 9,
+      "imgt_position": "83",
+      "vh_index_0based": 74,
+      "vh_position_1based": 75,
+      "allele_0": "S",
+      "allele_1": "F",
+      "label_seq_id": 75,
+      "author_chain": "H",
+      "author_res_id": 74,
+      "insertion_code": "",
+      "structure_residue": "F",
+      "complete_backbone": true,
+      "validation": {
+        "rsrz": 0.37,
+        "rscc": 0.847,
+        "ramachandran": "Favored",
+        "sidechain_rotamer": "m-80",
+        "geometry_outlier_counts": {
+          "bond-outlier": 0,
+          "angle-outlier": 0,
+          "clash": 3,
+          "plane-outlier": 0
+        }
+      }
+    },
+    {
+      "site_id": "pos11",
+      "genotype_index": 10,
+      "imgt_position": "84",
+      "vh_index_0based": 75,
+      "vh_position_1based": 76,
+      "allele_0": "T",
+      "allele_1": "S",
+      "label_seq_id": 76,
+      "author_chain": "H",
+      "author_res_id": 75,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "complete_backbone": true,
+      "validation": {
+        "rsrz": -0.371,
+        "rscc": 0.885,
+        "ramachandran": "Favored",
+        "sidechain_rotamer": "p",
+        "geometry_outlier_counts": {
+          "bond-outlier": 0,
+          "angle-outlier": 0,
+          "clash": 0,
+          "plane-outlier": 0
+        }
+      }
+    },
+    {
+      "site_id": "pos12",
+      "genotype_index": 11,
+      "imgt_position": "85",
+      "vh_index_0based": 76,
+      "vh_position_1based": 77,
+      "allele_0": "S",
+      "allele_1": "N",
+      "label_seq_id": 77,
+      "author_chain": "H",
+      "author_res_id": 76,
+      "insertion_code": "",
+      "structure_residue": "N",
+      "complete_backbone": true,
+      "validation": {
+        "rsrz": 0.016,
+        "rscc": 0.859,
+        "ramachandran": "Favored",
+        "sidechain_rotamer": "m-40",
+        "geometry_outlier_counts": {
+          "bond-outlier": 0,
+          "angle-outlier": 0,
+          "clash": 0,
+          "plane-outlier": 0
+        }
+      }
+    },
+    {
+      "site_id": "pos13",
+      "genotype_index": 12,
+      "imgt_position": "92",
+      "vh_index_0based": 83,
+      "vh_position_1based": 84,
+      "allele_0": "S",
+      "allele_1": "N",
+      "label_seq_id": 84,
+      "author_chain": "H",
+      "author_res_id": 82,
+      "insertion_code": "A",
+      "structure_residue": "N",
+      "complete_backbone": true,
+      "validation": {
+        "rsrz": -0.276,
+        "rscc": 0.859,
+        "ramachandran": "Favored",
+        "sidechain_rotamer": "tp",
+        "geometry_outlier_counts": {
+          "bond-outlier": 0,
+          "angle-outlier": 0,
+          "clash": 0,
+          "plane-outlier": 0
+        }
+      }
+    },
+    {
+      "site_id": "pos14",
+      "genotype_index": 13,
+      "imgt_position": "95",
+      "vh_index_0based": 86,
+      "vh_position_1based": 87,
+      "allele_0": "R",
+      "allele_1": "T",
+      "label_seq_id": 87,
+      "author_chain": "H",
+      "author_res_id": 83,
+      "insertion_code": "",
+      "structure_residue": "T",
+      "complete_backbone": true,
+      "validation": {
+        "rsrz": 0.313,
+        "rscc": 0.91,
+        "ramachandran": "Favored",
+        "sidechain_rotamer": "p",
+        "geometry_outlier_counts": {
+          "bond-outlier": 0,
+          "angle-outlier": 0,
+          "clash": 0,
+          "plane-outlier": 0
+        }
+      }
+    },
+    {
+      "site_id": "pos15",
+      "genotype_index": 14,
+      "imgt_position": "103",
+      "vh_index_0based": 94,
+      "vh_position_1based": 95,
+      "allele_0": "Y",
+      "allele_1": "F",
+      "label_seq_id": 95,
+      "author_chain": "H",
+      "author_res_id": 91,
+      "insertion_code": "",
+      "structure_residue": "F",
+      "complete_backbone": true,
+      "validation": {
+        "rsrz": -0.465,
+        "rscc": 0.952,
+        "ramachandran": "Favored",
+        "sidechain_rotamer": "m-80",
+        "geometry_outlier_counts": {
+          "bond-outlier": 0,
+          "angle-outlier": 0,
+          "clash": 0,
+          "plane-outlier": 0
+        }
+      }
+    },
+    {
+      "site_id": "pos16",
+      "genotype_index": 15,
+      "imgt_position": "113",
+      "vh_index_0based": 105,
+      "vh_position_1based": 106,
+      "allele_0": "Y",
+      "allele_1": "S",
+      "label_seq_id": 106,
+      "author_chain": "H",
+      "author_res_id": 100,
+      "insertion_code": "B",
+      "structure_residue": "S",
+      "complete_backbone": true,
+      "validation": {
+        "rsrz": -0.047,
+        "rscc": 0.745,
+        "ramachandran": "Favored",
+        "sidechain_rotamer": "m-80",
+        "geometry_outlier_counts": {
+          "bond-outlier": 0,
+          "angle-outlier": 0,
+          "clash": 1,
+          "plane-outlier": 0
+        }
+      }
+    }
+  ],
+  "vh_correspondence": [
+    {
+      "vh_index_0based": 0,
+      "label_seq_id": 1,
+      "author_chain": "H",
+      "author_res_id": 1,
+      "insertion_code": "",
+      "structure_residue": "Q",
+      "benchmark_somatic_residue": "Q",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 1,
+      "label_seq_id": 2,
+      "author_chain": "H",
+      "author_res_id": 2,
+      "insertion_code": "",
+      "structure_residue": "V",
+      "benchmark_somatic_residue": "V",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 2,
+      "label_seq_id": 3,
+      "author_chain": "H",
+      "author_res_id": 3,
+      "insertion_code": "",
+      "structure_residue": "Q",
+      "benchmark_somatic_residue": "Q",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 3,
+      "label_seq_id": 4,
+      "author_chain": "H",
+      "author_res_id": 4,
+      "insertion_code": "",
+      "structure_residue": "L",
+      "benchmark_somatic_residue": "L",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 4,
+      "label_seq_id": 5,
+      "author_chain": "H",
+      "author_res_id": 5,
+      "insertion_code": "",
+      "structure_residue": "V",
+      "benchmark_somatic_residue": "V",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 5,
+      "label_seq_id": 6,
+      "author_chain": "H",
+      "author_res_id": 6,
+      "insertion_code": "",
+      "structure_residue": "Q",
+      "benchmark_somatic_residue": "Q",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 6,
+      "label_seq_id": 7,
+      "author_chain": "H",
+      "author_res_id": 7,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "benchmark_somatic_residue": "S",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 7,
+      "label_seq_id": 8,
+      "author_chain": "H",
+      "author_res_id": 8,
+      "insertion_code": "",
+      "structure_residue": "G",
+      "benchmark_somatic_residue": "G",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 8,
+      "label_seq_id": 9,
+      "author_chain": "H",
+      "author_res_id": 9,
+      "insertion_code": "",
+      "structure_residue": "A",
+      "benchmark_somatic_residue": "A",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 9,
+      "label_seq_id": 10,
+      "author_chain": "H",
+      "author_res_id": 10,
+      "insertion_code": "",
+      "structure_residue": "E",
+      "benchmark_somatic_residue": "E",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 10,
+      "label_seq_id": 11,
+      "author_chain": "H",
+      "author_res_id": 11,
+      "insertion_code": "",
+      "structure_residue": "V",
+      "benchmark_somatic_residue": "V",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 11,
+      "label_seq_id": 12,
+      "author_chain": "H",
+      "author_res_id": 12,
+      "insertion_code": "",
+      "structure_residue": "K",
+      "benchmark_somatic_residue": "K",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 12,
+      "label_seq_id": 13,
+      "author_chain": "H",
+      "author_res_id": 13,
+      "insertion_code": "",
+      "structure_residue": "K",
+      "benchmark_somatic_residue": "K",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 13,
+      "label_seq_id": 14,
+      "author_chain": "H",
+      "author_res_id": 14,
+      "insertion_code": "",
+      "structure_residue": "P",
+      "benchmark_somatic_residue": "P",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 14,
+      "label_seq_id": 15,
+      "author_chain": "H",
+      "author_res_id": 15,
+      "insertion_code": "",
+      "structure_residue": "G",
+      "benchmark_somatic_residue": "G",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 15,
+      "label_seq_id": 16,
+      "author_chain": "H",
+      "author_res_id": 16,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "benchmark_somatic_residue": "S",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 16,
+      "label_seq_id": 17,
+      "author_chain": "H",
+      "author_res_id": 17,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "benchmark_somatic_residue": "S",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 17,
+      "label_seq_id": 18,
+      "author_chain": "H",
+      "author_res_id": 18,
+      "insertion_code": "",
+      "structure_residue": "V",
+      "benchmark_somatic_residue": "V",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 18,
+      "label_seq_id": 19,
+      "author_chain": "H",
+      "author_res_id": 19,
+      "insertion_code": "",
+      "structure_residue": "K",
+      "benchmark_somatic_residue": "K",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 19,
+      "label_seq_id": 20,
+      "author_chain": "H",
+      "author_res_id": 20,
+      "insertion_code": "",
+      "structure_residue": "V",
+      "benchmark_somatic_residue": "V",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 20,
+      "label_seq_id": 21,
+      "author_chain": "H",
+      "author_res_id": 21,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "benchmark_somatic_residue": "S",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 21,
+      "label_seq_id": 22,
+      "author_chain": "H",
+      "author_res_id": 22,
+      "insertion_code": "",
+      "structure_residue": "C",
+      "benchmark_somatic_residue": "C",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 22,
+      "label_seq_id": 23,
+      "author_chain": "H",
+      "author_res_id": 23,
+      "insertion_code": "",
+      "structure_residue": "K",
+      "benchmark_somatic_residue": "K",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 23,
+      "label_seq_id": 24,
+      "author_chain": "H",
+      "author_res_id": 24,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "benchmark_somatic_residue": "A",
+      "fixed_mismatch": true,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 24,
+      "label_seq_id": 25,
+      "author_chain": "H",
+      "author_res_id": 25,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "benchmark_somatic_residue": "S",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 25,
+      "label_seq_id": 26,
+      "author_chain": "H",
+      "author_res_id": 26,
+      "insertion_code": "",
+      "structure_residue": "G",
+      "benchmark_somatic_residue": "G",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 26,
+      "label_seq_id": 27,
+      "author_chain": "H",
+      "author_res_id": 27,
+      "insertion_code": "",
+      "structure_residue": "G",
+      "benchmark_somatic_residue": "G",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 27,
+      "label_seq_id": 28,
+      "author_chain": "H",
+      "author_res_id": 28,
+      "insertion_code": "",
+      "structure_residue": "T",
+      "benchmark_somatic_residue": "T",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 28,
+      "label_seq_id": 29,
+      "author_chain": "H",
+      "author_res_id": 29,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "benchmark_somatic_residue": "S",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 29,
+      "label_seq_id": 30,
+      "author_chain": "H",
+      "author_res_id": 30,
+      "insertion_code": "",
+      "structure_residue": "N",
+      "benchmark_somatic_residue": "N",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 30,
+      "label_seq_id": 31,
+      "author_chain": "H",
+      "author_res_id": 31,
+      "insertion_code": "",
+      "structure_residue": "N",
+      "benchmark_somatic_residue": "N",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 31,
+      "label_seq_id": 32,
+      "author_chain": "H",
+      "author_res_id": 32,
+      "insertion_code": "",
+      "structure_residue": "Y",
+      "benchmark_somatic_residue": "Y",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 32,
+      "label_seq_id": 33,
+      "author_chain": "H",
+      "author_res_id": 33,
+      "insertion_code": "",
+      "structure_residue": "A",
+      "benchmark_somatic_residue": "A",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 33,
+      "label_seq_id": 34,
+      "author_chain": "H",
+      "author_res_id": 34,
+      "insertion_code": "",
+      "structure_residue": "I",
+      "benchmark_somatic_residue": "I",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 34,
+      "label_seq_id": 35,
+      "author_chain": "H",
+      "author_res_id": 35,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "benchmark_somatic_residue": "S",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 35,
+      "label_seq_id": 36,
+      "author_chain": "H",
+      "author_res_id": 36,
+      "insertion_code": "",
+      "structure_residue": "W",
+      "benchmark_somatic_residue": "W",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 36,
+      "label_seq_id": 37,
+      "author_chain": "H",
+      "author_res_id": 37,
+      "insertion_code": "",
+      "structure_residue": "V",
+      "benchmark_somatic_residue": "V",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 37,
+      "label_seq_id": 38,
+      "author_chain": "H",
+      "author_res_id": 38,
+      "insertion_code": "",
+      "structure_residue": "R",
+      "benchmark_somatic_residue": "R",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 38,
+      "label_seq_id": 39,
+      "author_chain": "H",
+      "author_res_id": 39,
+      "insertion_code": "",
+      "structure_residue": "Q",
+      "benchmark_somatic_residue": "Q",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 39,
+      "label_seq_id": 40,
+      "author_chain": "H",
+      "author_res_id": 40,
+      "insertion_code": "",
+      "structure_residue": "A",
+      "benchmark_somatic_residue": "A",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 40,
+      "label_seq_id": 41,
+      "author_chain": "H",
+      "author_res_id": 41,
+      "insertion_code": "",
+      "structure_residue": "P",
+      "benchmark_somatic_residue": "P",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 41,
+      "label_seq_id": 42,
+      "author_chain": "H",
+      "author_res_id": 42,
+      "insertion_code": "",
+      "structure_residue": "G",
+      "benchmark_somatic_residue": "G",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 42,
+      "label_seq_id": 43,
+      "author_chain": "H",
+      "author_res_id": 43,
+      "insertion_code": "",
+      "structure_residue": "Q",
+      "benchmark_somatic_residue": "Q",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 43,
+      "label_seq_id": 44,
+      "author_chain": "H",
+      "author_res_id": 44,
+      "insertion_code": "",
+      "structure_residue": "G",
+      "benchmark_somatic_residue": "G",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 44,
+      "label_seq_id": 45,
+      "author_chain": "H",
+      "author_res_id": 45,
+      "insertion_code": "",
+      "structure_residue": "L",
+      "benchmark_somatic_residue": "L",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 45,
+      "label_seq_id": 46,
+      "author_chain": "H",
+      "author_res_id": 46,
+      "insertion_code": "",
+      "structure_residue": "D",
+      "benchmark_somatic_residue": "E",
+      "fixed_mismatch": true,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 46,
+      "label_seq_id": 47,
+      "author_chain": "H",
+      "author_res_id": 47,
+      "insertion_code": "",
+      "structure_residue": "W",
+      "benchmark_somatic_residue": "W",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 47,
+      "label_seq_id": 48,
+      "author_chain": "H",
+      "author_res_id": 48,
+      "insertion_code": "",
+      "structure_residue": "M",
+      "benchmark_somatic_residue": "M",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 48,
+      "label_seq_id": 49,
+      "author_chain": "H",
+      "author_res_id": 49,
+      "insertion_code": "",
+      "structure_residue": "G",
+      "benchmark_somatic_residue": "G",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 49,
+      "label_seq_id": 50,
+      "author_chain": "H",
+      "author_res_id": 50,
+      "insertion_code": "",
+      "structure_residue": "G",
+      "benchmark_somatic_residue": "G",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 50,
+      "label_seq_id": 51,
+      "author_chain": "H",
+      "author_res_id": 51,
+      "insertion_code": "",
+      "structure_residue": "I",
+      "benchmark_somatic_residue": "I",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 51,
+      "label_seq_id": 52,
+      "author_chain": "H",
+      "author_res_id": 52,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "benchmark_somatic_residue": "S",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 52,
+      "label_seq_id": 53,
+      "author_chain": "H",
+      "author_res_id": 52,
+      "insertion_code": "A",
+      "structure_residue": "P",
+      "benchmark_somatic_residue": "P",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 53,
+      "label_seq_id": 54,
+      "author_chain": "H",
+      "author_res_id": 53,
+      "insertion_code": "",
+      "structure_residue": "I",
+      "benchmark_somatic_residue": "I",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 54,
+      "label_seq_id": 55,
+      "author_chain": "H",
+      "author_res_id": 54,
+      "insertion_code": "",
+      "structure_residue": "F",
+      "benchmark_somatic_residue": "F",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 55,
+      "label_seq_id": 56,
+      "author_chain": "H",
+      "author_res_id": 55,
+      "insertion_code": "",
+      "structure_residue": "G",
+      "benchmark_somatic_residue": "G",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 56,
+      "label_seq_id": 57,
+      "author_chain": "H",
+      "author_res_id": 56,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "benchmark_somatic_residue": "S",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 57,
+      "label_seq_id": 58,
+      "author_chain": "H",
+      "author_res_id": 57,
+      "insertion_code": "",
+      "structure_residue": "T",
+      "benchmark_somatic_residue": "T",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 58,
+      "label_seq_id": 59,
+      "author_chain": "H",
+      "author_res_id": 58,
+      "insertion_code": "",
+      "structure_residue": "A",
+      "benchmark_somatic_residue": "A",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 59,
+      "label_seq_id": 60,
+      "author_chain": "H",
+      "author_res_id": 59,
+      "insertion_code": "",
+      "structure_residue": "Y",
+      "benchmark_somatic_residue": "Y",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 60,
+      "label_seq_id": 61,
+      "author_chain": "H",
+      "author_res_id": 60,
+      "insertion_code": "",
+      "structure_residue": "A",
+      "benchmark_somatic_residue": "A",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 61,
+      "label_seq_id": 62,
+      "author_chain": "H",
+      "author_res_id": 61,
+      "insertion_code": "",
+      "structure_residue": "Q",
+      "benchmark_somatic_residue": "Q",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 62,
+      "label_seq_id": 63,
+      "author_chain": "H",
+      "author_res_id": 62,
+      "insertion_code": "",
+      "structure_residue": "K",
+      "benchmark_somatic_residue": "K",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 63,
+      "label_seq_id": 64,
+      "author_chain": "H",
+      "author_res_id": 63,
+      "insertion_code": "",
+      "structure_residue": "F",
+      "benchmark_somatic_residue": "F",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 64,
+      "label_seq_id": 65,
+      "author_chain": "H",
+      "author_res_id": 64,
+      "insertion_code": "",
+      "structure_residue": "Q",
+      "benchmark_somatic_residue": "Q",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 65,
+      "label_seq_id": 66,
+      "author_chain": "H",
+      "author_res_id": 65,
+      "insertion_code": "",
+      "structure_residue": "G",
+      "benchmark_somatic_residue": "G",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 66,
+      "label_seq_id": 67,
+      "author_chain": "H",
+      "author_res_id": 66,
+      "insertion_code": "",
+      "structure_residue": "R",
+      "benchmark_somatic_residue": "R",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 67,
+      "label_seq_id": 68,
+      "author_chain": "H",
+      "author_res_id": 67,
+      "insertion_code": "",
+      "structure_residue": "V",
+      "benchmark_somatic_residue": "V",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 68,
+      "label_seq_id": 69,
+      "author_chain": "H",
+      "author_res_id": 68,
+      "insertion_code": "",
+      "structure_residue": "T",
+      "benchmark_somatic_residue": "T",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 69,
+      "label_seq_id": 70,
+      "author_chain": "H",
+      "author_res_id": 69,
+      "insertion_code": "",
+      "structure_residue": "I",
+      "benchmark_somatic_residue": "I",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 70,
+      "label_seq_id": 71,
+      "author_chain": "H",
+      "author_res_id": 70,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "benchmark_somatic_residue": "S",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 71,
+      "label_seq_id": 72,
+      "author_chain": "H",
+      "author_res_id": 71,
+      "insertion_code": "",
+      "structure_residue": "A",
+      "benchmark_somatic_residue": "A",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 72,
+      "label_seq_id": 73,
+      "author_chain": "H",
+      "author_res_id": 72,
+      "insertion_code": "",
+      "structure_residue": "D",
+      "benchmark_somatic_residue": "D",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 73,
+      "label_seq_id": 74,
+      "author_chain": "H",
+      "author_res_id": 73,
+      "insertion_code": "",
+      "structure_residue": "I",
+      "benchmark_somatic_residue": "I",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 74,
+      "label_seq_id": 75,
+      "author_chain": "H",
+      "author_res_id": 74,
+      "insertion_code": "",
+      "structure_residue": "F",
+      "benchmark_somatic_residue": "F",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 75,
+      "label_seq_id": 76,
+      "author_chain": "H",
+      "author_res_id": 75,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "benchmark_somatic_residue": "S",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 76,
+      "label_seq_id": 77,
+      "author_chain": "H",
+      "author_res_id": 76,
+      "insertion_code": "",
+      "structure_residue": "N",
+      "benchmark_somatic_residue": "N",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 77,
+      "label_seq_id": 78,
+      "author_chain": "H",
+      "author_res_id": 77,
+      "insertion_code": "",
+      "structure_residue": "T",
+      "benchmark_somatic_residue": "T",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 78,
+      "label_seq_id": 79,
+      "author_chain": "H",
+      "author_res_id": 78,
+      "insertion_code": "",
+      "structure_residue": "A",
+      "benchmark_somatic_residue": "A",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 79,
+      "label_seq_id": 80,
+      "author_chain": "H",
+      "author_res_id": 79,
+      "insertion_code": "",
+      "structure_residue": "Y",
+      "benchmark_somatic_residue": "Y",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 80,
+      "label_seq_id": 81,
+      "author_chain": "H",
+      "author_res_id": 80,
+      "insertion_code": "",
+      "structure_residue": "M",
+      "benchmark_somatic_residue": "M",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 81,
+      "label_seq_id": 82,
+      "author_chain": "H",
+      "author_res_id": 81,
+      "insertion_code": "",
+      "structure_residue": "E",
+      "benchmark_somatic_residue": "E",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 82,
+      "label_seq_id": 83,
+      "author_chain": "H",
+      "author_res_id": 82,
+      "insertion_code": "",
+      "structure_residue": "L",
+      "benchmark_somatic_residue": "L",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 83,
+      "label_seq_id": 84,
+      "author_chain": "H",
+      "author_res_id": 82,
+      "insertion_code": "A",
+      "structure_residue": "N",
+      "benchmark_somatic_residue": "N",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 84,
+      "label_seq_id": 85,
+      "author_chain": "H",
+      "author_res_id": 82,
+      "insertion_code": "B",
+      "structure_residue": "S",
+      "benchmark_somatic_residue": "S",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 85,
+      "label_seq_id": 86,
+      "author_chain": "H",
+      "author_res_id": 82,
+      "insertion_code": "C",
+      "structure_residue": "L",
+      "benchmark_somatic_residue": "L",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 86,
+      "label_seq_id": 87,
+      "author_chain": "H",
+      "author_res_id": 83,
+      "insertion_code": "",
+      "structure_residue": "T",
+      "benchmark_somatic_residue": "T",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 87,
+      "label_seq_id": 88,
+      "author_chain": "H",
+      "author_res_id": 84,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "benchmark_somatic_residue": "S",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 88,
+      "label_seq_id": 89,
+      "author_chain": "H",
+      "author_res_id": 85,
+      "insertion_code": "",
+      "structure_residue": "E",
+      "benchmark_somatic_residue": "E",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 89,
+      "label_seq_id": 90,
+      "author_chain": "H",
+      "author_res_id": 86,
+      "insertion_code": "",
+      "structure_residue": "D",
+      "benchmark_somatic_residue": "D",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 90,
+      "label_seq_id": 91,
+      "author_chain": "H",
+      "author_res_id": 87,
+      "insertion_code": "",
+      "structure_residue": "T",
+      "benchmark_somatic_residue": "T",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 91,
+      "label_seq_id": 92,
+      "author_chain": "H",
+      "author_res_id": 88,
+      "insertion_code": "",
+      "structure_residue": "A",
+      "benchmark_somatic_residue": "A",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 92,
+      "label_seq_id": 93,
+      "author_chain": "H",
+      "author_res_id": 89,
+      "insertion_code": "",
+      "structure_residue": "V",
+      "benchmark_somatic_residue": "V",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 93,
+      "label_seq_id": 94,
+      "author_chain": "H",
+      "author_res_id": 90,
+      "insertion_code": "",
+      "structure_residue": "Y",
+      "benchmark_somatic_residue": "Y",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 94,
+      "label_seq_id": 95,
+      "author_chain": "H",
+      "author_res_id": 91,
+      "insertion_code": "",
+      "structure_residue": "F",
+      "benchmark_somatic_residue": "F",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 95,
+      "label_seq_id": 96,
+      "author_chain": "H",
+      "author_res_id": 92,
+      "insertion_code": "",
+      "structure_residue": "C",
+      "benchmark_somatic_residue": "C",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 96,
+      "label_seq_id": 97,
+      "author_chain": "H",
+      "author_res_id": 93,
+      "insertion_code": "",
+      "structure_residue": "A",
+      "benchmark_somatic_residue": "A",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 97,
+      "label_seq_id": 98,
+      "author_chain": "H",
+      "author_res_id": 94,
+      "insertion_code": "",
+      "structure_residue": "R",
+      "benchmark_somatic_residue": "R",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 98,
+      "label_seq_id": 99,
+      "author_chain": "H",
+      "author_res_id": 95,
+      "insertion_code": "",
+      "structure_residue": "H",
+      "benchmark_somatic_residue": "H",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 99,
+      "label_seq_id": 100,
+      "author_chain": "H",
+      "author_res_id": 96,
+      "insertion_code": "",
+      "structure_residue": "G",
+      "benchmark_somatic_residue": "G",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 100,
+      "label_seq_id": 101,
+      "author_chain": "H",
+      "author_res_id": 97,
+      "insertion_code": "",
+      "structure_residue": "N",
+      "benchmark_somatic_residue": "N",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 101,
+      "label_seq_id": 102,
+      "author_chain": "H",
+      "author_res_id": 98,
+      "insertion_code": "",
+      "structure_residue": "Y",
+      "benchmark_somatic_residue": "Y",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 102,
+      "label_seq_id": 103,
+      "author_chain": "H",
+      "author_res_id": 99,
+      "insertion_code": "",
+      "structure_residue": "Y",
+      "benchmark_somatic_residue": "Y",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 103,
+      "label_seq_id": 104,
+      "author_chain": "H",
+      "author_res_id": 100,
+      "insertion_code": "",
+      "structure_residue": "Y",
+      "benchmark_somatic_residue": "Y",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 104,
+      "label_seq_id": 105,
+      "author_chain": "H",
+      "author_res_id": 100,
+      "insertion_code": "A",
+      "structure_residue": "Y",
+      "benchmark_somatic_residue": "Y",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 105,
+      "label_seq_id": 106,
+      "author_chain": "H",
+      "author_res_id": 100,
+      "insertion_code": "B",
+      "structure_residue": "S",
+      "benchmark_somatic_residue": "S",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 106,
+      "label_seq_id": 107,
+      "author_chain": "H",
+      "author_res_id": 100,
+      "insertion_code": "C",
+      "structure_residue": "G",
+      "benchmark_somatic_residue": "G",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 107,
+      "label_seq_id": 108,
+      "author_chain": "H",
+      "author_res_id": 100,
+      "insertion_code": "D",
+      "structure_residue": "M",
+      "benchmark_somatic_residue": "M",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 108,
+      "label_seq_id": 109,
+      "author_chain": "H",
+      "author_res_id": 101,
+      "insertion_code": "",
+      "structure_residue": "D",
+      "benchmark_somatic_residue": "D",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 109,
+      "label_seq_id": 110,
+      "author_chain": "H",
+      "author_res_id": 102,
+      "insertion_code": "",
+      "structure_residue": "V",
+      "benchmark_somatic_residue": "V",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 110,
+      "label_seq_id": 111,
+      "author_chain": "H",
+      "author_res_id": 103,
+      "insertion_code": "",
+      "structure_residue": "W",
+      "benchmark_somatic_residue": "W",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 111,
+      "label_seq_id": 112,
+      "author_chain": "H",
+      "author_res_id": 104,
+      "insertion_code": "",
+      "structure_residue": "G",
+      "benchmark_somatic_residue": "G",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 112,
+      "label_seq_id": 113,
+      "author_chain": "H",
+      "author_res_id": 105,
+      "insertion_code": "",
+      "structure_residue": "Q",
+      "benchmark_somatic_residue": "Q",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 113,
+      "label_seq_id": 114,
+      "author_chain": "H",
+      "author_res_id": 106,
+      "insertion_code": "",
+      "structure_residue": "G",
+      "benchmark_somatic_residue": "G",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 114,
+      "label_seq_id": 115,
+      "author_chain": "H",
+      "author_res_id": 107,
+      "insertion_code": "",
+      "structure_residue": "T",
+      "benchmark_somatic_residue": "T",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 115,
+      "label_seq_id": 116,
+      "author_chain": "H",
+      "author_res_id": 108,
+      "insertion_code": "",
+      "structure_residue": "T",
+      "benchmark_somatic_residue": "T",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 116,
+      "label_seq_id": 117,
+      "author_chain": "H",
+      "author_res_id": 109,
+      "insertion_code": "",
+      "structure_residue": "V",
+      "benchmark_somatic_residue": "V",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 117,
+      "label_seq_id": 118,
+      "author_chain": "H",
+      "author_res_id": 110,
+      "insertion_code": "",
+      "structure_residue": "T",
+      "benchmark_somatic_residue": "T",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 118,
+      "label_seq_id": 119,
+      "author_chain": "H",
+      "author_res_id": 111,
+      "insertion_code": "",
+      "structure_residue": "V",
+      "benchmark_somatic_residue": "V",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 119,
+      "label_seq_id": 120,
+      "author_chain": "H",
+      "author_res_id": 112,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "benchmark_somatic_residue": "S",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 120,
+      "label_seq_id": 121,
+      "author_chain": "H",
+      "author_res_id": 113,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "benchmark_somatic_residue": "S",
+      "fixed_mismatch": false,
+      "complete_backbone": true
+    }
+  ],
+  "vh_validation": [
+    {
+      "author_res_id": 1,
+      "insertion_code": "",
+      "rsrz": 0.287,
+      "rscc": 0.469,
+      "ramachandran": null,
+      "sidechain_rotamer": "mp10",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 2,
+      "insertion_code": "",
+      "rsrz": 0.123,
+      "rscc": 0.907,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "p",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 2,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 3,
+      "insertion_code": "",
+      "rsrz": -0.155,
+      "rscc": 0.686,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "mm-40",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 1,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 4,
+      "insertion_code": "",
+      "rsrz": 0.777,
+      "rscc": 0.943,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "mt",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 4,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 5,
+      "insertion_code": "",
+      "rsrz": 0.213,
+      "rscc": 0.905,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "t",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 6,
+      "insertion_code": "",
+      "rsrz": 0.416,
+      "rscc": 0.789,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "mt0",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 7,
+      "insertion_code": "",
+      "rsrz": 1.104,
+      "rscc": 0.835,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "p",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 8,
+      "insertion_code": "",
+      "rsrz": 0.431,
+      "rscc": 0.743,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 9,
+      "insertion_code": "",
+      "rsrz": 1.254,
+      "rscc": 0.486,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 10,
+      "insertion_code": "",
+      "rsrz": 0.317,
+      "rscc": 0.809,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "mt-10",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 11,
+      "insertion_code": "",
+      "rsrz": 0.032,
+      "rscc": 0.808,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "t",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 1,
+        "clash": 5,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 12,
+      "insertion_code": "",
+      "rsrz": 0.011,
+      "rscc": 0.749,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "mtpt",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 1,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 13,
+      "insertion_code": "",
+      "rsrz": -0.085,
+      "rscc": 0.833,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "tttt",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 3,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 14,
+      "insertion_code": "",
+      "rsrz": -0.125,
+      "rscc": 0.929,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "Cg_exo",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 2,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 15,
+      "insertion_code": "",
+      "rsrz": -0.182,
+      "rscc": 0.783,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 16,
+      "insertion_code": "",
+      "rsrz": -0.55,
+      "rscc": 0.914,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "p",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 17,
+      "insertion_code": "",
+      "rsrz": -0.299,
+      "rscc": 0.695,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 1,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 18,
+      "insertion_code": "",
+      "rsrz": 0.285,
+      "rscc": 0.959,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "p",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 19,
+      "insertion_code": "",
+      "rsrz": -0.021,
+      "rscc": 0.863,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "OUTLIER",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 20,
+      "insertion_code": "",
+      "rsrz": 0.502,
+      "rscc": 0.947,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "t",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 21,
+      "insertion_code": "",
+      "rsrz": 0.151,
+      "rscc": 0.806,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "p",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 22,
+      "insertion_code": "",
+      "rsrz": 1.132,
+      "rscc": 0.806,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "t",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 1,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 23,
+      "insertion_code": "",
+      "rsrz": -0.198,
+      "rscc": 0.759,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "tptt",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 24,
+      "insertion_code": "",
+      "rsrz": 0.187,
+      "rscc": 0.934,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "t",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 25,
+      "insertion_code": "",
+      "rsrz": 0.025,
+      "rscc": 0.785,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "t",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 26,
+      "insertion_code": "",
+      "rsrz": -0.182,
+      "rscc": 0.658,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 27,
+      "insertion_code": "",
+      "rsrz": 0.245,
+      "rscc": 0.525,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 28,
+      "insertion_code": "",
+      "rsrz": 0.276,
+      "rscc": 0.933,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "t",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 29,
+      "insertion_code": "",
+      "rsrz": 1.5,
+      "rscc": 0.973,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 30,
+      "insertion_code": "",
+      "rsrz": -0.8,
+      "rscc": 0.952,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m-40",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 31,
+      "insertion_code": "",
+      "rsrz": 0.986,
+      "rscc": 0.854,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "p0",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 32,
+      "insertion_code": "",
+      "rsrz": 0.075,
+      "rscc": 0.878,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m-80",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 1,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 33,
+      "insertion_code": "",
+      "rsrz": 0.779,
+      "rscc": 0.905,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 1,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 34,
+      "insertion_code": "",
+      "rsrz": 0.104,
+      "rscc": 0.975,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "mt",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 35,
+      "insertion_code": "",
+      "rsrz": -0.317,
+      "rscc": 0.937,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 36,
+      "insertion_code": "",
+      "rsrz": -0.19,
+      "rscc": 0.928,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m100",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 1,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 37,
+      "insertion_code": "",
+      "rsrz": -0.238,
+      "rscc": 0.967,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "t",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 38,
+      "insertion_code": "",
+      "rsrz": -0.704,
+      "rscc": 0.93,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "ptt180",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 39,
+      "insertion_code": "",
+      "rsrz": -0.099,
+      "rscc": 0.924,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "tt0",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 40,
+      "insertion_code": "",
+      "rsrz": -0.245,
+      "rscc": 0.769,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 1,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 41,
+      "insertion_code": "",
+      "rsrz": -0.463,
+      "rscc": 0.881,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "Cg_exo",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 42,
+      "insertion_code": "",
+      "rsrz": -0.312,
+      "rscc": 0.853,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 43,
+      "insertion_code": "",
+      "rsrz": 0.14,
+      "rscc": 0.8,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "mt0",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 1,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 44,
+      "insertion_code": "",
+      "rsrz": 0.673,
+      "rscc": 0.812,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 45,
+      "insertion_code": "",
+      "rsrz": 0.664,
+      "rscc": 0.962,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "mt",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 46,
+      "insertion_code": "",
+      "rsrz": -0.285,
+      "rscc": 0.854,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "t0",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 47,
+      "insertion_code": "",
+      "rsrz": 0.03,
+      "rscc": 0.955,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "t60",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 1,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 48,
+      "insertion_code": "",
+      "rsrz": -0.164,
+      "rscc": 0.94,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "mtp",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 49,
+      "insertion_code": "",
+      "rsrz": -0.182,
+      "rscc": 0.804,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 50,
+      "insertion_code": "",
+      "rsrz": -0.424,
+      "rscc": 0.929,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 51,
+      "insertion_code": "",
+      "rsrz": 0.321,
+      "rscc": 0.961,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "tt",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 52,
+      "insertion_code": "",
+      "rsrz": 0.349,
+      "rscc": 0.879,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "t",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 52,
+      "insertion_code": "A",
+      "rsrz": -0.575,
+      "rscc": 0.943,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "t",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 53,
+      "insertion_code": "",
+      "rsrz": 0.622,
+      "rscc": 0.978,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "mm",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 54,
+      "insertion_code": "",
+      "rsrz": 0.966,
+      "rscc": 0.89,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "t80",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 55,
+      "insertion_code": "",
+      "rsrz": -0.331,
+      "rscc": 0.817,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 56,
+      "insertion_code": "",
+      "rsrz": -0.083,
+      "rscc": 0.916,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "t",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 57,
+      "insertion_code": "",
+      "rsrz": -0.451,
+      "rscc": 0.893,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 58,
+      "insertion_code": "",
+      "rsrz": -0.208,
+      "rscc": 0.957,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 59,
+      "insertion_code": "",
+      "rsrz": -0.902,
+      "rscc": 0.922,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m-80",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 60,
+      "insertion_code": "",
+      "rsrz": -0.19,
+      "rscc": 0.953,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 61,
+      "insertion_code": "",
+      "rsrz": 2.773,
+      "rscc": 0.885,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "mt0",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 1,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 62,
+      "insertion_code": "",
+      "rsrz": -0.731,
+      "rscc": 0.879,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "ptmt",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 63,
+      "insertion_code": "",
+      "rsrz": 0.029,
+      "rscc": 0.948,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m-80",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 64,
+      "insertion_code": "",
+      "rsrz": -0.173,
+      "rscc": 0.858,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "tt0",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 65,
+      "insertion_code": "",
+      "rsrz": 0.58,
+      "rscc": 0.666,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 66,
+      "insertion_code": "",
+      "rsrz": 0.034,
+      "rscc": 0.869,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "ttp80",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 67,
+      "insertion_code": "",
+      "rsrz": -0.256,
+      "rscc": 0.965,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "p",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 68,
+      "insertion_code": "",
+      "rsrz": -0.264,
+      "rscc": 0.907,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 69,
+      "insertion_code": "",
+      "rsrz": 0.137,
+      "rscc": 0.96,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "mt",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 70,
+      "insertion_code": "",
+      "rsrz": 0.511,
+      "rscc": 0.909,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "p",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 71,
+      "insertion_code": "",
+      "rsrz": -0.227,
+      "rscc": 0.971,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 1,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 72,
+      "insertion_code": "",
+      "rsrz": -0.573,
+      "rscc": 0.894,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "t0",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 73,
+      "insertion_code": "",
+      "rsrz": 0.722,
+      "rscc": 0.95,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "pt",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 1,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 74,
+      "insertion_code": "",
+      "rsrz": 0.37,
+      "rscc": 0.847,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m-80",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 3,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 75,
+      "insertion_code": "",
+      "rsrz": -0.371,
+      "rscc": 0.885,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "p",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 76,
+      "insertion_code": "",
+      "rsrz": 0.016,
+      "rscc": 0.859,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m-40",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 77,
+      "insertion_code": "",
+      "rsrz": -0.078,
+      "rscc": 0.919,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 78,
+      "insertion_code": "",
+      "rsrz": 0.395,
+      "rscc": 0.988,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 1,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 79,
+      "insertion_code": "",
+      "rsrz": 0.113,
+      "rscc": 0.889,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m-80",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 80,
+      "insertion_code": "",
+      "rsrz": -0.282,
+      "rscc": 0.952,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "tmm",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 3,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 81,
+      "insertion_code": "",
+      "rsrz": -0.317,
+      "rscc": 0.881,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "tt0",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 82,
+      "insertion_code": "",
+      "rsrz": -0.273,
+      "rscc": 0.97,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "tp",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 82,
+      "insertion_code": "A",
+      "rsrz": -0.276,
+      "rscc": 0.859,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "tp",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 82,
+      "insertion_code": "B",
+      "rsrz": -0.353,
+      "rscc": 0.855,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "tp",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 82,
+      "insertion_code": "C",
+      "rsrz": -0.225,
+      "rscc": 0.978,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "tp",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 83,
+      "insertion_code": "",
+      "rsrz": 0.313,
+      "rscc": 0.91,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "p",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 84,
+      "insertion_code": "",
+      "rsrz": 1.068,
+      "rscc": 0.814,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "p",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 85,
+      "insertion_code": "",
+      "rsrz": 0.72,
+      "rscc": 0.871,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "mp0",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 86,
+      "insertion_code": "",
+      "rsrz": -0.326,
+      "rscc": 0.941,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m-30",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 87,
+      "insertion_code": "",
+      "rsrz": -0.097,
+      "rscc": 0.94,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "OUTLIER",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 88,
+      "insertion_code": "",
+      "rsrz": 1.346,
+      "rscc": 0.838,
+      "ramachandran": "Allowed",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 89,
+      "insertion_code": "",
+      "rsrz": 0.051,
+      "rscc": 0.94,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "t",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 90,
+      "insertion_code": "",
+      "rsrz": 0.132,
+      "rscc": 0.931,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m-80",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 91,
+      "insertion_code": "",
+      "rsrz": -0.465,
+      "rscc": 0.952,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m-80",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 92,
+      "insertion_code": "",
+      "rsrz": 0.978,
+      "rscc": 0.825,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "p",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 93,
+      "insertion_code": "",
+      "rsrz": 0.157,
+      "rscc": 0.941,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 1,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 94,
+      "insertion_code": "",
+      "rsrz": 1.357,
+      "rscc": 0.924,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "ttt180",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 4,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 95,
+      "insertion_code": "",
+      "rsrz": -0.617,
+      "rscc": 0.903,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m-70",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 1,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 96,
+      "insertion_code": "",
+      "rsrz": 0.152,
+      "rscc": 0.712,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 1,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 97,
+      "insertion_code": "",
+      "rsrz": -0.295,
+      "rscc": 0.929,
+      "ramachandran": "Allowed",
+      "sidechain_rotamer": "p0",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 98,
+      "insertion_code": "",
+      "rsrz": 1.167,
+      "rscc": 0.902,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "p90",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 1,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 99,
+      "insertion_code": "",
+      "rsrz": -0.634,
+      "rscc": 0.965,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "t80",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 100,
+      "insertion_code": "",
+      "rsrz": 0.075,
+      "rscc": 0.947,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m-80",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 100,
+      "insertion_code": "A",
+      "rsrz": 0.285,
+      "rscc": 0.886,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m-80",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 100,
+      "insertion_code": "B",
+      "rsrz": -0.047,
+      "rscc": 0.745,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m-80",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 1,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 100,
+      "insertion_code": "C",
+      "rsrz": -0.312,
+      "rscc": 0.923,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 1,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 100,
+      "insertion_code": "D",
+      "rsrz": -0.081,
+      "rscc": 0.956,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m-80",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 2,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 101,
+      "insertion_code": "",
+      "rsrz": 0.416,
+      "rscc": 0.76,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "p0",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 1,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 102,
+      "insertion_code": "",
+      "rsrz": 0.267,
+      "rscc": 0.935,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "OUTLIER",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 2,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 103,
+      "insertion_code": "",
+      "rsrz": -0.09,
+      "rscc": 0.944,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m100",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 1,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 104,
+      "insertion_code": "",
+      "rsrz": -0.164,
+      "rscc": 0.762,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 105,
+      "insertion_code": "",
+      "rsrz": -0.118,
+      "rscc": 0.729,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "pm20",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 106,
+      "insertion_code": "",
+      "rsrz": 0.208,
+      "rscc": 0.711,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": null,
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 107,
+      "insertion_code": "",
+      "rsrz": 0.667,
+      "rscc": 0.937,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 108,
+      "insertion_code": "",
+      "rsrz": 1.058,
+      "rscc": 0.825,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 109,
+      "insertion_code": "",
+      "rsrz": 1.134,
+      "rscc": 0.965,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "t",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 110,
+      "insertion_code": "",
+      "rsrz": 1.449,
+      "rscc": 0.838,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "m",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 2,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 111,
+      "insertion_code": "",
+      "rsrz": 0.231,
+      "rscc": 0.93,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "t",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 112,
+      "insertion_code": "",
+      "rsrz": 0.817,
+      "rscc": 0.877,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "t",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 0,
+        "clash": 0,
+        "plane-outlier": 0
+      }
+    },
+    {
+      "author_res_id": 113,
+      "insertion_code": "",
+      "rsrz": 0.151,
+      "rscc": 0.89,
+      "ramachandran": "Favored",
+      "sidechain_rotamer": "p",
+      "geometry_outlier_counts": {
+        "bond-outlier": 0,
+        "angle-outlier": 1,
+        "clash": 2,
+        "plane-outlier": 0
+      }
+    }
+  ],
+  "local_quality_summary": {
+    "variable_sites_with_RSRZ_gt_2": [],
+    "variable_sites_with_clash_flags": [
+      "pos9",
+      "pos10",
+      "pos16"
+    ],
+    "vh_residues_with_RSRZ_gt_2": [
+      {
+        "author_res_id": 61,
+        "insertion_code": "",
+        "rsrz": 2.773,
+        "rscc": 0.885,
+        "ramachandran": "Favored",
+        "sidechain_rotamer": "mt0",
+        "geometry_outlier_counts": {
+          "bond-outlier": 0,
+          "angle-outlier": 0,
+          "clash": 1,
+          "plane-outlier": 0
+        }
+      }
+    ],
+    "interpretation": "RSRZ > 2 is the wwPDB density-fit outlier flag. Its absence does not establish high coordinate accuracy. Clash flags are preserved, not repaired; counts at two residues can refer to the same clash."
+  },
+  "fixed_template_mismatches": [
+    {
+      "vh_index_0based": 23,
+      "label_seq_id": 24,
+      "author_chain": "H",
+      "author_res_id": 24,
+      "insertion_code": "",
+      "structure_residue": "S",
+      "benchmark_somatic_residue": "A",
+      "fixed_mismatch": true,
+      "complete_backbone": true
+    },
+    {
+      "vh_index_0based": 45,
+      "label_seq_id": 46,
+      "author_chain": "H",
+      "author_res_id": 46,
+      "insertion_code": "",
+      "structure_residue": "D",
+      "benchmark_somatic_residue": "E",
+      "fixed_mismatch": true,
+      "complete_backbone": true
+    }
+  ],
+  "unobserved_residues": [
+    {
+      "author_chain": "H",
+      "count": 13,
+      "label_seq_ids": [
+        138,
+        139,
+        140,
+        141,
+        222,
+        223,
+        224,
+        225,
+        226,
+        227,
+        228,
+        229,
+        230
+      ]
+    },
+    {
+      "author_chain": "L",
+      "count": 4,
+      "label_seq_ids": [
+        212,
+        213,
+        214,
+        215
+      ]
+    },
+    {
+      "author_chain": "A",
+      "count": 14,
+      "label_seq_ids": [
+        1,
+        2,
+        3,
+        4,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        65,
+        66
+      ]
+    },
+    {
+      "author_chain": "B",
+      "count": 39,
+      "label_seq_ids": [
+        1,
+        2,
+        3,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        173,
+        174,
+        175,
+        176,
+        177,
+        178,
+        179,
+        180,
+        181,
+        182,
+        183,
+        184,
+        185,
+        186,
+        187,
+        188,
+        189,
+        190,
+        191,
+        192,
+        193
+      ]
+    }
+  ],
+  "upstream_unused_translation_table_inconsistencies": [
+    {
+      "site_id": "pos12",
+      "codon": "ATT",
+      "declared": "N",
+      "standard_translation": "I"
+    }
+  ],
+  "assay_target": {
+    "identity": "Influenza A/New Caledonia/20/1999 H1 ectodomain",
+    "source": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8476123/",
+    "construct_source_available": true,
+    "construct_source": "Paper supplementary file 8; exact construct sequence not extracted in this audit",
+    "relationship_to_5cjq": "Engineered H1-derived stem #4900 is proxy structural context, not the same construct"
+  },
+  "pending": [
+    "Choose and document the model's chain/domain extent; the current adapter requires the entire observed decoded chain, whereas the benchmark VH is 121 residues and observed H is 217 residues.",
+    "Account explicitly for unobserved antigen regions and the scFv-versus-Fab context difference; local backbone completeness is not experimental coordinate accuracy.",
+    "Review light-chain sequence correspondence and local-quality findings before selecting the final multichain context.",
+    "Prepare a source-linked structural manifest, then verify released-model scoring parity."
+  ],
+  "model_input_prepared": false,
+  "model_scoring_run": false
+}

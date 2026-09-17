@@ -1,0 +1,56 @@
+{
+  "kind": "cr9114_5cjq_mapping_sources",
+  "schema_version": "1",
+  "retrieval_date": "2026-09-16",
+  "note": "Antibody supplements and archived upstream code freshly retrieved and byte-verified; structure and landscape reuse the previously pinned downloads. Validation XML freshly downloaded. Only antibody fragment labels, not assembly instructions, are used from supplementary file 2.",
+  "files": {
+    "germline": {
+      "relative_path": "data/raw/cr9114_structure/elife-71393-supp4-v3.dna",
+      "source_url": "https://cdn.elifesciences.org/articles/71393/elife-71393-supp4-v3.dna",
+      "size_bytes": 44463,
+      "sha256": "e8e8ee0e6d6b6562b5fe66c1621e9bc76c3adb23d02c6065f0253f172a88b4ad"
+    },
+    "somatic": {
+      "relative_path": "data/raw/cr9114_structure/elife-71393-supp5-v3.dna",
+      "source_url": "https://cdn.elifesciences.org/articles/71393/elife-71393-supp5-v3.dna",
+      "size_bytes": 44836,
+      "sha256": "d8d68a25fb015b025f2d8bc9498ddb02b95a76bbfdda1c5d9f4af3c969d7a7b3"
+    },
+    "fragment_labels": {
+      "relative_path": "data/raw/cr9114_structure/elife-71393-supp2-v3.xlsx",
+      "source_url": "https://cdn.elifesciences.org/articles/71393/elife-71393-supp2-v3.xlsx",
+      "size_bytes": 15549,
+      "sha256": "5bfa9a2d8bfe69f403933beaabe2348ff34ee313cc465c51da681e92ddec02be"
+    },
+    "site_code": {
+      "relative_path": "data/raw/cr9114_structure/mutation_info.61c1673.py",
+      "source_url": "https://raw.githubusercontent.com/klawrence26/bnab-landscapes/61c1673a101ea739d5b7e9b282f6bcfad41d7e90/CR9114/Epistasis_linear_models/mutation_info.py",
+      "size_bytes": 845,
+      "sha256": "172d165aff38c01e086d35d55be99314426a67c7e9b7e2f903dd7c8dd508e211"
+    },
+    "binary_code": {
+      "relative_path": "data/raw/cr9114_structure/nuc_to_aa.61c1673.py",
+      "source_url": "https://raw.githubusercontent.com/klawrence26/bnab-landscapes/61c1673a101ea739d5b7e9b282f6bcfad41d7e90/CR9114/Seq_pipeline/nuc_to_aa.py",
+      "size_bytes": 2398,
+      "sha256": "d81b01e0f7f78a5c8b90d1beadab85108bc243307cd64a300e154d8060cede68"
+    },
+    "structure": {
+      "relative_path": "data/raw/cr9114_structure/5CJQ.cif",
+      "source_url": "https://files.rcsb.org/download/5CJQ.cif",
+      "size_bytes": 530923,
+      "sha256": "29d3c01238bc6fb8e22550206e687168c4e34a9b728c52d70ae701248742416d"
+    },
+    "validation": {
+      "relative_path": "data/raw/cr9114_structure/5cjq_validation.xml.gz",
+      "source_url": "https://files.rcsb.org/pub/pdb/validation_reports/cj/5cjq/5cjq_validation.xml.gz",
+      "size_bytes": 35638,
+      "sha256": "bb09aa2a1ee619ae13b0b1bea80c1f36be800207c0a8f2d86150fc6daa2fd771"
+    },
+    "landscape": {
+      "relative_path": "data/raw/cr9114_cr6261_landscape/elife-71393-fig1-data1-v3.csv",
+      "source_url": "https://cdn.elifesciences.org/articles/71393/elife-71393-fig1-data1-v3.csv",
+      "size_bytes": 12258680,
+      "sha256": "ee31f8fc26fce2730d2ae772e7a095aa334b4c6c5d8e7fbfe4b4a5a1c9a794fe"
+    }
+  }
+}
