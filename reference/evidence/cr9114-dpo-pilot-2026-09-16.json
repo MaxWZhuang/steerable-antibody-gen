@@ -1,0 +1,198 @@
+{
+  "kind": "cr9114_dpo_pilot_evidence",
+  "date": "2026-09-16",
+  "status": "partial",
+  "artifact_directory": "outputs/cr9114_dpo_pilot_20260916",
+  "run": {
+    "config": {
+      "schema_version": "cr9114-dpo-pilot/1",
+      "seed": 20260916,
+      "steps": 256,
+      "pairs_per_batch": 2,
+      "score_batch_size": 16,
+      "beta": 0.1,
+      "learning_rate": 1e-05,
+      "weight_decay": 0.01,
+      "gradient_clip": 1.0,
+      "checkpoint_every": 64,
+      "device": "cuda",
+      "precision": "float32",
+      "arms": [
+        "direct_dpo",
+        "sft_dpo"
+      ],
+      "pilot_dir": "outputs/cr9114_5cjq_pilot_20260916",
+      "preference_dir": "outputs/cr9114_preferences_verified_20260916",
+      "preference_manifest_sha256": "3bc37cd545c1c4fbacd7afe7b3b8c50a7773d92dc7a550a9397fe3133acc7593",
+      "sft_checkpoint": "outputs/cr9114_5cjq_pilot_20260916/decoder_step_0256.portable.pt",
+      "sft_checkpoint_sha256": "e0da8b1221ee5218be881df183c39a2f4fc80d57c1814211d83312c277b4ca58",
+      "sampling": "One identical precomputed schedule for both arms, drawn with replacement proportional to declared training pair weights. Minibatch loss is unweighted; do not apply weights twice.",
+      "reference_cache": "All unique training-pair genotypes, once per initial checkpoint. No development or test genotype is included in these reference caches.",
+      "scope": "Two bounded single-seed development pilots. Equal DPO update and sequence-exposure budgets; SFT-to-DPO also includes its preceding SFT compute. Fixed final-step reporting, no checkpoint selection or test evaluation."
+    },
+    "config_sha256": "5df046d61dd11c664d14bc6e93fc1abd9164b47babd9f0bcdf3c048b791c8dfe",
+    "git_commit": "a06134e23933ca4bfcea7eaea1e806ede44c7ba9",
+    "torch_version": "2.11.0+cu126",
+    "gpu": "NVIDIA GeForce GTX 1650 SUPER",
+    "prepared_artifact_sha256": "70be19f822c05d4efaa84d01ab75940516001e147b218f18a09c9d5b6bfbe4f7",
+    "pair_schedule_sha256": "d1717fd2c654e6015a478fefab7d924061e9ea63f1c5f2fcac7e94fc81f4eb6e",
+    "training_variants": 38066,
+    "training_pairs": 114395,
+    "sampled_distinct_pairs": 512,
+    "reserved_test_evaluated": false
+  },
+  "arms": {
+    "direct_dpo": {
+      "result": {
+        "status": "completed",
+        "arm": "direct_dpo",
+        "steps": 256,
+        "pair_exposures": 512,
+        "sequence_exposures": 1024,
+        "reference_scoring_seconds": 385.3842634999892,
+        "training_seconds": 36.79073390000849,
+        "peak_cuda_allocated_mib": 1363.8916015625,
+        "initial_loss": 0.6931471824645996,
+        "mean_last_32_training_losses": 0.21512275890927413,
+        "encoder_unchanged": true,
+        "decoder_changed": true,
+        "reference_cache_unchanged": true,
+        "decoder_state_sha256": "a942c8a54cd7943691a5ac655bb2b2eaa05387dc17084b6d3d87c41b697f8a23",
+        "final_checkpoint": "decoder_step_0256.pt",
+        "final_checkpoint_sha256": "bac82d4bcce80322d49f5feec4ff0970a1efd68de12e84fdc08e16b39c169c2b",
+        "safe_strict_checkpoint_reload": true,
+        "reload_max_error": 1.52587890625e-05,
+        "development": {
+          "initial_policy": {
+            "variant_and_block_balanced_accuracy": 0.6616051357643393,
+            "unweighted_pair_accuracy": 0.6490350250178699,
+            "per_block_accuracy": {
+              "5": 0.6728028124001324,
+              "7": 0.7293650793650792,
+              "11": 0.582647515527951
+            },
+            "leave_one_block_out_range": [
+              0.6277251639640417,
+              0.7010839458826057
+            ],
+            "score_ties": 0
+          },
+          "adapted_policy": {
+            "variant_and_block_balanced_accuracy": 0.9496334077535973,
+            "unweighted_pair_accuracy": 0.9442458899213724,
+            "per_block_accuracy": {
+              "5": 0.9350511345477817,
+              "7": 0.9876262626262623,
+              "11": 0.9262228260869562
+            },
+            "leave_one_block_out_range": [
+              0.9306369803173691,
+              0.961338698587022
+            ],
+            "score_ties": 0
+          },
+          "additive_ridge": {
+            "variant_and_block_balanced_accuracy": 0.9756948484068793,
+            "unweighted_pair_accuracy": 0.9728377412437456,
+            "per_block_accuracy": {
+              "5": 0.9484819431128154,
+              "7": 0.9901515151515149,
+              "11": 0.9884510869565216
+            },
+            "leave_one_block_out_range": [
+              0.9684665150346685,
+              0.9893013010540181
+            ],
+            "score_ties": 0
+          },
+          "adapted_minus_initial_pp": 28.802827198925797,
+          "adapted_minus_additive_pp": -2.6061440653281975,
+          "spearman_initial": 0.2888992422551813,
+          "spearman_adapted": 0.7939245588285783,
+          "measured_top_k": {
+            "16": {
+              "same_pool_oracle_mean": 9.614066757480497,
+              "initial_policy": {
+                "mean_measured_h1": 9.457868830245477,
+                "regret_to_same_pool_oracle": 0.15619792723502002
+              },
+              "adapted_policy": {
+                "mean_measured_h1": 9.52660471643414,
+                "regret_to_same_pool_oracle": 0.0874620410463578
+              },
+              "additive_ridge": {
+                "mean_measured_h1": 9.487290752966334,
+                "regret_to_same_pool_oracle": 0.12677600451416282
+              }
+            },
+            "32": {
+              "same_pool_oracle_mean": 9.60072465736254,
+              "initial_policy": {
+                "mean_measured_h1": 9.471815109764849,
+                "regret_to_same_pool_oracle": 0.1289095475976918
+              },
+              "adapted_policy": {
+                "mean_measured_h1": 9.519543310134061,
+                "regret_to_same_pool_oracle": 0.0811813472284797
+              },
+              "additive_ridge": {
+                "mean_measured_h1": 9.50208208423822,
+                "regret_to_same_pool_oracle": 0.09864257312432123
+              }
+            }
+          },
+          "uncertainty_note": "Pairs share variants. Leave-one-block-out ranges are sensitivity summaries, not confidence intervals. Only three development blocks: no confirmatory cluster interval or power claim."
+        },
+        "reserved_test_evaluated": false,
+        "checkpoint_promoted": false
+      },
+      "reference_checks": {
+        "identity": {
+          "reference": "direct_dpo",
+          "source_checkpoint_sha256": "be4ba36edec22a9bfaa4946ff6b2815f1f19d8a3d7e0eada8b796d5a0eae9fd4",
+          "decoder_state_sha256": "8fc8a8f65121477c40327535c3c91912a6b87a155c579244b2ee9e449eab3424",
+          "encoder_state_sha256": "2138dd5f2f82d504b9d80f76238d4faae1eb39428b750e510f7d386102fed2aa",
+          "prepared_artifact_sha256": "70be19f822c05d4efaa84d01ab75940516001e147b218f18a09c9d5b6bfbe4f7",
+          "geometry_digest": "6aff5223334b71276c9e0a956ec6efb4e36416e10f2ea28f7fb2b0d5953c85c3",
+          "genotype_order_sha256": "22753141ed712bccf1142305e7f2a9ba9beb3d154f4adec62828bee94325deb8",
+          "probability_contract": "ESM-IF1 binary 16-site constrained summed log q; temperature 1; dropout off",
+          "policy_source_sha256": "5857128508e7c5d2c6b136a5ab61fe1658e6f1e439f1a678d4779263d5289f6b",
+          "compat_source_sha256": "79fc85f13bb06a819cb405b46317c6b425dcaf664e6dcd50daf9e451bb75ffd4",
+          "torch_version": "2.11.0+cu126",
+          "esm_version": "2.0.0",
+          "score_batch_size": 16,
+          "precision": "float32"
+        },
+        "cache_sha256": "2ac7f1f2557aed44692f7c95438f29f735dabcc9ff29bd2633affc951ca3821e",
+        "reference_seconds": 385.3842634999892,
+        "cache_fresh_max_error": 5.7220458984375e-06,
+        "initial_development_max_error": 1.9073486324572286e-05,
+        "initial_decoder_state_sha256": "8fc8a8f65121477c40327535c3c91912a6b87a155c579244b2ee9e449eab3424"
+      },
+      "training_checks": {
+        "logged_steps": 256,
+        "minimum_gradient_norm": 0.011577935889363289,
+        "maximum_gradient_norm": 7.95563268661499
+      },
+      "output_files": {
+        "result.json": "3a86c21b3ae01da014f17b824e154f4b2e8e5ac0c6edb00db6458b7cfbb10ff9",
+        "reference_checks.json": "bd02523d245ea4fe33c8592880fee6fa0c7dd3d1415ecb9e34ade1132acca202",
+        "history.json": "5613cae8a0491346d6c23f27c0bb1331e9ce20c37153c6ee007b40f300c53387",
+        "development_scores.csv": "4b830f1f72b0c6969075d4926dc428bdf91aeab4b19f6c3ece594dbc3944c5cc",
+        "development_pair_scores.csv": "fd01432210e68371e50f854cb7b120a705f3b01bf9aab4bb697f4cfa7cf9b339"
+      }
+    }
+  },
+  "validation": {
+    "full_suite_passed": 1721,
+    "full_suite_skipped": 3,
+    "checkpoint_and_reference_file_hashes_rechecked": true
+  },
+  "reserved_test_evaluated": false,
+  "limitations": [
+    "Single seed, bounded 256-step DPO branches, not a full training-budget comparison.",
+    "Same 512-candidate development pool and three blocks; no confirmatory uncertainty claim.",
+    "SFT-to-DPO includes earlier supervised compute; direct DPO does not.",
+    "5CJQ is the declared structural proxy, not an exact assay construct."
+  ]
+}
