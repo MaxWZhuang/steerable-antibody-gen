@@ -36,7 +36,8 @@ def cosine(features):
     np.testing.assert_allclose(np.linalg.norm(z, axis=1), 1., rtol=1e-5, atol=1e-5)
     # Independently sum explicit rows against all other rows (bounded batches).
     n = len(z)
-    return float(sum(np.dot(row, z.sum(0) - row) for row in z) / (n * (n - 1)))
+    total = z.sum(0)
+    return float(sum(np.dot(row, total - row) for row in z) / (n * (n - 1)))
 
 
 def audit(directory):
