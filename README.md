@@ -1,10 +1,68 @@
 # Steerable antibody generation with pretrained antigen-conditioned policies
 
-The current experiment studies **ESM-IF1 post-training on the CR9114/H1 binding
-benchmark**, with 16 binary heavy-chain sites and one fixed structural context.
-The working template is 5CJQ; the benchmark sequence-to-structure mapping is
-verified and the structural input is prepared. Released-model scoring checks and
-a bounded supervised pilot have completed; see the [pilot results](reference/cr9114-5cjq-pilot.md).
+## Current direction: HER2 HCDR3 post-training (nothing fitted yet)
+
+The active experiment is a **fixed-scaffold HCDR3 benchmark on the
+trastuzumab/HER2 affinity library**: one lineage, one target, ten editable HCDR3
+positions inside a fixed heavy framework and a fixed light chain, and published
+binding **bins** (`high`/`mid`/`low`) rather than KD values. The generator is the
+pinned **p-IgGen** causal antibody language model, used standalone — it reads a
+fixed 99-token VH prefix and predicts the ten core residues. It is **not** the
+custom antigen-conditioned architecture described further down: there is no
+antigen encoder, no fusion module and no guide in this line of work.
+
+| Piece | Role |
+|---|---|
+| p-IgGen (pinned release, 22,097,408 parameters) | the **generator**, scored and sampled over the ten core positions |
+| initial SFT | five passes over the 120,504 training high-bin cores; two arms — `sft` from the pinned weights and `scratch` from a matched random initialization — at seeds 20260918/19/20, selected by validation positive NLL |
+| continued SFT | more of the *same* objective on the eligible high-bin positives: no pairs, no reference cache |
+| DPO | distance-matched high-vs-low **preference pairs** against a frozen reference cache of the selected parent |
+| matched budgets | measured GPU seconds per seed: 180/360/600 s for both methods, plus 1200/1800 s for DPO |
+| three-class CNN and additive linear model | **auxiliary ranking comparators on measured populations only** — not the generator, not a reward model, not a preference source, not a selection criterion, and never applied to generated draws |
+| independent SPR workbook | other people's designs, measured by someone else, with every library overlap removed |
+
+**What this benchmark is.** A dense ten-site library, not a few wild-type
+mutants: 76.5% of training cores carry **seven or more** mutations away from the
+trastuzumab core and only 442 of 367,042 carry one or two. What makes held-out
+ranking here interpolation is proximity to the **training set**, not to wild
+type — a validation-only probe found 90.2% of held-out rows within Hamming 1 of a
+training core (98.4% within 2), where a plain nearest-training-neighbour label
+lookup already reaches 0.981 average precision. Beating that is the bar, and the
+proximity strata are reported rather than fixed.
+
+**Status before fitting (2026-09-18).** The protocol and implementation are prepared
+for the GPU campaign. No HER2 model fitting, checkpoint selection, model-based test
+evaluation or assay-outcome evaluation has been performed. The initial integrity
+audit read aggregate label counts and printed two example rows from **each split,
+including test**; the split was therefore not sealed from the start.
+p-IgGen's HER2 pretraining exposure is unscanned and unresolved.
+
+**Sources**, hash-pinned and tracked: the affinity library and SPR workbook
+([`specs/benchmarks/buzz_her2_affinity.json`](specs/benchmarks/buzz_her2_affinity.json),
+oxpig/`Tz_her2_affinity_and_beyond`, BSD-3-Clause), the AbSci de novo HER2
+release used **only** as a support-mismatch diagnostic
+([`specs/benchmarks/absci_denovo_her2.json`](specs/benchmarks/absci_denovo_her2.json)
+— its license requires that any reference to or publication of those data be
+**attributed to Absci Corporation (2023)**), and the p-IgGen weights
+([`specs/benchmarks/piggen_backbone.json`](specs/benchmarks/piggen_backbone.json)).
+The assay workbook's metadata declares **SPR** on a Carterra CMDP chip while the
+upstream repository README abstract says Biolayer Interferometry; the workbook is
+the labelled source and is what this benchmark reports, with the discrepancy
+preserved rather than resolved.
+
+Full specification — populations, budgets, preregistered diversity gates,
+selection rule and limitations — is in
+[the benchmark protocol](specs/her2_hcdr3_benchmark.md). Post-training needs the
+optional extra: `pip install -e ".[her2]"`.
+
+## Previously: ESM-IF1 post-training on CR9114/H1
+
+This line of work is **history, not the active experiment**; its artifacts and
+conclusions stand as recorded. It studied ESM-IF1 post-training on the CR9114/H1
+binding benchmark, with 16 binary heavy-chain sites and one fixed structural
+context. The working template is 5CJQ; the benchmark sequence-to-structure mapping
+is verified and the structural input is prepared. Released-model scoring checks and
+a bounded supervised pilot completed; see the [pilot results](reference/cr9114-5cjq-pilot.md).
 The first [direct-DPO and SFT-to-DPO pilots](reference/cr9114-dpo-pilot.md) also
 completed: pair ordering improved, while SFT retained stronger top-candidate
 selection on the development pool. [Follow-up diagnostics](reference/cr9114-dpo-diagnostics.md)
@@ -21,11 +79,14 @@ See the
 [experiment recommendation](reference/fixed-target-posttraining-recommendation.md)
 and [prepared context](reference/cr9114-5cjq-context.md).
 
+## Broader research approach
+
 The broader research program examines antigen conditioning, inference-time
 guidance, and fixed-length HCDR3 editing. The custom-model implementation and
-longer-term architecture described below support that broader direction.
-
-## Broader research approach
+longer-term architecture described here support that broader direction. It is a
+**different system** from the standalone p-IgGen experiment above: the HER2 work
+uses a pretrained antibody LM with no antigen input, while the architecture below
+fuses an antigen encoder into an antibody backbone.
 
 The proposed architecture starts from a pretrained protein model, adapts VH/VL
 behavior where needed, and fuses antigen information into residue predictions. A
@@ -103,6 +164,7 @@ and supporting tools:
 
 | Area | Available implementation |
 |---|---|
+| HER2 fixed-scaffold pipeline | `smallAntibodyGen.experiments.her2_*` with `scripts/{audit,train,posttrain,evaluate}_her2.py`: provenance audit, initial SFT, GPU-budgeted DPO and continued-SFT continuations, validation freeze, one-shot evaluation |
 | Data and evaluation | OAS/ASD preparation, target identity and leakage audits, frozen inputs and HCDR3 contrast scoring |
 | Antibody policy | Custom antibody MLM and VH/VL refinement |
 | Antigen fusion | Cross-attention into antibody residue logits; optional frozen/LoRA ESM antigen encoder |
@@ -113,9 +175,14 @@ and supporting tools:
 | ESM-IF1 editing policy | `smallAntibodyGen.models.esmif1_policy` scores and samples a fixed-geometry, two-alleles-per-site constrained edit space through the native decoder |
 | ESM-IF1 structural input | `smallAntibodyGen.structure` turns a hash-pinned local PDB/mmCIF file plus an explicit residue correspondence into the policy's encoder inputs, failing closed on anything unsupported or ambiguous |
 
-The pretrained antibody backbone, controlled experiment runner, masked-diffusion
-objective, and preference trainer are not yet integrated. The existing ESM option
-replaces only the antigen encoder.
+Two integration statuses that are easy to conflate. A **pretrained antibody
+backbone** is in use — the pinned p-IgGen LM of the HER2 experiment above — but it
+is not integrated into the antigen-conditioned architecture in this section, which
+still has no pretrained antibody backbone, no controlled experiment runner and no
+masked-diffusion objective. A **preference trainer** exists and is used
+(`experiments.dpo` for CR9114, and the HER2 continuation stage); what is not
+integrated is preference training *of the antigen-conditioned policy*. The
+existing ESM option replaces only the antigen encoder.
 
 The ESM-IF1 dependency layer is not backbone integration: it makes the upstream
 package import and run, and nothing more. Install it with

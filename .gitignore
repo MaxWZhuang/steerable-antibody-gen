@@ -49,6 +49,10 @@ wandb/
 *.tar
 *.pt
 *.pth
+# Model weights in the safetensors format (the pinned p-IgGen release and any
+# checkpoint written in it). Same rule as *.pt: the hash is tracked, the bytes
+# are not.
+*.safetensors
 
 # Local-only machine setup / personal run scripts (kept on disk, never pushed)
 pythoncore_3_9_backup.reg
