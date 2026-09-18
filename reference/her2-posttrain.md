@@ -1,7 +1,7 @@
 # HER2 p-IgGen post-training: run in progress
 
 Snapshot: 2026-09-18, after all initial and continuation fits. Implementation
-commit `08d57ae`; full validation, generation and final evaluation remain pending.
+commit `08d57ae`; validation and sampling are in progress; final evaluation remains pending.
 
 p-IgGen is the generator. The CNN is an auxiliary classifier added by Codex to
 compare ranking of measured sequences. It does not generate sequences, supply
@@ -71,6 +71,24 @@ model achieved 0.666580. These classification losses are not directly comparable
 with generator sequence NLL. The [complete initial-stage evidence](evidence/her2-initial-fits-2026-09-18.json)
 includes all fits and the intermediate selection record. Every selected
 checkpoint hash and scientific source-code hash was verified before continuation.
+
+## Initial policy sampling
+
+Each policy produced 10,000 native temperature-1 draws, with duplicates retained. All seven initial policies pass the declared distributional diversity checks.
+
+| policy                      |   validation AP |   joint entropy (nats) |   unique fraction |   not exactly in train |   mean core Hamming | eligible   |
+|:----------------------------|----------------:|-----------------------:|------------------:|-----------------------:|--------------------:|:-----------|
+| piggen_zeroshot             |         0.46958 |               23.71456 |           0.99920 |                1.00000 |             9.15365 | True       |
+| policy_scratch_seed20260918 |         0.94565 |               15.41947 |           0.97840 |                0.78170 |             7.55492 | True       |
+| policy_scratch_seed20260919 |         0.94822 |               15.39218 |           0.98110 |                0.77330 |             7.54397 | True       |
+| policy_scratch_seed20260920 |         0.94627 |               15.45066 |           0.98150 |                0.78730 |             7.50908 | True       |
+| policy_sft_seed20260918     |         0.96587 |               14.28494 |           0.97630 |                0.67760 |             7.50636 | True       |
+| policy_sft_seed20260919     |         0.96772 |               14.46298 |           0.97910 |                0.68580 |             7.55122 | True       |
+| policy_sft_seed20260920     |         0.96690 |               14.55890 |           0.98100 |                0.70670 |             7.47170 | True       |
+
+The pretrained SFT parents improve validation ranking while retaining broad sequence diversity: 97.63-98.10% unique draws, and 67.76-70.67% not exactly present in training. These are sequence-distribution diagnostics, not experimental affinity measurements of the novel draws. Continuation sampling and independent outcome evaluation remain pending.
+
+[Initial sampling evidence](evidence/her2-initial-generation-2026-09-18.json) includes the persisted draw hashes and detailed diversity diagnostics.
 
 <!-- continuation-progress:start -->
 ## Continuation fitting progress

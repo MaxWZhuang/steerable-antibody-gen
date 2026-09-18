@@ -1,0 +1,1913 @@
+{
+  "draws_per_policy": 10000,
+  "duplicates_retained": true,
+  "records": {
+    "piggen_zeroshot": {
+      "diversity": {
+        "checks": {
+          "fraction_not_in_training_cores": {
+            "observed": 1.0,
+            "passes": true,
+            "threshold": 0.5
+          },
+          "max_single_core_frequency": {
+            "observed": 0.0003,
+            "passes": true,
+            "threshold": 0.01
+          },
+          "mean_pairwise_hamming_vs_parent": {
+            "observed": 9.1536500450045,
+            "passes": true,
+            "reference": 9.1536500450045,
+            "threshold": 8.238285040504051
+          },
+          "mean_pairwise_hamming_vs_training": {
+            "observed": 9.1536500450045,
+            "passes": true,
+            "reference": 7.56661752664843,
+            "threshold": 6.809955773983587
+          },
+          "sum_site_entropy_nats_vs_parent": {
+            "observed": 26.98396386991619,
+            "passes": true,
+            "reference": 26.98396386991619,
+            "threshold": 24.285567482924574
+          },
+          "sum_site_entropy_nats_vs_training": {
+            "observed": 26.98396386991619,
+            "passes": true,
+            "reference": 19.94378465208803,
+            "threshold": 17.949406186879227
+          },
+          "unique_fraction": {
+            "observed": 0.9992,
+            "passes": true,
+            "threshold": 0.9
+          }
+        },
+        "eligible": true,
+        "failed_gates": [],
+        "gates": {
+          "max_single_core_frequency": 0.01,
+          "min_fraction_not_in_training": 0.5,
+          "min_unique_fraction": 0.9,
+          "relative_floor": 0.9
+        },
+        "note": "preregistered operational heuristics for distributional collapse; not a guarantee of functional diversity",
+        "parent_reference_name": "piggen_zeroshot"
+      },
+      "generation": {
+        "catalog_overlap": {
+          "test": {
+            "draws_in_catalog": 0,
+            "unique_cores_in_catalog": 0
+          },
+          "train": {
+            "draws_in_catalog": 0,
+            "unique_cores_in_catalog": 0
+          },
+          "val": {
+            "draws_in_catalog": 0,
+            "unique_cores_in_catalog": 0
+          }
+        },
+        "draw_seed": 20260945,
+        "draws": 10000,
+        "duplicate_draws": 8,
+        "duplicates_retained": true,
+        "entropy": {
+          "draws": 10000,
+          "entropy_nats": 23.714555735588075,
+          "estimator": "monte_carlo_sum_log_probability",
+          "standard_error": 0.042150055852910616
+        },
+        "exact_train_novelty": {
+          "draws_not_in_training_cores": 10000,
+          "fraction_not_in_training_cores": 1.0
+        },
+        "labelled_hits": {
+          "by_split": {
+            "test": {
+              "conditional_high": {
+                "ci_high": null,
+                "ci_low": null,
+                "rate": null,
+                "successes": 0,
+                "trials": 0
+              },
+              "draws_matching": 0,
+              "draws_with_labels": 0,
+              "hit_rate_over_all_draws": {
+                "ci_high": 0.0003688199146187622,
+                "ci_low": 0.0,
+                "confidence": 0.95,
+                "rate": 0.0,
+                "successes": 0,
+                "trials": 10000
+              },
+              "labels_available": true,
+              "unique_cores_matching": 0
+            },
+            "train": {
+              "conditional_high": {
+                "ci_high": null,
+                "ci_low": null,
+                "rate": null,
+                "successes": 0,
+                "trials": 0
+              },
+              "draws_matching": 0,
+              "draws_with_labels": 0,
+              "hit_rate_over_all_draws": {
+                "ci_high": 0.0003688199146187622,
+                "ci_low": 0.0,
+                "confidence": 0.95,
+                "rate": 0.0,
+                "successes": 0,
+                "trials": 10000
+              },
+              "labels_available": true,
+              "unique_cores_matching": 0
+            },
+            "val": {
+              "conditional_high": {
+                "ci_high": null,
+                "ci_low": null,
+                "rate": null,
+                "successes": 0,
+                "trials": 0
+              },
+              "draws_matching": 0,
+              "draws_with_labels": 0,
+              "hit_rate_over_all_draws": {
+                "ci_high": 0.0003688199146187622,
+                "ci_low": 0.0,
+                "confidence": 0.95,
+                "rate": 0.0,
+                "successes": 0,
+                "trials": 10000
+              },
+              "labels_available": true,
+              "unique_cores_matching": 0
+            }
+          },
+          "draws": 10000,
+          "heldout": {
+            "conditional_high": {
+              "ci_high": null,
+              "ci_low": null,
+              "rate": null,
+              "successes": 0,
+              "trials": 0
+            },
+            "draws_matching": 0,
+            "draws_with_labels": 0,
+            "hit_rate_over_all_draws": {
+              "ci_high": 0.0003688199146187622,
+              "ci_low": 0.0,
+              "confidence": 0.95,
+              "rate": 0.0,
+              "successes": 0,
+              "trials": 10000
+            },
+            "splits": [
+              "val",
+              "test"
+            ],
+            "splits_with_labels_read": [
+              "test",
+              "val"
+            ]
+          },
+          "note": "counts over exact matches to published catalogue rows, which already carry a published bin -- no new assay is performed. An empty intersection is reported as zero with an exact interval, never as a missing key.",
+          "pooled": {
+            "conditional_high": {
+              "ci_high": null,
+              "ci_low": null,
+              "rate": null,
+              "successes": 0,
+              "trials": 0
+            },
+            "draws_matching": 0,
+            "draws_with_labels": 0,
+            "note": "pooled across every split whose labels this stage may read; it includes memorized training rows and is NOT a generalization measurement. Use `heldout`."
+          }
+        },
+        "max_single_core_count": 3,
+        "max_single_core_frequency": 0.0003,
+        "mean_pairwise_hamming": 9.1536500450045,
+        "min_train_hamming": {
+          "cap": 2,
+          "distribution": {
+            "2": 17,
+            ">=3": 9983
+          },
+          "mean_resolved": 2.0,
+          "note": "distances above 2 are reported as >= and not resolved"
+        },
+        "sampler_scorer_parity": {
+          "atol": 5e-05,
+          "max_abs_error": 1.9073486328125e-05,
+          "max_relative_error": 7.755788214007994e-07,
+          "rows": 10000,
+          "rows_above_atol": 0,
+          "rtol": 2e-06,
+          "worst_abs_error": 4.1208695620298386e-06,
+          "worst_allowance": 6.893071998795495e-05,
+          "worst_row": 3687
+        },
+        "site_entropy_nats": [
+          2.3304489350634676,
+          2.8165328266880687,
+          2.8111850548288113,
+          2.732388852452541,
+          2.7120794084829605,
+          2.7311790553211566,
+          2.7467103953322565,
+          2.7394431864271094,
+          2.705634598580028,
+          2.6583615567397882
+        ],
+        "sum_site_entropy_nats": 26.98396386991619,
+        "temperature": 1.0,
+        "unique_cores": 9992,
+        "unique_fraction": 0.9992,
+        "wt_hamming": {
+          "distribution": {
+            "10": 3971,
+            "5": 16,
+            "6": 67,
+            "7": 446,
+            "8": 1621,
+            "9": 3879
+          },
+          "mean": 9.1193
+        }
+      },
+      "generation_samples": {
+        "draws": 10000,
+        "path": "outputs/her2_posttrain_20260918/continuation/generation/draws_piggen_zeroshot.csv",
+        "sha256": "c38450c3433f9a2632fe4666e6393a46813c868824d1fe839560e915684b51ad"
+      },
+      "sha256": "4fac8e89ae5abb432e29c3af2ca5176da6b6bbeef64ea6847bd51393180918bd",
+      "val_metrics": {
+        "auroc": 0.6383000958395215,
+        "average_precision": 0.46958353907419026,
+        "distinct_scores": 77631,
+        "n": 78652,
+        "negatives": 52830,
+        "positives": 25822,
+        "precision_at_k": {
+          "100": 0.79,
+          "1000": 0.715,
+          "32": 0.875
+        },
+        "prevalence": 0.3283069724863958
+      },
+      "val_positive_nll_per_residue": 3.1714305782177767
+    },
+    "policy_scratch_seed20260918": {
+      "diversity": {
+        "checks": {
+          "fraction_not_in_training_cores": {
+            "observed": 0.7817,
+            "passes": true,
+            "threshold": 0.5
+          },
+          "max_single_core_frequency": {
+            "observed": 0.0007,
+            "passes": true,
+            "threshold": 0.01
+          },
+          "mean_pairwise_hamming_vs_parent": {
+            "observed": 7.554919891989199,
+            "passes": true,
+            "reference": 7.554919891989199,
+            "threshold": 6.7994279027902795
+          },
+          "mean_pairwise_hamming_vs_training": {
+            "observed": 7.554919891989199,
+            "passes": true,
+            "reference": 7.56661752664843,
+            "threshold": 6.809955773983587
+          },
+          "sum_site_entropy_nats_vs_parent": {
+            "observed": 19.88485571432672,
+            "passes": true,
+            "reference": 19.88485571432672,
+            "threshold": 17.896370142894046
+          },
+          "sum_site_entropy_nats_vs_training": {
+            "observed": 19.88485571432672,
+            "passes": true,
+            "reference": 19.94378465208803,
+            "threshold": 17.949406186879227
+          },
+          "unique_fraction": {
+            "observed": 0.9784,
+            "passes": true,
+            "threshold": 0.9
+          }
+        },
+        "eligible": true,
+        "failed_gates": [],
+        "gates": {
+          "max_single_core_frequency": 0.01,
+          "min_fraction_not_in_training": 0.5,
+          "min_unique_fraction": 0.9,
+          "relative_floor": 0.9
+        },
+        "note": "preregistered operational heuristics for distributional collapse; not a guarantee of functional diversity",
+        "parent_reference_name": "policy_scratch_seed20260918"
+      },
+      "generation": {
+        "catalog_overlap": {
+          "test": {
+            "draws_in_catalog": 382,
+            "unique_cores_in_catalog": 365
+          },
+          "train": {
+            "draws_in_catalog": 2183,
+            "unique_cores_in_catalog": 2092
+          },
+          "val": {
+            "draws_in_catalog": 417,
+            "unique_cores_in_catalog": 404
+          }
+        },
+        "draw_seed": 20260946,
+        "draws": 10000,
+        "duplicate_draws": 216,
+        "duplicates_retained": true,
+        "entropy": {
+          "draws": 10000,
+          "entropy_nats": 15.419473180150986,
+          "estimator": "monte_carlo_sum_log_probability",
+          "standard_error": 0.036156995212965365
+        },
+        "exact_train_novelty": {
+          "draws_not_in_training_cores": 7817,
+          "fraction_not_in_training_cores": 0.7817
+        },
+        "labelled_hits": {
+          "by_split": {
+            "test": {
+              "conditional_high": {
+                "ci_high": null,
+                "ci_low": null,
+                "rate": null,
+                "successes": 0,
+                "trials": 0
+              },
+              "draws_matching": 382,
+              "draws_with_labels": 0,
+              "hit_rate_over_all_draws": {
+                "ci_high": 0.04214376309993367,
+                "ci_low": 0.03452820166161032,
+                "confidence": 0.95,
+                "rate": 0.0382,
+                "successes": 382,
+                "trials": 10000
+              },
+              "labels_available": false,
+              "unique_cores_matching": 365
+            },
+            "train": {
+              "conditional_high": {
+                "ci_high": 0.9971564791345836,
+                "ci_low": 0.9904175154845677,
+                "confidence": 0.95,
+                "rate": 0.994502977553825,
+                "successes": 2171,
+                "trials": 2183
+              },
+              "draws_matching": 2183,
+              "draws_with_labels": 2183,
+              "hit_rate_over_all_draws": {
+                "ci_high": 0.2265278937676195,
+                "ci_low": 0.2102364798320028,
+                "confidence": 0.95,
+                "rate": 0.2183,
+                "successes": 2183,
+                "trials": 10000
+              },
+              "labels_available": true,
+              "unique_cores_matching": 2092
+            },
+            "val": {
+              "conditional_high": {
+                "ci_high": 0.9999392876752398,
+                "ci_low": 0.9867117561278799,
+                "confidence": 0.95,
+                "rate": 0.9976019184652278,
+                "successes": 416,
+                "trials": 417
+              },
+              "draws_matching": 417,
+              "draws_with_labels": 417,
+              "hit_rate_over_all_draws": {
+                "ci_high": 0.04580372605855723,
+                "ci_low": 0.03786598769786946,
+                "confidence": 0.95,
+                "rate": 0.0417,
+                "successes": 417,
+                "trials": 10000
+              },
+              "labels_available": true,
+              "unique_cores_matching": 404
+            }
+          },
+          "draws": 10000,
+          "heldout": {
+            "conditional_high": {
+              "ci_high": 0.9999392876752398,
+              "ci_low": 0.9867117561278799,
+              "confidence": 0.95,
+              "rate": 0.9976019184652278,
+              "successes": 416,
+              "trials": 417
+            },
+            "draws_matching": 799,
+            "draws_with_labels": 417,
+            "hit_rate_over_all_draws": {
+              "ci_high": 0.08538746595476826,
+              "ci_low": 0.07465869886569264,
+              "confidence": 0.95,
+              "rate": 0.0799,
+              "successes": 799,
+              "trials": 10000
+            },
+            "splits": [
+              "val",
+              "test"
+            ],
+            "splits_with_labels_read": [
+              "val"
+            ]
+          },
+          "note": "counts over exact matches to published catalogue rows, which already carry a published bin -- no new assay is performed. An empty intersection is reported as zero with an exact interval, never as a missing key.",
+          "pooled": {
+            "conditional_high": {
+              "ci_high": 0.9973351056284256,
+              "ci_low": 0.9914650245558551,
+              "confidence": 0.95,
+              "rate": 0.995,
+              "successes": 2587,
+              "trials": 2600
+            },
+            "draws_matching": 2982,
+            "draws_with_labels": 2600,
+            "note": "pooled across every split whose labels this stage may read; it includes memorized training rows and is NOT a generalization measurement. Use `heldout`."
+          }
+        },
+        "max_single_core_count": 7,
+        "max_single_core_frequency": 0.0007,
+        "mean_pairwise_hamming": 7.554919891989199,
+        "min_train_hamming": {
+          "cap": 2,
+          "distribution": {
+            "0": 2183,
+            "1": 4917,
+            "2": 2231,
+            ">=3": 669
+          },
+          "mean_resolved": 1.0051441431786519,
+          "note": "distances above 2 are reported as >= and not resolved"
+        },
+        "sampler_scorer_parity": {
+          "atol": 5e-05,
+          "max_abs_error": 1.5780329704284668e-05,
+          "max_relative_error": 8.086598743288834e-07,
+          "rows": 10000,
+          "rows_above_atol": 0,
+          "rtol": 2e-06,
+          "worst_abs_error": 8.456408977508545e-06,
+          "worst_allowance": 7.091462491452694e-05,
+          "worst_row": 8838
+        },
+        "site_entropy_nats": [
+          1.3378817975690478,
+          2.447891339209487,
+          2.4658579647187717,
+          2.634810936167088,
+          1.6933597431817842,
+          1.9093719946588035,
+          0.7773984638010192,
+          2.370538213233932,
+          1.724068741668302,
+          2.5236765201184834
+        ],
+        "sum_site_entropy_nats": 19.88485571432672,
+        "temperature": 1.0,
+        "unique_cores": 9784,
+        "unique_fraction": 0.9784,
+        "wt_hamming": {
+          "distribution": {
+            "0": 3,
+            "1": 3,
+            "10": 174,
+            "2": 20,
+            "3": 57,
+            "4": 268,
+            "5": 944,
+            "6": 2122,
+            "7": 3240,
+            "8": 2380,
+            "9": 789
+          },
+          "mean": 6.9299
+        }
+      },
+      "generation_samples": {
+        "draws": 10000,
+        "path": "outputs/her2_posttrain_20260918/continuation/generation/draws_policy_scratch_seed20260918.csv",
+        "sha256": "7f2d220b517b168948ed6ed7c241434d53112fe829442184266434ca7569128d"
+      },
+      "sha256": "b767234035f7c68fd2940bd2ee2bc697752f3501b97208dee9b7215946e630ef",
+      "val_metrics": {
+        "auroc": 0.9633309877420092,
+        "average_precision": 0.9456519957890576,
+        "distinct_scores": 78387,
+        "n": 78652,
+        "negatives": 52830,
+        "positives": 25822,
+        "precision_at_k": {
+          "100": 1.0,
+          "1000": 1.0,
+          "32": 1.0
+        },
+        "prevalence": 0.3283069724863958
+      },
+      "val_positive_nll_per_residue": 1.5414808973151795
+    },
+    "policy_scratch_seed20260919": {
+      "diversity": {
+        "checks": {
+          "fraction_not_in_training_cores": {
+            "observed": 0.7733,
+            "passes": true,
+            "threshold": 0.5
+          },
+          "max_single_core_frequency": {
+            "observed": 0.0005,
+            "passes": true,
+            "threshold": 0.01
+          },
+          "mean_pairwise_hamming_vs_parent": {
+            "observed": 7.543965336533653,
+            "passes": true,
+            "reference": 7.543965336533653,
+            "threshold": 6.7895688028802885
+          },
+          "mean_pairwise_hamming_vs_training": {
+            "observed": 7.543965336533653,
+            "passes": true,
+            "reference": 7.56661752664843,
+            "threshold": 6.809955773983587
+          },
+          "sum_site_entropy_nats_vs_parent": {
+            "observed": 19.881019430602183,
+            "passes": true,
+            "reference": 19.881019430602183,
+            "threshold": 17.892917487541965
+          },
+          "sum_site_entropy_nats_vs_training": {
+            "observed": 19.881019430602183,
+            "passes": true,
+            "reference": 19.94378465208803,
+            "threshold": 17.949406186879227
+          },
+          "unique_fraction": {
+            "observed": 0.9811,
+            "passes": true,
+            "threshold": 0.9
+          }
+        },
+        "eligible": true,
+        "failed_gates": [],
+        "gates": {
+          "max_single_core_frequency": 0.01,
+          "min_fraction_not_in_training": 0.5,
+          "min_unique_fraction": 0.9,
+          "relative_floor": 0.9
+        },
+        "note": "preregistered operational heuristics for distributional collapse; not a guarantee of functional diversity",
+        "parent_reference_name": "policy_scratch_seed20260919"
+      },
+      "generation": {
+        "catalog_overlap": {
+          "test": {
+            "draws_in_catalog": 444,
+            "unique_cores_in_catalog": 424
+          },
+          "train": {
+            "draws_in_catalog": 2267,
+            "unique_cores_in_catalog": 2185
+          },
+          "val": {
+            "draws_in_catalog": 414,
+            "unique_cores_in_catalog": 400
+          }
+        },
+        "draw_seed": 20260947,
+        "draws": 10000,
+        "duplicate_draws": 189,
+        "duplicates_retained": true,
+        "entropy": {
+          "draws": 10000,
+          "entropy_nats": 15.392182021236419,
+          "estimator": "monte_carlo_sum_log_probability",
+          "standard_error": 0.03642641035197397
+        },
+        "exact_train_novelty": {
+          "draws_not_in_training_cores": 7733,
+          "fraction_not_in_training_cores": 0.7733
+        },
+        "labelled_hits": {
+          "by_split": {
+            "test": {
+              "conditional_high": {
+                "ci_high": null,
+                "ci_low": null,
+                "rate": null,
+                "successes": 0,
+                "trials": 0
+              },
+              "draws_matching": 444,
+              "draws_with_labels": 0,
+              "hit_rate_over_all_draws": {
+                "ci_high": 0.048621951322153426,
+                "ci_low": 0.040446043605959665,
+                "confidence": 0.95,
+                "rate": 0.0444,
+                "successes": 444,
+                "trials": 10000
+              },
+              "labels_available": false,
+              "unique_cores_matching": 424
+            },
+            "train": {
+              "conditional_high": {
+                "ci_high": 0.9972619530614675,
+                "ci_low": 0.9907718757652413,
+                "confidence": 0.95,
+                "rate": 0.9947066607851787,
+                "successes": 2255,
+                "trials": 2267
+              },
+              "draws_matching": 2267,
+              "draws_with_labels": 2267,
+              "hit_rate_over_all_draws": {
+                "ci_high": 0.23503525549632967,
+                "ci_low": 0.2185241994201912,
+                "confidence": 0.95,
+                "rate": 0.2267,
+                "successes": 2267,
+                "trials": 10000
+              },
+              "labels_available": true,
+              "unique_cores_matching": 2185
+            },
+            "val": {
+              "conditional_high": {
+                "ci_high": 0.9999388477443095,
+                "ci_low": 0.9866159957223493,
+                "confidence": 0.95,
+                "rate": 0.9975845410628019,
+                "successes": 413,
+                "trials": 414
+              },
+              "draws_matching": 414,
+              "draws_with_labels": 414,
+              "hit_rate_over_all_draws": {
+                "ci_high": 0.04549032197779028,
+                "ci_low": 0.03757958364863061,
+                "confidence": 0.95,
+                "rate": 0.0414,
+                "successes": 414,
+                "trials": 10000
+              },
+              "labels_available": true,
+              "unique_cores_matching": 400
+            }
+          },
+          "draws": 10000,
+          "heldout": {
+            "conditional_high": {
+              "ci_high": 0.9999388477443095,
+              "ci_low": 0.9866159957223493,
+              "confidence": 0.95,
+              "rate": 0.9975845410628019,
+              "successes": 413,
+              "trials": 414
+            },
+            "draws_matching": 858,
+            "draws_with_labels": 414,
+            "hit_rate_over_all_draws": {
+              "ci_high": 0.09146064831804773,
+              "ci_low": 0.08038196486853642,
+              "confidence": 0.95,
+              "rate": 0.0858,
+              "successes": 858,
+              "trials": 10000
+            },
+            "splits": [
+              "val",
+              "test"
+            ],
+            "splits_with_labels_read": [
+              "val"
+            ]
+          },
+          "note": "counts over exact matches to published catalogue rows, which already carry a published bin -- no new assay is performed. An empty intersection is reported as zero with an exact interval, never as a missing key.",
+          "pooled": {
+            "conditional_high": {
+              "ci_high": 0.9974156955052589,
+              "ci_low": 0.9917224437475765,
+              "confidence": 0.95,
+              "rate": 0.9951510630361805,
+              "successes": 2668,
+              "trials": 2681
+            },
+            "draws_matching": 3125,
+            "draws_with_labels": 2681,
+            "note": "pooled across every split whose labels this stage may read; it includes memorized training rows and is NOT a generalization measurement. Use `heldout`."
+          }
+        },
+        "max_single_core_count": 5,
+        "max_single_core_frequency": 0.0005,
+        "mean_pairwise_hamming": 7.543965336533653,
+        "min_train_hamming": {
+          "cap": 2,
+          "distribution": {
+            "0": 2267,
+            "1": 4934,
+            "2": 2128,
+            ">=3": 671
+          },
+          "mean_resolved": 0.9851002251045128,
+          "note": "distances above 2 are reported as >= and not resolved"
+        },
+        "sampler_scorer_parity": {
+          "atol": 5e-05,
+          "max_abs_error": 2.0638108253479004e-05,
+          "max_relative_error": 9.406194461791214e-07,
+          "rows": 10000,
+          "rows_above_atol": 0,
+          "rtol": 2e-06,
+          "worst_abs_error": 4.187226295471191e-06,
+          "worst_allowance": 6.803722456097603e-05,
+          "worst_row": 8945
+        },
+        "site_entropy_nats": [
+          1.3581565610211999,
+          2.4231370068735845,
+          2.4696317110342494,
+          2.629328637409647,
+          1.6433846994843697,
+          1.9430765440043276,
+          0.7614392715239935,
+          2.3733091741190533,
+          1.760937222961036,
+          2.5186186021707218
+        ],
+        "sum_site_entropy_nats": 19.881019430602183,
+        "temperature": 1.0,
+        "unique_cores": 9811,
+        "unique_fraction": 0.9811,
+        "wt_hamming": {
+          "distribution": {
+            "1": 5,
+            "10": 188,
+            "2": 28,
+            "3": 68,
+            "4": 307,
+            "5": 1028,
+            "6": 2199,
+            "7": 3156,
+            "8": 2271,
+            "9": 750
+          },
+          "mean": 6.8717
+        }
+      },
+      "generation_samples": {
+        "draws": 10000,
+        "path": "outputs/her2_posttrain_20260918/continuation/generation/draws_policy_scratch_seed20260919.csv",
+        "sha256": "a39b930dd8a5c10969059a772071c3c2fe16b3222c127c1e5007b9442e9cfa4e"
+      },
+      "sha256": "e59b4225ba11ddbfc2003df629e740ccdef6496d4077b44e9f129a32a51440bc",
+      "val_metrics": {
+        "auroc": 0.9654399762095259,
+        "average_precision": 0.9482173943258665,
+        "distinct_scores": 78381,
+        "n": 78652,
+        "negatives": 52830,
+        "positives": 25822,
+        "precision_at_k": {
+          "100": 1.0,
+          "1000": 1.0,
+          "32": 1.0
+        },
+        "prevalence": 0.3283069724863958
+      },
+      "val_positive_nll_per_residue": 1.538223603139054
+    },
+    "policy_scratch_seed20260920": {
+      "diversity": {
+        "checks": {
+          "fraction_not_in_training_cores": {
+            "observed": 0.7873,
+            "passes": true,
+            "threshold": 0.5
+          },
+          "max_single_core_frequency": {
+            "observed": 0.0004,
+            "passes": true,
+            "threshold": 0.01
+          },
+          "mean_pairwise_hamming_vs_parent": {
+            "observed": 7.509077167716772,
+            "passes": true,
+            "reference": 7.509077167716772,
+            "threshold": 6.758169450945094
+          },
+          "mean_pairwise_hamming_vs_training": {
+            "observed": 7.509077167716772,
+            "passes": true,
+            "reference": 7.56661752664843,
+            "threshold": 6.809955773983587
+          },
+          "sum_site_entropy_nats_vs_parent": {
+            "observed": 19.767387081194197,
+            "passes": true,
+            "reference": 19.767387081194197,
+            "threshold": 17.790648373074777
+          },
+          "sum_site_entropy_nats_vs_training": {
+            "observed": 19.767387081194197,
+            "passes": true,
+            "reference": 19.94378465208803,
+            "threshold": 17.949406186879227
+          },
+          "unique_fraction": {
+            "observed": 0.9815,
+            "passes": true,
+            "threshold": 0.9
+          }
+        },
+        "eligible": true,
+        "failed_gates": [],
+        "gates": {
+          "max_single_core_frequency": 0.01,
+          "min_fraction_not_in_training": 0.5,
+          "min_unique_fraction": 0.9,
+          "relative_floor": 0.9
+        },
+        "note": "preregistered operational heuristics for distributional collapse; not a guarantee of functional diversity",
+        "parent_reference_name": "policy_scratch_seed20260920"
+      },
+      "generation": {
+        "catalog_overlap": {
+          "test": {
+            "draws_in_catalog": 374,
+            "unique_cores_in_catalog": 367
+          },
+          "train": {
+            "draws_in_catalog": 2127,
+            "unique_cores_in_catalog": 2034
+          },
+          "val": {
+            "draws_in_catalog": 410,
+            "unique_cores_in_catalog": 399
+          }
+        },
+        "draw_seed": 20260948,
+        "draws": 10000,
+        "duplicate_draws": 185,
+        "duplicates_retained": true,
+        "entropy": {
+          "draws": 10000,
+          "entropy_nats": 15.450661961841583,
+          "estimator": "monte_carlo_sum_log_probability",
+          "standard_error": 0.03581667972248788
+        },
+        "exact_train_novelty": {
+          "draws_not_in_training_cores": 7873,
+          "fraction_not_in_training_cores": 0.7873
+        },
+        "labelled_hits": {
+          "by_split": {
+            "test": {
+              "conditional_high": {
+                "ci_high": null,
+                "ci_low": null,
+                "rate": null,
+                "successes": 0,
+                "trials": 0
+              },
+              "draws_matching": 374,
+              "draws_with_labels": 0,
+              "hit_rate_over_all_draws": {
+                "ci_high": 0.041306045360652674,
+                "ci_low": 0.033766438097682205,
+                "confidence": 0.95,
+                "rate": 0.0374,
+                "successes": 374,
+                "trials": 10000
+              },
+              "labels_available": false,
+              "unique_cores_matching": 367
+            },
+            "train": {
+              "conditional_high": {
+                "ci_high": 0.9974156123753166,
+                "ci_low": 0.9907654556357413,
+                "confidence": 0.95,
+                "rate": 0.9948283968030089,
+                "successes": 2116,
+                "trials": 2127
+              },
+              "draws_matching": 2127,
+              "draws_with_labels": 2127,
+              "hit_rate_over_all_draws": {
+                "ci_high": 0.22085360795327594,
+                "ci_low": 0.20471404609345145,
+                "confidence": 0.95,
+                "rate": 0.2127,
+                "successes": 2127,
+                "trials": 10000
+              },
+              "labels_available": true,
+              "unique_cores_matching": 2034
+            },
+            "val": {
+              "conditional_high": {
+                "ci_high": 0.9994086987613455,
+                "ci_low": 0.9824907286215134,
+                "confidence": 0.95,
+                "rate": 0.9951219512195122,
+                "successes": 408,
+                "trials": 410
+              },
+              "draws_matching": 410,
+              "draws_with_labels": 410,
+              "hit_rate_over_all_draws": {
+                "ci_high": 0.045072363258940235,
+                "ci_low": 0.03719779848954166,
+                "confidence": 0.95,
+                "rate": 0.041,
+                "successes": 410,
+                "trials": 10000
+              },
+              "labels_available": true,
+              "unique_cores_matching": 399
+            }
+          },
+          "draws": 10000,
+          "heldout": {
+            "conditional_high": {
+              "ci_high": 0.9994086987613455,
+              "ci_low": 0.9824907286215134,
+              "confidence": 0.95,
+              "rate": 0.9951219512195122,
+              "successes": 408,
+              "trials": 410
+            },
+            "draws_matching": 784,
+            "draws_with_labels": 410,
+            "hit_rate_over_all_draws": {
+              "ci_high": 0.08384210697383905,
+              "ci_low": 0.07320496301335476,
+              "confidence": 0.95,
+              "rate": 0.0784,
+              "successes": 784,
+              "trials": 10000
+            },
+            "splits": [
+              "val",
+              "test"
+            ],
+            "splits_with_labels_read": [
+              "val"
+            ]
+          },
+          "note": "counts over exact matches to published catalogue rows, which already carry a published bin -- no new assay is performed. An empty intersection is reported as zero with an exact interval, never as a missing key.",
+          "pooled": {
+            "conditional_high": {
+              "ci_high": 0.9972688632669634,
+              "ci_low": 0.9912534661836395,
+              "confidence": 0.95,
+              "rate": 0.9948758376034686,
+              "successes": 2524,
+              "trials": 2537
+            },
+            "draws_matching": 2911,
+            "draws_with_labels": 2537,
+            "note": "pooled across every split whose labels this stage may read; it includes memorized training rows and is NOT a generalization measurement. Use `heldout`."
+          }
+        },
+        "max_single_core_count": 4,
+        "max_single_core_frequency": 0.0004,
+        "mean_pairwise_hamming": 7.509077167716772,
+        "min_train_hamming": {
+          "cap": 2,
+          "distribution": {
+            "0": 2127,
+            "1": 4997,
+            "2": 2214,
+            ">=3": 662
+          },
+          "mean_resolved": 1.0093167701863355,
+          "note": "distances above 2 are reported as >= and not resolved"
+        },
+        "sampler_scorer_parity": {
+          "atol": 5e-05,
+          "max_abs_error": 2.6613473892211914e-05,
+          "max_relative_error": 1.395120398460759e-06,
+          "rows": 10000,
+          "rows_above_atol": 0,
+          "rtol": 2e-06,
+          "worst_abs_error": 2.6613473892211914e-05,
+          "worst_allowance": 8.815222531557084e-05,
+          "worst_row": 7285
+        },
+        "site_entropy_nats": [
+          1.3102188481532826,
+          2.4268481189533326,
+          2.469453432105502,
+          2.631001570052582,
+          1.6866826382146864,
+          1.8833626710237996,
+          0.7514672296077107,
+          2.412717561819318,
+          1.7004590096865468,
+          2.4951760015774362
+        ],
+        "sum_site_entropy_nats": 19.767387081194197,
+        "temperature": 1.0,
+        "unique_cores": 9815,
+        "unique_fraction": 0.9815,
+        "wt_hamming": {
+          "distribution": {
+            "0": 1,
+            "1": 8,
+            "10": 166,
+            "2": 33,
+            "3": 90,
+            "4": 310,
+            "5": 1036,
+            "6": 2237,
+            "7": 3146,
+            "8": 2264,
+            "9": 709
+          },
+          "mean": 6.8361
+        }
+      },
+      "generation_samples": {
+        "draws": 10000,
+        "path": "outputs/her2_posttrain_20260918/continuation/generation/draws_policy_scratch_seed20260920.csv",
+        "sha256": "2d14641f3c974b70a784bba6dd634a0bab6929f57b9d5deff012712579fed879"
+      },
+      "sha256": "8845216ba1b31a559a0b802089d29ec1bdb9910c9bbf47c562f7a965ea23f96f",
+      "val_metrics": {
+        "auroc": 0.9635910098596789,
+        "average_precision": 0.9462721983403553,
+        "distinct_scores": 78382,
+        "n": 78652,
+        "negatives": 52830,
+        "positives": 25822,
+        "precision_at_k": {
+          "100": 1.0,
+          "1000": 1.0,
+          "32": 1.0
+        },
+        "prevalence": 0.3283069724863958
+      },
+      "val_positive_nll_per_residue": 1.5427067425551824
+    },
+    "policy_sft_seed20260918": {
+      "diversity": {
+        "checks": {
+          "fraction_not_in_training_cores": {
+            "observed": 0.6776,
+            "passes": true,
+            "threshold": 0.5
+          },
+          "max_single_core_frequency": {
+            "observed": 0.0004,
+            "passes": true,
+            "threshold": 0.01
+          },
+          "mean_pairwise_hamming_vs_parent": {
+            "observed": 7.506364296429643,
+            "passes": true,
+            "reference": 7.506364296429643,
+            "threshold": 6.755727866786679
+          },
+          "mean_pairwise_hamming_vs_training": {
+            "observed": 7.506364296429643,
+            "passes": true,
+            "reference": 7.56661752664843,
+            "threshold": 6.809955773983587
+          },
+          "sum_site_entropy_nats_vs_parent": {
+            "observed": 19.74524776005965,
+            "passes": true,
+            "reference": 19.74524776005965,
+            "threshold": 17.770722984053688
+          },
+          "sum_site_entropy_nats_vs_training": {
+            "observed": 19.74524776005965,
+            "passes": true,
+            "reference": 19.94378465208803,
+            "threshold": 17.949406186879227
+          },
+          "unique_fraction": {
+            "observed": 0.9763,
+            "passes": true,
+            "threshold": 0.9
+          }
+        },
+        "eligible": true,
+        "failed_gates": [],
+        "gates": {
+          "max_single_core_frequency": 0.01,
+          "min_fraction_not_in_training": 0.5,
+          "min_unique_fraction": 0.9,
+          "relative_floor": 0.9
+        },
+        "note": "preregistered operational heuristics for distributional collapse; not a guarantee of functional diversity",
+        "parent_reference_name": "policy_sft_seed20260918"
+      },
+      "generation": {
+        "catalog_overlap": {
+          "test": {
+            "draws_in_catalog": 507,
+            "unique_cores_in_catalog": 488
+          },
+          "train": {
+            "draws_in_catalog": 3224,
+            "unique_cores_in_catalog": 3092
+          },
+          "val": {
+            "draws_in_catalog": 484,
+            "unique_cores_in_catalog": 459
+          }
+        },
+        "draw_seed": 20260949,
+        "draws": 10000,
+        "duplicate_draws": 237,
+        "duplicates_retained": true,
+        "entropy": {
+          "draws": 10000,
+          "entropy_nats": 14.284943012237548,
+          "estimator": "monte_carlo_sum_log_probability",
+          "standard_error": 0.02851823577050602
+        },
+        "exact_train_novelty": {
+          "draws_not_in_training_cores": 6776,
+          "fraction_not_in_training_cores": 0.6776
+        },
+        "labelled_hits": {
+          "by_split": {
+            "test": {
+              "conditional_high": {
+                "ci_high": null,
+                "ci_low": null,
+                "rate": null,
+                "successes": 0,
+                "trials": 0
+              },
+              "draws_matching": 507,
+              "draws_with_labels": 0,
+              "hit_rate_over_all_draws": {
+                "ci_high": 0.0551825059839754,
+                "ci_low": 0.04648152570429055,
+                "confidence": 0.95,
+                "rate": 0.0507,
+                "successes": 507,
+                "trials": 10000
+              },
+              "labels_available": false,
+              "unique_cores_matching": 488
+            },
+            "train": {
+              "conditional_high": {
+                "ci_high": 0.9969254003836854,
+                "ci_low": 0.9915708735537218,
+                "confidence": 0.95,
+                "rate": 0.994727047146402,
+                "successes": 3207,
+                "trials": 3224
+              },
+              "draws_matching": 3224,
+              "draws_with_labels": 3224,
+              "hit_rate_over_all_draws": {
+                "ci_high": 0.3316615062498394,
+                "ci_low": 0.31324202715325866,
+                "confidence": 0.95,
+                "rate": 0.3224,
+                "successes": 3224,
+                "trials": 10000
+              },
+              "labels_available": true,
+              "unique_cores_matching": 3092
+            },
+            "val": {
+              "conditional_high": {
+                "ci_high": 0.9987199232204722,
+                "ci_low": 0.9819934423979908,
+                "confidence": 0.95,
+                "rate": 0.993801652892562,
+                "successes": 481,
+                "trials": 484
+              },
+              "draws_matching": 484,
+              "draws_with_labels": 484,
+              "hit_rate_over_all_draws": {
+                "ci_high": 0.05278969879626829,
+                "ci_low": 0.044275772987834944,
+                "confidence": 0.95,
+                "rate": 0.0484,
+                "successes": 484,
+                "trials": 10000
+              },
+              "labels_available": true,
+              "unique_cores_matching": 459
+            }
+          },
+          "draws": 10000,
+          "heldout": {
+            "conditional_high": {
+              "ci_high": 0.9987199232204722,
+              "ci_low": 0.9819934423979908,
+              "confidence": 0.95,
+              "rate": 0.993801652892562,
+              "successes": 481,
+              "trials": 484
+            },
+            "draws_matching": 991,
+            "draws_with_labels": 484,
+            "hit_rate_over_all_draws": {
+              "ci_high": 0.10512358379495958,
+              "ci_low": 0.09331106503985939,
+              "confidence": 0.95,
+              "rate": 0.0991,
+              "successes": 991,
+              "trials": 10000
+            },
+            "splits": [
+              "val",
+              "test"
+            ],
+            "splits_with_labels_read": [
+              "val"
+            ]
+          },
+          "note": "counts over exact matches to published catalogue rows, which already carry a published bin -- no new assay is performed. An empty intersection is reported as zero with an exact interval, never as a missing key.",
+          "pooled": {
+            "conditional_high": {
+              "ci_high": 0.996702341762988,
+              "ci_low": 0.9916820351596501,
+              "confidence": 0.95,
+              "rate": 0.9946062567421791,
+              "successes": 3688,
+              "trials": 3708
+            },
+            "draws_matching": 4215,
+            "draws_with_labels": 3708,
+            "note": "pooled across every split whose labels this stage may read; it includes memorized training rows and is NOT a generalization measurement. Use `heldout`."
+          }
+        },
+        "max_single_core_count": 4,
+        "max_single_core_frequency": 0.0004,
+        "mean_pairwise_hamming": 7.506364296429643,
+        "min_train_hamming": {
+          "cap": 2,
+          "distribution": {
+            "0": 3224,
+            "1": 5173,
+            "2": 1366,
+            ">=3": 237
+          },
+          "mean_resolved": 0.8096896445764622,
+          "note": "distances above 2 are reported as >= and not resolved"
+        },
+        "sampler_scorer_parity": {
+          "atol": 5e-05,
+          "max_abs_error": 3.063678741455078e-05,
+          "max_relative_error": 1.1406803017060815e-06,
+          "rows": 10000,
+          "rows_above_atol": 0,
+          "rtol": 2e-06,
+          "worst_abs_error": 1.479126513004303e-05,
+          "worst_allowance": 7.593411161378027e-05,
+          "worst_row": 3237
+        },
+        "site_entropy_nats": [
+          1.3087422228324994,
+          2.4717783362865653,
+          2.447994148301582,
+          2.620690736016774,
+          1.6355844835588405,
+          1.9466916078471657,
+          0.722161422586434,
+          2.3637106910364034,
+          1.7194058230630023,
+          2.5084882885303834
+        ],
+        "sum_site_entropy_nats": 19.74524776005965,
+        "temperature": 1.0,
+        "unique_cores": 9763,
+        "unique_fraction": 0.9763,
+        "wt_hamming": {
+          "distribution": {
+            "1": 4,
+            "10": 162,
+            "2": 26,
+            "3": 73,
+            "4": 273,
+            "5": 995,
+            "6": 2289,
+            "7": 3159,
+            "8": 2312,
+            "9": 707
+          },
+          "mean": 6.8668
+        }
+      },
+      "generation_samples": {
+        "draws": 10000,
+        "path": "outputs/her2_posttrain_20260918/continuation/generation/draws_policy_sft_seed20260918.csv",
+        "sha256": "e39096b11f210834bb5fb2eb310865b16a7453196170bc6d72407b2926508e28"
+      },
+      "sha256": "38db10b3ff7f1b6087626f01dae266deaea581c6038f17c52067f869df81a16e",
+      "val_metrics": {
+        "auroc": 0.9781982300439681,
+        "average_precision": 0.9658736999639117,
+        "distinct_scores": 78436,
+        "n": 78652,
+        "negatives": 52830,
+        "positives": 25822,
+        "precision_at_k": {
+          "100": 1.0,
+          "1000": 1.0,
+          "32": 1.0
+        },
+        "prevalence": 0.3283069724863958
+      },
+      "val_positive_nll_per_residue": 1.4919637766291398
+    },
+    "policy_sft_seed20260919": {
+      "diversity": {
+        "checks": {
+          "fraction_not_in_training_cores": {
+            "observed": 0.6858,
+            "passes": true,
+            "threshold": 0.5
+          },
+          "max_single_core_frequency": {
+            "observed": 0.0006,
+            "passes": true,
+            "threshold": 0.01
+          },
+          "mean_pairwise_hamming_vs_parent": {
+            "observed": 7.551215201520152,
+            "passes": true,
+            "reference": 7.551215201520152,
+            "threshold": 6.796093681368137
+          },
+          "mean_pairwise_hamming_vs_training": {
+            "observed": 7.551215201520152,
+            "passes": true,
+            "reference": 7.56661752664843,
+            "threshold": 6.809955773983587
+          },
+          "sum_site_entropy_nats_vs_parent": {
+            "observed": 19.874562189003093,
+            "passes": true,
+            "reference": 19.874562189003093,
+            "threshold": 17.887105970102784
+          },
+          "sum_site_entropy_nats_vs_training": {
+            "observed": 19.874562189003093,
+            "passes": true,
+            "reference": 19.94378465208803,
+            "threshold": 17.949406186879227
+          },
+          "unique_fraction": {
+            "observed": 0.9791,
+            "passes": true,
+            "threshold": 0.9
+          }
+        },
+        "eligible": true,
+        "failed_gates": [],
+        "gates": {
+          "max_single_core_frequency": 0.01,
+          "min_fraction_not_in_training": 0.5,
+          "min_unique_fraction": 0.9,
+          "relative_floor": 0.9
+        },
+        "note": "preregistered operational heuristics for distributional collapse; not a guarantee of functional diversity",
+        "parent_reference_name": "policy_sft_seed20260919"
+      },
+      "generation": {
+        "catalog_overlap": {
+          "test": {
+            "draws_in_catalog": 413,
+            "unique_cores_in_catalog": 402
+          },
+          "train": {
+            "draws_in_catalog": 3142,
+            "unique_cores_in_catalog": 3017
+          },
+          "val": {
+            "draws_in_catalog": 471,
+            "unique_cores_in_catalog": 460
+          }
+        },
+        "draw_seed": 20260950,
+        "draws": 10000,
+        "duplicate_draws": 209,
+        "duplicates_retained": true,
+        "entropy": {
+          "draws": 10000,
+          "entropy_nats": 14.462975800323486,
+          "estimator": "monte_carlo_sum_log_probability",
+          "standard_error": 0.029659388920961077
+        },
+        "exact_train_novelty": {
+          "draws_not_in_training_cores": 6858,
+          "fraction_not_in_training_cores": 0.6858
+        },
+        "labelled_hits": {
+          "by_split": {
+            "test": {
+              "conditional_high": {
+                "ci_high": null,
+                "ci_low": null,
+                "rate": null,
+                "successes": 0,
+                "trials": 0
+              },
+              "draws_matching": 413,
+              "draws_with_labels": 0,
+              "hit_rate_over_all_draws": {
+                "ci_high": 0.045385841620730165,
+                "ci_low": 0.037484128004303334,
+                "confidence": 0.95,
+                "rate": 0.0413,
+                "successes": 413,
+                "trials": 10000
+              },
+              "labels_available": false,
+              "unique_cores_matching": 402
+            },
+            "train": {
+              "conditional_high": {
+                "ci_high": 0.9984727557667765,
+                "ci_low": 0.9941547405419915,
+                "confidence": 0.95,
+                "rate": 0.9968173138128581,
+                "successes": 3132,
+                "trials": 3142
+              },
+              "draws_matching": 3142,
+              "draws_with_labels": 3142,
+              "hit_rate_over_all_draws": {
+                "ci_high": 0.3234012220667762,
+                "ci_low": 0.3051070969294084,
+                "confidence": 0.95,
+                "rate": 0.3142,
+                "successes": 3142,
+                "trials": 10000
+              },
+              "labels_available": true,
+              "unique_cores_matching": 3017
+            },
+            "val": {
+              "conditional_high": {
+                "ci_high": 0.999946248136861,
+                "ci_low": 0.9882278586314484,
+                "confidence": 0.95,
+                "rate": 0.9978768577494692,
+                "successes": 470,
+                "trials": 471
+              },
+              "draws_matching": 471,
+              "draws_with_labels": 471,
+              "hit_rate_over_all_draws": {
+                "ci_high": 0.051436096294863475,
+                "ci_low": 0.0430301927532322,
+                "confidence": 0.95,
+                "rate": 0.0471,
+                "successes": 471,
+                "trials": 10000
+              },
+              "labels_available": true,
+              "unique_cores_matching": 460
+            }
+          },
+          "draws": 10000,
+          "heldout": {
+            "conditional_high": {
+              "ci_high": 0.999946248136861,
+              "ci_low": 0.9882278586314484,
+              "confidence": 0.95,
+              "rate": 0.9978768577494692,
+              "successes": 470,
+              "trials": 471
+            },
+            "draws_matching": 884,
+            "draws_with_labels": 471,
+            "hit_rate_over_all_draws": {
+              "ci_high": 0.09413445949731548,
+              "ci_low": 0.08290659254718184,
+              "confidence": 0.95,
+              "rate": 0.0884,
+              "successes": 884,
+              "trials": 10000
+            },
+            "splits": [
+              "val",
+              "test"
+            ],
+            "splits_with_labels_read": [
+              "val"
+            ]
+          },
+          "note": "counts over exact matches to published catalogue rows, which already carry a published bin -- no new assay is performed. An empty intersection is reported as zero with an exact interval, never as a missing key.",
+          "pooled": {
+            "conditional_high": {
+              "ci_high": 0.9984792164781269,
+              "ci_low": 0.9945589834323573,
+              "confidence": 0.95,
+              "rate": 0.9969554386936064,
+              "successes": 3602,
+              "trials": 3613
+            },
+            "draws_matching": 4026,
+            "draws_with_labels": 3613,
+            "note": "pooled across every split whose labels this stage may read; it includes memorized training rows and is NOT a generalization measurement. Use `heldout`."
+          }
+        },
+        "max_single_core_count": 6,
+        "max_single_core_frequency": 0.0006,
+        "mean_pairwise_hamming": 7.551215201520152,
+        "min_train_hamming": {
+          "cap": 2,
+          "distribution": {
+            "0": 3142,
+            "1": 5101,
+            "2": 1453,
+            ">=3": 304
+          },
+          "mean_resolved": 0.8258044554455446,
+          "note": "distances above 2 are reported as >= and not resolved"
+        },
+        "sampler_scorer_parity": {
+          "atol": 5e-05,
+          "max_abs_error": 3.2007694244384766e-05,
+          "max_relative_error": 1.3595851141714637e-06,
+          "rows": 10000,
+          "rows_above_atol": 0,
+          "rtol": 2e-06,
+          "worst_abs_error": 2.2315827663987875e-05,
+          "worst_allowance": 8.511354179412592e-05,
+          "worst_row": 2362
+        },
+        "site_entropy_nats": [
+          1.4306260959379207,
+          2.4219894282608996,
+          2.4530896198939396,
+          2.6118721610281006,
+          1.6644180671143058,
+          1.9365221234238001,
+          0.7504847129168377,
+          2.3510025287234786,
+          1.7649505980162687,
+          2.4896068536875395
+        ],
+        "sum_site_entropy_nats": 19.874562189003093,
+        "temperature": 1.0,
+        "unique_cores": 9791,
+        "unique_fraction": 0.9791,
+        "wt_hamming": {
+          "distribution": {
+            "1": 10,
+            "10": 196,
+            "2": 25,
+            "3": 76,
+            "4": 291,
+            "5": 951,
+            "6": 2107,
+            "7": 3148,
+            "8": 2408,
+            "9": 788
+          },
+          "mean": 6.9201
+        }
+      },
+      "generation_samples": {
+        "draws": 10000,
+        "path": "outputs/her2_posttrain_20260918/continuation/generation/draws_policy_sft_seed20260919.csv",
+        "sha256": "08a947b6785f6b9253b0cc27e518286b0b1c99cfb711e6f9d7cf112f18dfbbc7"
+      },
+      "sha256": "7fbb47f49d34b841b44f4444e242e8c04eda4cc1ea41b575e9e0d740ba778e1e",
+      "val_metrics": {
+        "auroc": 0.9790374965915328,
+        "average_precision": 0.9677170623987015,
+        "distinct_scores": 78405,
+        "n": 78652,
+        "negatives": 52830,
+        "positives": 25822,
+        "precision_at_k": {
+          "100": 1.0,
+          "1000": 1.0,
+          "32": 1.0
+        },
+        "prevalence": 0.3283069724863958
+      },
+      "val_positive_nll_per_residue": 1.4888333315151647
+    },
+    "policy_sft_seed20260920": {
+      "diversity": {
+        "checks": {
+          "fraction_not_in_training_cores": {
+            "observed": 0.7067,
+            "passes": true,
+            "threshold": 0.5
+          },
+          "max_single_core_frequency": {
+            "observed": 0.0004,
+            "passes": true,
+            "threshold": 0.01
+          },
+          "mean_pairwise_hamming_vs_parent": {
+            "observed": 7.471702450245025,
+            "passes": true,
+            "reference": 7.471702450245025,
+            "threshold": 6.724532205220522
+          },
+          "mean_pairwise_hamming_vs_training": {
+            "observed": 7.471702450245025,
+            "passes": true,
+            "reference": 7.56661752664843,
+            "threshold": 6.809955773983587
+          },
+          "sum_site_entropy_nats_vs_parent": {
+            "observed": 19.65961024417074,
+            "passes": true,
+            "reference": 19.65961024417074,
+            "threshold": 17.693649219753667
+          },
+          "sum_site_entropy_nats_vs_training": {
+            "observed": 19.65961024417074,
+            "passes": true,
+            "reference": 19.94378465208803,
+            "threshold": 17.949406186879227
+          },
+          "unique_fraction": {
+            "observed": 0.981,
+            "passes": true,
+            "threshold": 0.9
+          }
+        },
+        "eligible": true,
+        "failed_gates": [],
+        "gates": {
+          "max_single_core_frequency": 0.01,
+          "min_fraction_not_in_training": 0.5,
+          "min_unique_fraction": 0.9,
+          "relative_floor": 0.9
+        },
+        "note": "preregistered operational heuristics for distributional collapse; not a guarantee of functional diversity",
+        "parent_reference_name": "policy_sft_seed20260920"
+      },
+      "generation": {
+        "catalog_overlap": {
+          "test": {
+            "draws_in_catalog": 467,
+            "unique_cores_in_catalog": 446
+          },
+          "train": {
+            "draws_in_catalog": 2933,
+            "unique_cores_in_catalog": 2823
+          },
+          "val": {
+            "draws_in_catalog": 451,
+            "unique_cores_in_catalog": 444
+          }
+        },
+        "draw_seed": 20260951,
+        "draws": 10000,
+        "duplicate_draws": 190,
+        "duplicates_retained": true,
+        "entropy": {
+          "draws": 10000,
+          "entropy_nats": 14.558895601654052,
+          "estimator": "monte_carlo_sum_log_probability",
+          "standard_error": 0.029679565231377242
+        },
+        "exact_train_novelty": {
+          "draws_not_in_training_cores": 7067,
+          "fraction_not_in_training_cores": 0.7067
+        },
+        "labelled_hits": {
+          "by_split": {
+            "test": {
+              "conditional_high": {
+                "ci_high": null,
+                "ci_low": null,
+                "rate": null,
+                "successes": 0,
+                "trials": 0
+              },
+              "draws_matching": 467,
+              "draws_with_labels": 0,
+              "hit_rate_over_all_draws": {
+                "ci_high": 0.05101943001906274,
+                "ci_low": 0.04264711100748266,
+                "confidence": 0.95,
+                "rate": 0.0467,
+                "successes": 467,
+                "trials": 10000
+              },
+              "labels_available": false,
+              "unique_cores_matching": 446
+            },
+            "train": {
+              "conditional_high": {
+                "ci_high": 0.9988217107249693,
+                "ci_low": 0.9946326855526731,
+                "confidence": 0.95,
+                "rate": 0.99727241732015,
+                "successes": 2925,
+                "trials": 2933
+              },
+              "draws_matching": 2933,
+              "draws_with_labels": 2933,
+              "hit_rate_over_all_draws": {
+                "ci_high": 0.30233250652720595,
+                "ci_low": 0.28438801389062074,
+                "confidence": 0.95,
+                "rate": 0.2933,
+                "successes": 2933,
+                "trials": 10000
+              },
+              "labels_available": true,
+              "unique_cores_matching": 2823
+            },
+            "val": {
+              "conditional_high": {
+                "ci_high": 0.9986261150922969,
+                "ci_low": 0.9806843184834524,
+                "confidence": 0.95,
+                "rate": 0.9933481152993349,
+                "successes": 448,
+                "trials": 451
+              },
+              "draws_matching": 451,
+              "draws_with_labels": 451,
+              "hit_rate_over_all_draws": {
+                "ci_high": 0.04935192211462874,
+                "ci_low": 0.04111562938233315,
+                "confidence": 0.95,
+                "rate": 0.0451,
+                "successes": 451,
+                "trials": 10000
+              },
+              "labels_available": true,
+              "unique_cores_matching": 444
+            }
+          },
+          "draws": 10000,
+          "heldout": {
+            "conditional_high": {
+              "ci_high": 0.9986261150922969,
+              "ci_low": 0.9806843184834524,
+              "confidence": 0.95,
+              "rate": 0.9933481152993349,
+              "successes": 448,
+              "trials": 451
+            },
+            "draws_matching": 918,
+            "draws_with_labels": 451,
+            "hit_rate_over_all_draws": {
+              "ci_high": 0.09762880832036225,
+              "ci_low": 0.08621020551283642,
+              "confidence": 0.95,
+              "rate": 0.0918,
+              "successes": 918,
+              "trials": 10000
+            },
+            "splits": [
+              "val",
+              "test"
+            ],
+            "splits_with_labels_read": [
+              "val"
+            ]
+          },
+          "note": "counts over exact matches to published catalogue rows, which already carry a published bin -- no new assay is performed. An empty intersection is reported as zero with an exact interval, never as a missing key.",
+          "pooled": {
+            "conditional_high": {
+              "ci_high": 0.9983762342459639,
+              "ci_low": 0.994191255055919,
+              "confidence": 0.95,
+              "rate": 0.9967494089834515,
+              "successes": 3373,
+              "trials": 3384
+            },
+            "draws_matching": 3851,
+            "draws_with_labels": 3384,
+            "note": "pooled across every split whose labels this stage may read; it includes memorized training rows and is NOT a generalization measurement. Use `heldout`."
+          }
+        },
+        "max_single_core_count": 4,
+        "max_single_core_frequency": 0.0004,
+        "mean_pairwise_hamming": 7.471702450245025,
+        "min_train_hamming": {
+          "cap": 2,
+          "distribution": {
+            "0": 2933,
+            "1": 5243,
+            "2": 1515,
+            ">=3": 309
+          },
+          "mean_resolved": 0.8536786709317924,
+          "note": "distances above 2 are reported as >= and not resolved"
+        },
+        "sampler_scorer_parity": {
+          "atol": 5e-05,
+          "max_abs_error": 4.0531158447265625e-05,
+          "max_relative_error": 1.5514227559660008e-06,
+          "rows": 10000,
+          "rows_above_atol": 0,
+          "rtol": 2e-06,
+          "worst_abs_error": 2.1850690245628357e-05,
+          "worst_allowance": 7.86312162168324e-05,
+          "worst_row": 7345
+        },
+        "site_entropy_nats": [
+          1.3322012497143527,
+          2.4051490253835324,
+          2.446448621578034,
+          2.6296349360348312,
+          1.6667754974281321,
+          1.9150601890135395,
+          0.6634423677956285,
+          2.3646544196549804,
+          1.7314334478532374,
+          2.5048104897144725
+        ],
+        "sum_site_entropy_nats": 19.65961024417074,
+        "temperature": 1.0,
+        "unique_cores": 9810,
+        "unique_fraction": 0.981,
+        "wt_hamming": {
+          "distribution": {
+            "1": 4,
+            "10": 147,
+            "2": 33,
+            "3": 75,
+            "4": 324,
+            "5": 1136,
+            "6": 2320,
+            "7": 3080,
+            "8": 2256,
+            "9": 625
+          },
+          "mean": 6.7894
+        }
+      },
+      "generation_samples": {
+        "draws": 10000,
+        "path": "outputs/her2_posttrain_20260918/continuation/generation/draws_policy_sft_seed20260920.csv",
+        "sha256": "81b0aa4574b77e7267b18fceb4099f98832b1f50a69f7b545e99d725f3602be4"
+      },
+      "sha256": "c892ddf21cc3291eb8e280521846d9932a5dabae5347fe388e60bd561a82d068",
+      "val_metrics": {
+        "auroc": 0.9785289065212145,
+        "average_precision": 0.9669031931441894,
+        "distinct_scores": 78448,
+        "n": 78652,
+        "negatives": 52830,
+        "positives": 25822,
+        "precision_at_k": {
+          "100": 1.0,
+          "1000": 1.0,
+          "32": 1.0
+        },
+        "prevalence": 0.3283069724863958
+      },
+      "val_positive_nll_per_residue": 1.4867413092246773
+    }
+  },
+  "source_validation_records_sha256": "ab0e390acfa0770f57d19da239906a5bdcc4b6759f05d9c34cfe17b0a5daf160",
+  "status": "initial sampling complete; reference KL and final evaluation pending",
+  "temperature": 1.0
+}
