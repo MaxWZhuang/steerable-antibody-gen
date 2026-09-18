@@ -1,0 +1,640 @@
+{
+  "implementation_commit": "08d57ae",
+  "note": "validation results only; no final test or SPR evaluation and no continuation selection",
+  "runs": {
+    "20260918": {
+      "arm": "sft",
+      "epochs": {
+        "1": {
+          "checkpoint": "outputs/her2_posttrain_20260918/policy_sft_seed20260918/epoch_1.pt",
+          "checkpoint_sha256": "5a58f6e76feb735b6e1ee69e939ae1423be16dcccab1f67559ad2d678ecdf971",
+          "epoch": 1,
+          "exposures": 120504,
+          "learning_rate": 9.456760861642644e-05,
+          "selection_note": "selection uses val_positive_nll_per_residue only; the ranking metrics above are disclosed diagnostics and are NOT used to choose a checkpoint",
+          "state_sha256": "25d3c6465180e247c83b47f98f5f5aff8103afcd51ba86af8562ef90349db4c3",
+          "steps": 942,
+          "train_nll_per_residue": 1.6768796923213893,
+          "val_positive_nll_per_residue": 1.5653019542818187,
+          "val_positive_nll_sum": 15.653019542818186,
+          "val_positive_rows": 25822,
+          "val_ranking_diagnostic": {
+            "auroc": 0.9610681115356751,
+            "average_precision": 0.9421678974577236,
+            "distinct_scores": 78423,
+            "n": 78652,
+            "negatives": 52830,
+            "positives": 25822,
+            "precision_at_k": {
+              "100": 1.0,
+              "1000": 1.0,
+              "32": 1.0
+            },
+            "prevalence": 0.3283069724863958
+          }
+        },
+        "2": {
+          "epoch": 2,
+          "exposures": 241008,
+          "learning_rate": 7.30564929832155e-05,
+          "steps": 1884,
+          "train_nll_per_residue": 1.5159020104399084
+        },
+        "3": {
+          "checkpoint": "outputs/her2_posttrain_20260918/policy_sft_seed20260918/epoch_3.pt",
+          "checkpoint_sha256": "38db10b3ff7f1b6087626f01dae266deaea581c6038f17c52067f869df81a16e",
+          "epoch": 3,
+          "exposures": 361512,
+          "learning_rate": 4.392897194307386e-05,
+          "selection_note": "selection uses val_positive_nll_per_residue only; the ranking metrics above are disclosed diagnostics and are NOT used to choose a checkpoint",
+          "state_sha256": "e6c878c335d1e3a7cd9e7e72edcb5f3628fd08a0898e3e1c703e2dc1253cac4e",
+          "steps": 2826,
+          "train_nll_per_residue": 1.4485514432969404,
+          "val_positive_nll_per_residue": 1.4919637766143667,
+          "val_positive_nll_sum": 14.919637766143666,
+          "val_positive_rows": 25822,
+          "val_ranking_diagnostic": {
+            "auroc": 0.9781982300439681,
+            "average_precision": 0.9658736999639117,
+            "distinct_scores": 78436,
+            "n": 78652,
+            "negatives": 52830,
+            "positives": 25822,
+            "precision_at_k": {
+              "100": 1.0,
+              "1000": 1.0,
+              "32": 1.0
+            },
+            "prevalence": 0.3283069724863958
+          }
+        },
+        "4": {
+          "epoch": 4,
+          "exposures": 482016,
+          "learning_rate": 1.9471318857436745e-05,
+          "steps": 3768,
+          "train_nll_per_residue": 1.3886156496295399
+        },
+        "5": {
+          "checkpoint": "outputs/her2_posttrain_20260918/policy_sft_seed20260918/epoch_5.pt",
+          "checkpoint_sha256": "a1639ea8aa12feb6909752b8f59ed5510d682ee4eaf539a722ae401abe6a2645",
+          "epoch": 5,
+          "exposures": 602520,
+          "learning_rate": 1e-05,
+          "selection_note": "selection uses val_positive_nll_per_residue only; the ranking metrics above are disclosed diagnostics and are NOT used to choose a checkpoint",
+          "state_sha256": "44b6da220e0a80cc5ca19aaa284cde17c66bb3381abc78f757dc069cbae78a4b",
+          "steps": 4710,
+          "train_nll_per_residue": 1.341055543316809,
+          "val_positive_nll_per_residue": 1.5022567849147794,
+          "val_positive_nll_sum": 15.02256784914779,
+          "val_positive_rows": 25822,
+          "val_ranking_diagnostic": {
+            "auroc": 0.9802795083825898,
+            "average_precision": 0.9692867810923467,
+            "distinct_scores": 78436,
+            "n": 78652,
+            "negatives": 52830,
+            "positives": 25822,
+            "precision_at_k": {
+              "100": 1.0,
+              "1000": 1.0,
+              "32": 1.0
+            },
+            "prevalence": 0.3283069724863958
+          }
+        }
+      },
+      "final_state_sha256": "44b6da220e0a80cc5ca19aaa284cde17c66bb3381abc78f757dc069cbae78a4b",
+      "identity": {
+        "arm": "sft",
+        "batch_size": 128,
+        "code_digests": {
+          "scripts/evaluate_her2.py": "7290fd4d9e3af5a5e2a8b5bb354681d57184570a26220cfe5e086fc4bef8ed9e",
+          "scripts/posttrain_her2.py": "78255e7e818ea6276bc87d428966855b34caa0985782d476876d071616235e3f",
+          "scripts/train_her2.py": "5ee7b82abe178eb0e2c59869dab6435a99ecda41c6313295f06c8d1ba1fd4bd7",
+          "src/smallAntibodyGen/experiments/dpo.py": "8af932de44867c0da2d2dabf19affed361131f3c4a3cebd03c13ff61c5dad3cd",
+          "src/smallAntibodyGen/experiments/her2_baselines.py": "2bc9989dabf7ebeb4acba55183f410bf75a16436b84e0389be9635b8796529fb",
+          "src/smallAntibodyGen/experiments/her2_data.py": "b1a23df120e037072f350c83af05cc06550cc7de54d831afbb990e1d4953156b",
+          "src/smallAntibodyGen/experiments/her2_eval.py": "de0510effd417119674b052cedb2b67785e881db545eb12399f107821269364b",
+          "src/smallAntibodyGen/experiments/her2_policy.py": "6ab1d138e32cf1fec61e2bb3808638b62a5711461a5cc6f257265ed9a4517e91",
+          "src/smallAntibodyGen/experiments/her2_preferences.py": "a97000c0ef7e361192848bbebe85b4aced6ae2621d4ef26867deed22b13e2299",
+          "src/smallAntibodyGen/experiments/her2_runtime.py": "c20c1448ffd269879a20efe0be81529a83521aa4a7668a63011be8f7045fe75b"
+        },
+        "config_digest": "38b3567ef14b446e46fed04c1e7e6cbfbf4c20fd5a657f917d97bf501e91ec02",
+        "device": "cuda",
+        "epochs": 5,
+        "preflight_batch_size": 128,
+        "seed": 20260918,
+        "source_digests": {
+          "data/raw/her2_functional_20260918/absci/LICENSE": "12e4c580339a117464d1ca9417c7c06026d7f535ea5cb55ef0aa482e6c7bb769",
+          "data/raw/her2_functional_20260918/absci/README.md": "698f39c41a8e5a9e27fe0ad869cf59ada8c5daf1b0bea6e94c54ccdd6abe0b0d",
+          "data/raw/her2_functional_20260918/absci/functionality-developability-cross_reactivity-data.csv": "f67f8284ce21f86b56b17f75493b05217d8f603565487692372083f626fa08b5",
+          "data/raw/her2_functional_20260918/absci/spr-controls.csv": "33939f99b489b36e9f893641f3b4013ae4898093875067db31569801b15b2489",
+          "data/raw/her2_functional_20260918/absci/zero-shot-binders.csv": "c12742bd36ae8881a38cd41e50fd3922cbd885b184531d1151889f5fa610b639",
+          "data/raw/her2_functional_20260918/buzz/LICENSE": "1116f69e31e2648f5223c0d62510048f41992995452c4d4f2533ceaa7b7133c9",
+          "data/raw/her2_functional_20260918/buzz/README.md": "33ca49193f1ef38d019a40797decf2453fbdc0430ed10aaba6fc1b49bc8716f5",
+          "data/raw/her2_functional_20260918/buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/README.md": "d71db857a207915074b0a179085ad2c58f305caa5b2ec75e3b09bc6f6874e34d",
+          "data/raw/her2_functional_20260918/buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/test.csv": "8c78b21ede36e6f0c88a7b44e3668ea9cab8b79ffcadbd6d0eaa02b75766d8ec",
+          "data/raw/her2_functional_20260918/buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/train.csv": "e7efdd8f2608d777ff0c730966b1792496734ac82e871d5d0a9ae95787cf7ff7",
+          "data/raw/her2_functional_20260918/buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/val.csv": "1db964bf7cd37da7d2009f2ecf20bf6cd1e095fbd81247e87545f809605c7366",
+          "data/raw/her2_functional_20260918/buzz/data/spr/spr_results.xlsx": "ccf5ef46cf4c3bb67c2bdba33b678e55ea144bb1ca7e2c69188fd99d2648ffe9",
+          "data/raw/her2_functional_20260918/buzz/data/spr/spr_submitted.csv": "98558f80555cc8511fefd6da4cbe4a8525aa7b1d39491d75b3adfb9a810d78ad",
+          "data/raw/her2_functional_20260918/buzz/src/classifiers/cnn/model.py": "ced9ef07c3ff7a6def9889b032f982edc956e72cf30c6f5f9cb9cbf118c5bb67",
+          "data/raw/her2_functional_20260918/buzz/src/classifiers/cnn/train.py": "3288af3e080b2344f0dcceee613403f51ef0c81cfc58847f01fc8b335b76b9a4",
+          "data/raw/her2_functional_20260918/buzz/src/classifiers/dataset.py": "89c69c680ac59c1e52a8a0c497bfa0d8f8a2ed0734481796139e66b9a8a0a86d",
+          "data/raw/her2_functional_20260918/piggen/README.md": "afe85c6da56f0a73254b796b2bce0b77160edc730ba649ff9498833ef1eb8383",
+          "data/raw/her2_functional_20260918/piggen/config.json": "4c5a54545ae1d8773d0793b7c9fee0c8bfaf4c2e384d16552278bcaa523b0a74",
+          "data/raw/her2_functional_20260918/piggen/generation_config.json": "d922c8de8235185b68ab3e1ed29de9276d4d36566056279c0372ee2ace6fe2bb",
+          "data/raw/her2_functional_20260918/piggen/model.safetensors": "4fac8e89ae5abb432e29c3af2ca5176da6b6bbeef64ea6847bd51393180918bd",
+          "data/raw/her2_functional_20260918/piggen/special_tokens_map.json": "8ac045b33e2e3858cff599eb4083fe16f30aa4f424e3ef4ff92d6b29eaa8ab57",
+          "data/raw/her2_functional_20260918/piggen/tokenizer.json": "66f2015ce989903c1319fcd89e751b805f9aacb83e898c3f8a221af6de195a73",
+          "data/raw/her2_functional_20260918/piggen/tokenizer_config.json": "b210d89151085258a2d6f65127604615a3a36ef0617cf154f3c974ffd05320c0",
+          "specs/benchmarks/absci_denovo_her2.json": "a739c15bf1f3afec7018db36a058750f8e5911a06c1d27437cb477143e9b005a",
+          "specs/benchmarks/buzz_her2_affinity.json": "aa6ce1a15caa215645921e7cde182ee7ab725076cb1bdb6e1b9f2b770f8bea3a",
+          "specs/benchmarks/piggen_backbone.json": "7e116850c2a83ae1d4131fe9813d5f410ec5c255dd85b78b3bf447bf90bb3309"
+        }
+      },
+      "initial_state_sha256": "86e8b0e32215aba35b1bd0dda93700322eb39187f81691f97324058669255065",
+      "mean_step_seconds": 0.13515645380070357,
+      "noncanonical_mass_mean": 6.787478923797607e-07,
+      "parity_after_training": {
+        "all_gradients_finite": true,
+        "all_gradients_nonzero": true,
+        "gradient_max_abs": 1.1958181858062744e-06,
+        "largest_gradient_error_parameter": "gpt_neox.embed_in.weight",
+        "logits_max_abs": 1.2755393981933594e-05,
+        "loss_abs": 0.0,
+        "max_gradient_norm_cached": 2.5756003856658936,
+        "max_gradient_norm_full": 2.5756006240844727,
+        "min_gradient_norm_full": 0.018699917942285538,
+        "parameters_in_model": 52,
+        "parameters_with_gradient": 52,
+        "tolerance": 2e-05
+      },
+      "parity_at_initialization": {
+        "all_gradients_finite": true,
+        "all_gradients_nonzero": true,
+        "gradient_max_abs": 3.4123659133911133e-06,
+        "largest_gradient_error_parameter": "gpt_neox.embed_in.weight",
+        "logits_max_abs": 6.198883056640625e-06,
+        "loss_abs": 4.76837158203125e-07,
+        "max_gradient_norm_cached": 10.225473403930664,
+        "max_gradient_norm_full": 10.225464820861816,
+        "min_gradient_norm_full": 0.03894544020295143,
+        "parameters_in_model": 52,
+        "parameters_with_gradient": 52,
+        "tolerance": 2e-05
+      },
+      "peak_cuda_allocated_mib": 1145.330078125,
+      "plan": {
+        "batch_size": 128,
+        "checkpoints": [
+          1,
+          3,
+          5
+        ],
+        "drop_last": false,
+        "epochs": 5,
+        "exposures_per_epoch": 120504,
+        "rows": 120504,
+        "steps_per_epoch": 942,
+        "total_steps": 4710,
+        "warmup_steps": 236
+      },
+      "seed": 20260918,
+      "spill_signals": {
+        "low_free_vram_samples": 0,
+        "median_step_seconds": 0.1336425000044983,
+        "min_free_vram_mib": 236.1328125,
+        "suspected_sysmem_spill": false
+      },
+      "total_exposures": 602520,
+      "total_steps": 4710,
+      "training_and_final_probe_wall_seconds": 730.802704599977,
+      "wall_clock_seconds": 735.5892022000044
+    },
+    "20260919": {
+      "arm": "sft",
+      "epochs": {
+        "1": {
+          "checkpoint": "outputs/her2_posttrain_20260918/policy_sft_seed20260919/epoch_1.pt",
+          "checkpoint_sha256": "05f9dfec3292d412fdfff69e4a6ca910bf8f626058ad04e84e69e46737b85f95",
+          "epoch": 1,
+          "exposures": 120504,
+          "learning_rate": 9.456760861642644e-05,
+          "selection_note": "selection uses val_positive_nll_per_residue only; the ranking metrics above are disclosed diagnostics and are NOT used to choose a checkpoint",
+          "state_sha256": "ce16d586d6a8f63a5a305494bde2b359dd016bd7e99867eabc949ae65c3bd6ae",
+          "steps": 942,
+          "train_nll_per_residue": 1.6759908009294036,
+          "val_positive_nll_per_residue": 1.5640498289767597,
+          "val_positive_nll_sum": 15.640498289767597,
+          "val_positive_rows": 25822,
+          "val_ranking_diagnostic": {
+            "auroc": 0.9596775430617741,
+            "average_precision": 0.9380451872319281,
+            "distinct_scores": 78375,
+            "n": 78652,
+            "negatives": 52830,
+            "positives": 25822,
+            "precision_at_k": {
+              "100": 1.0,
+              "1000": 1.0,
+              "32": 1.0
+            },
+            "prevalence": 0.3283069724863958
+          }
+        },
+        "2": {
+          "epoch": 2,
+          "exposures": 241008,
+          "learning_rate": 7.30564929832155e-05,
+          "steps": 1884,
+          "train_nll_per_residue": 1.5150243948000262
+        },
+        "3": {
+          "checkpoint": "outputs/her2_posttrain_20260918/policy_sft_seed20260919/epoch_3.pt",
+          "checkpoint_sha256": "7fbb47f49d34b841b44f4444e242e8c04eda4cc1ea41b575e9e0d740ba778e1e",
+          "epoch": 3,
+          "exposures": 361512,
+          "learning_rate": 4.392897194307386e-05,
+          "selection_note": "selection uses val_positive_nll_per_residue only; the ranking metrics above are disclosed diagnostics and are NOT used to choose a checkpoint",
+          "state_sha256": "9f0d7bf0947b6a036521506a321012b57cca09a422b1b099f7e54b051e64cb54",
+          "steps": 2826,
+          "train_nll_per_residue": 1.4478443944580026,
+          "val_positive_nll_per_residue": 1.4888333314966984,
+          "val_positive_nll_sum": 14.888333314966983,
+          "val_positive_rows": 25822,
+          "val_ranking_diagnostic": {
+            "auroc": 0.9790374965915328,
+            "average_precision": 0.9677170623987015,
+            "distinct_scores": 78405,
+            "n": 78652,
+            "negatives": 52830,
+            "positives": 25822,
+            "precision_at_k": {
+              "100": 1.0,
+              "1000": 1.0,
+              "32": 1.0
+            },
+            "prevalence": 0.3283069724863958
+          }
+        },
+        "4": {
+          "epoch": 4,
+          "exposures": 482016,
+          "learning_rate": 1.9471318857436745e-05,
+          "steps": 3768,
+          "train_nll_per_residue": 1.3881079480284468
+        },
+        "5": {
+          "checkpoint": "outputs/her2_posttrain_20260918/policy_sft_seed20260919/epoch_5.pt",
+          "checkpoint_sha256": "57cd580606de0e712c70c54502020f81152be2d8f9f223145b31ab0ac4bd2e76",
+          "epoch": 5,
+          "exposures": 602520,
+          "learning_rate": 1e-05,
+          "selection_note": "selection uses val_positive_nll_per_residue only; the ranking metrics above are disclosed diagnostics and are NOT used to choose a checkpoint",
+          "state_sha256": "bf1a0ba66f38b6c25f79b4a03c9c04be78638ad921d8e0fce830b219d1dd0bb2",
+          "steps": 4710,
+          "train_nll_per_residue": 1.3407402244497721,
+          "val_positive_nll_per_residue": 1.5018244527069702,
+          "val_positive_nll_sum": 15.0182445270697,
+          "val_positive_rows": 25822,
+          "val_ranking_diagnostic": {
+            "auroc": 0.9805797232536505,
+            "average_precision": 0.9698231928300152,
+            "distinct_scores": 78427,
+            "n": 78652,
+            "negatives": 52830,
+            "positives": 25822,
+            "precision_at_k": {
+              "100": 1.0,
+              "1000": 0.999,
+              "32": 1.0
+            },
+            "prevalence": 0.3283069724863958
+          }
+        }
+      },
+      "final_state_sha256": "bf1a0ba66f38b6c25f79b4a03c9c04be78638ad921d8e0fce830b219d1dd0bb2",
+      "identity": {
+        "arm": "sft",
+        "batch_size": 128,
+        "code_digests": {
+          "scripts/evaluate_her2.py": "7290fd4d9e3af5a5e2a8b5bb354681d57184570a26220cfe5e086fc4bef8ed9e",
+          "scripts/posttrain_her2.py": "78255e7e818ea6276bc87d428966855b34caa0985782d476876d071616235e3f",
+          "scripts/train_her2.py": "5ee7b82abe178eb0e2c59869dab6435a99ecda41c6313295f06c8d1ba1fd4bd7",
+          "src/smallAntibodyGen/experiments/dpo.py": "8af932de44867c0da2d2dabf19affed361131f3c4a3cebd03c13ff61c5dad3cd",
+          "src/smallAntibodyGen/experiments/her2_baselines.py": "2bc9989dabf7ebeb4acba55183f410bf75a16436b84e0389be9635b8796529fb",
+          "src/smallAntibodyGen/experiments/her2_data.py": "b1a23df120e037072f350c83af05cc06550cc7de54d831afbb990e1d4953156b",
+          "src/smallAntibodyGen/experiments/her2_eval.py": "de0510effd417119674b052cedb2b67785e881db545eb12399f107821269364b",
+          "src/smallAntibodyGen/experiments/her2_policy.py": "6ab1d138e32cf1fec61e2bb3808638b62a5711461a5cc6f257265ed9a4517e91",
+          "src/smallAntibodyGen/experiments/her2_preferences.py": "a97000c0ef7e361192848bbebe85b4aced6ae2621d4ef26867deed22b13e2299",
+          "src/smallAntibodyGen/experiments/her2_runtime.py": "c20c1448ffd269879a20efe0be81529a83521aa4a7668a63011be8f7045fe75b"
+        },
+        "config_digest": "38b3567ef14b446e46fed04c1e7e6cbfbf4c20fd5a657f917d97bf501e91ec02",
+        "device": "cuda",
+        "epochs": 5,
+        "preflight_batch_size": 128,
+        "seed": 20260919,
+        "source_digests": {
+          "data/raw/her2_functional_20260918/absci/LICENSE": "12e4c580339a117464d1ca9417c7c06026d7f535ea5cb55ef0aa482e6c7bb769",
+          "data/raw/her2_functional_20260918/absci/README.md": "698f39c41a8e5a9e27fe0ad869cf59ada8c5daf1b0bea6e94c54ccdd6abe0b0d",
+          "data/raw/her2_functional_20260918/absci/functionality-developability-cross_reactivity-data.csv": "f67f8284ce21f86b56b17f75493b05217d8f603565487692372083f626fa08b5",
+          "data/raw/her2_functional_20260918/absci/spr-controls.csv": "33939f99b489b36e9f893641f3b4013ae4898093875067db31569801b15b2489",
+          "data/raw/her2_functional_20260918/absci/zero-shot-binders.csv": "c12742bd36ae8881a38cd41e50fd3922cbd885b184531d1151889f5fa610b639",
+          "data/raw/her2_functional_20260918/buzz/LICENSE": "1116f69e31e2648f5223c0d62510048f41992995452c4d4f2533ceaa7b7133c9",
+          "data/raw/her2_functional_20260918/buzz/README.md": "33ca49193f1ef38d019a40797decf2453fbdc0430ed10aaba6fc1b49bc8716f5",
+          "data/raw/her2_functional_20260918/buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/README.md": "d71db857a207915074b0a179085ad2c58f305caa5b2ec75e3b09bc6f6874e34d",
+          "data/raw/her2_functional_20260918/buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/test.csv": "8c78b21ede36e6f0c88a7b44e3668ea9cab8b79ffcadbd6d0eaa02b75766d8ec",
+          "data/raw/her2_functional_20260918/buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/train.csv": "e7efdd8f2608d777ff0c730966b1792496734ac82e871d5d0a9ae95787cf7ff7",
+          "data/raw/her2_functional_20260918/buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/val.csv": "1db964bf7cd37da7d2009f2ecf20bf6cd1e095fbd81247e87545f809605c7366",
+          "data/raw/her2_functional_20260918/buzz/data/spr/spr_results.xlsx": "ccf5ef46cf4c3bb67c2bdba33b678e55ea144bb1ca7e2c69188fd99d2648ffe9",
+          "data/raw/her2_functional_20260918/buzz/data/spr/spr_submitted.csv": "98558f80555cc8511fefd6da4cbe4a8525aa7b1d39491d75b3adfb9a810d78ad",
+          "data/raw/her2_functional_20260918/buzz/src/classifiers/cnn/model.py": "ced9ef07c3ff7a6def9889b032f982edc956e72cf30c6f5f9cb9cbf118c5bb67",
+          "data/raw/her2_functional_20260918/buzz/src/classifiers/cnn/train.py": "3288af3e080b2344f0dcceee613403f51ef0c81cfc58847f01fc8b335b76b9a4",
+          "data/raw/her2_functional_20260918/buzz/src/classifiers/dataset.py": "89c69c680ac59c1e52a8a0c497bfa0d8f8a2ed0734481796139e66b9a8a0a86d",
+          "data/raw/her2_functional_20260918/piggen/README.md": "afe85c6da56f0a73254b796b2bce0b77160edc730ba649ff9498833ef1eb8383",
+          "data/raw/her2_functional_20260918/piggen/config.json": "4c5a54545ae1d8773d0793b7c9fee0c8bfaf4c2e384d16552278bcaa523b0a74",
+          "data/raw/her2_functional_20260918/piggen/generation_config.json": "d922c8de8235185b68ab3e1ed29de9276d4d36566056279c0372ee2ace6fe2bb",
+          "data/raw/her2_functional_20260918/piggen/model.safetensors": "4fac8e89ae5abb432e29c3af2ca5176da6b6bbeef64ea6847bd51393180918bd",
+          "data/raw/her2_functional_20260918/piggen/special_tokens_map.json": "8ac045b33e2e3858cff599eb4083fe16f30aa4f424e3ef4ff92d6b29eaa8ab57",
+          "data/raw/her2_functional_20260918/piggen/tokenizer.json": "66f2015ce989903c1319fcd89e751b805f9aacb83e898c3f8a221af6de195a73",
+          "data/raw/her2_functional_20260918/piggen/tokenizer_config.json": "b210d89151085258a2d6f65127604615a3a36ef0617cf154f3c974ffd05320c0",
+          "specs/benchmarks/absci_denovo_her2.json": "a739c15bf1f3afec7018db36a058750f8e5911a06c1d27437cb477143e9b005a",
+          "specs/benchmarks/buzz_her2_affinity.json": "aa6ce1a15caa215645921e7cde182ee7ab725076cb1bdb6e1b9f2b770f8bea3a",
+          "specs/benchmarks/piggen_backbone.json": "7e116850c2a83ae1d4131fe9813d5f410ec5c255dd85b78b3bf447bf90bb3309"
+        }
+      },
+      "initial_state_sha256": "86e8b0e32215aba35b1bd0dda93700322eb39187f81691f97324058669255065",
+      "mean_step_seconds": 0.13564941798272045,
+      "noncanonical_mass_mean": 6.787478923797607e-07,
+      "parity_after_training": {
+        "all_gradients_finite": true,
+        "all_gradients_nonzero": true,
+        "gradient_max_abs": 1.2367963790893555e-06,
+        "largest_gradient_error_parameter": "gpt_neox.embed_in.weight",
+        "logits_max_abs": 1.0728836059570312e-05,
+        "loss_abs": 1.1920928955078125e-07,
+        "max_gradient_norm_cached": 2.553887367248535,
+        "max_gradient_norm_full": 2.553886651992798,
+        "min_gradient_norm_full": 0.014375805854797363,
+        "parameters_in_model": 52,
+        "parameters_with_gradient": 52,
+        "tolerance": 2e-05
+      },
+      "parity_at_initialization": {
+        "all_gradients_finite": true,
+        "all_gradients_nonzero": true,
+        "gradient_max_abs": 3.3080577850341797e-06,
+        "largest_gradient_error_parameter": "gpt_neox.embed_in.weight",
+        "logits_max_abs": 6.198883056640625e-06,
+        "loss_abs": 4.76837158203125e-07,
+        "max_gradient_norm_cached": 10.22547435760498,
+        "max_gradient_norm_full": 10.2254638671875,
+        "min_gradient_norm_full": 0.03894544020295143,
+        "parameters_in_model": 52,
+        "parameters_with_gradient": 52,
+        "tolerance": 2e-05
+      },
+      "peak_cuda_allocated_mib": 1144.611328125,
+      "plan": {
+        "batch_size": 128,
+        "checkpoints": [
+          1,
+          3,
+          5
+        ],
+        "drop_last": false,
+        "epochs": 5,
+        "exposures_per_epoch": 120504,
+        "rows": 120504,
+        "steps_per_epoch": 942,
+        "total_steps": 4710,
+        "warmup_steps": 236
+      },
+      "seed": 20260919,
+      "spill_signals": {
+        "low_free_vram_samples": 0,
+        "median_step_seconds": 0.1353882500261534,
+        "min_free_vram_mib": 232.3203125,
+        "suspected_sysmem_spill": false
+      },
+      "total_exposures": 602520,
+      "total_steps": 4710,
+      "training_and_final_probe_wall_seconds": 732.8041811999865,
+      "wall_clock_seconds": 733.2552951999824
+    },
+    "20260920": {
+      "arm": "sft",
+      "epochs": {
+        "1": {
+          "checkpoint": "outputs/her2_posttrain_20260918/policy_sft_seed20260920/epoch_1.pt",
+          "checkpoint_sha256": "45eca41fcabc760656c7fb5438a2ce609790607c92c86c93a02474919176b5d9",
+          "epoch": 1,
+          "exposures": 120504,
+          "learning_rate": 9.456760861642644e-05,
+          "selection_note": "selection uses val_positive_nll_per_residue only; the ranking metrics above are disclosed diagnostics and are NOT used to choose a checkpoint",
+          "state_sha256": "346efda12835df00d8dc638d3c320ad7623f050d3ee77c85b5bdb39f53fb8adf",
+          "steps": 942,
+          "train_nll_per_residue": 1.6764134065030003,
+          "val_positive_nll_per_residue": 1.5582135244561113,
+          "val_positive_nll_sum": 15.582135244561114,
+          "val_positive_rows": 25822,
+          "val_ranking_diagnostic": {
+            "auroc": 0.961578504158986,
+            "average_precision": 0.9403813804026285,
+            "distinct_scores": 78396,
+            "n": 78652,
+            "negatives": 52830,
+            "positives": 25822,
+            "precision_at_k": {
+              "100": 1.0,
+              "1000": 1.0,
+              "32": 1.0
+            },
+            "prevalence": 0.3283069724863958
+          }
+        },
+        "2": {
+          "epoch": 2,
+          "exposures": 241008,
+          "learning_rate": 7.30564929832155e-05,
+          "steps": 1884,
+          "train_nll_per_residue": 1.5152917539251125
+        },
+        "3": {
+          "checkpoint": "outputs/her2_posttrain_20260918/policy_sft_seed20260920/epoch_3.pt",
+          "checkpoint_sha256": "c892ddf21cc3291eb8e280521846d9932a5dabae5347fe388e60bd561a82d068",
+          "epoch": 3,
+          "exposures": 361512,
+          "learning_rate": 4.392897194307386e-05,
+          "selection_note": "selection uses val_positive_nll_per_residue only; the ranking metrics above are disclosed diagnostics and are NOT used to choose a checkpoint",
+          "state_sha256": "bfa59a955482fb8a20685226d94ca43aaa84adb91aeaf1014a46f4e429d01875",
+          "steps": 2826,
+          "train_nll_per_residue": 1.448040131228478,
+          "val_positive_nll_per_residue": 1.4867413091803583,
+          "val_positive_nll_sum": 14.867413091803583,
+          "val_positive_rows": 25822,
+          "val_ranking_diagnostic": {
+            "auroc": 0.9785289065212145,
+            "average_precision": 0.9669031931441894,
+            "distinct_scores": 78448,
+            "n": 78652,
+            "negatives": 52830,
+            "positives": 25822,
+            "precision_at_k": {
+              "100": 1.0,
+              "1000": 1.0,
+              "32": 1.0
+            },
+            "prevalence": 0.3283069724863958
+          }
+        },
+        "4": {
+          "epoch": 4,
+          "exposures": 482016,
+          "learning_rate": 1.9471318857436745e-05,
+          "steps": 3768,
+          "train_nll_per_residue": 1.3884255341908012
+        },
+        "5": {
+          "checkpoint": "outputs/her2_posttrain_20260918/policy_sft_seed20260920/epoch_5.pt",
+          "checkpoint_sha256": "dd6dae1f0403c470cb18d6bcaf4933c9b328cb80fc33243d3b34394e81d3dd25",
+          "epoch": 5,
+          "exposures": 602520,
+          "learning_rate": 1e-05,
+          "selection_note": "selection uses val_positive_nll_per_residue only; the ranking metrics above are disclosed diagnostics and are NOT used to choose a checkpoint",
+          "state_sha256": "541de739b73927f75c462541b102d79b216c90ac992260d48985207656a7d02d",
+          "steps": 4710,
+          "train_nll_per_residue": 1.340998897947876,
+          "val_positive_nll_per_residue": 1.500825533938162,
+          "val_positive_nll_sum": 15.008255339381623,
+          "val_positive_rows": 25822,
+          "val_ranking_diagnostic": {
+            "auroc": 0.9808101150360145,
+            "average_precision": 0.9701033244338164,
+            "distinct_scores": 78436,
+            "n": 78652,
+            "negatives": 52830,
+            "positives": 25822,
+            "precision_at_k": {
+              "100": 1.0,
+              "1000": 1.0,
+              "32": 1.0
+            },
+            "prevalence": 0.3283069724863958
+          }
+        }
+      },
+      "final_state_sha256": "541de739b73927f75c462541b102d79b216c90ac992260d48985207656a7d02d",
+      "identity": {
+        "arm": "sft",
+        "batch_size": 128,
+        "code_digests": {
+          "scripts/evaluate_her2.py": "7290fd4d9e3af5a5e2a8b5bb354681d57184570a26220cfe5e086fc4bef8ed9e",
+          "scripts/posttrain_her2.py": "78255e7e818ea6276bc87d428966855b34caa0985782d476876d071616235e3f",
+          "scripts/train_her2.py": "5ee7b82abe178eb0e2c59869dab6435a99ecda41c6313295f06c8d1ba1fd4bd7",
+          "src/smallAntibodyGen/experiments/dpo.py": "8af932de44867c0da2d2dabf19affed361131f3c4a3cebd03c13ff61c5dad3cd",
+          "src/smallAntibodyGen/experiments/her2_baselines.py": "2bc9989dabf7ebeb4acba55183f410bf75a16436b84e0389be9635b8796529fb",
+          "src/smallAntibodyGen/experiments/her2_data.py": "b1a23df120e037072f350c83af05cc06550cc7de54d831afbb990e1d4953156b",
+          "src/smallAntibodyGen/experiments/her2_eval.py": "de0510effd417119674b052cedb2b67785e881db545eb12399f107821269364b",
+          "src/smallAntibodyGen/experiments/her2_policy.py": "6ab1d138e32cf1fec61e2bb3808638b62a5711461a5cc6f257265ed9a4517e91",
+          "src/smallAntibodyGen/experiments/her2_preferences.py": "a97000c0ef7e361192848bbebe85b4aced6ae2621d4ef26867deed22b13e2299",
+          "src/smallAntibodyGen/experiments/her2_runtime.py": "c20c1448ffd269879a20efe0be81529a83521aa4a7668a63011be8f7045fe75b"
+        },
+        "config_digest": "38b3567ef14b446e46fed04c1e7e6cbfbf4c20fd5a657f917d97bf501e91ec02",
+        "device": "cuda",
+        "epochs": 5,
+        "preflight_batch_size": 128,
+        "seed": 20260920,
+        "source_digests": {
+          "data/raw/her2_functional_20260918/absci/LICENSE": "12e4c580339a117464d1ca9417c7c06026d7f535ea5cb55ef0aa482e6c7bb769",
+          "data/raw/her2_functional_20260918/absci/README.md": "698f39c41a8e5a9e27fe0ad869cf59ada8c5daf1b0bea6e94c54ccdd6abe0b0d",
+          "data/raw/her2_functional_20260918/absci/functionality-developability-cross_reactivity-data.csv": "f67f8284ce21f86b56b17f75493b05217d8f603565487692372083f626fa08b5",
+          "data/raw/her2_functional_20260918/absci/spr-controls.csv": "33939f99b489b36e9f893641f3b4013ae4898093875067db31569801b15b2489",
+          "data/raw/her2_functional_20260918/absci/zero-shot-binders.csv": "c12742bd36ae8881a38cd41e50fd3922cbd885b184531d1151889f5fa610b639",
+          "data/raw/her2_functional_20260918/buzz/LICENSE": "1116f69e31e2648f5223c0d62510048f41992995452c4d4f2533ceaa7b7133c9",
+          "data/raw/her2_functional_20260918/buzz/README.md": "33ca49193f1ef38d019a40797decf2453fbdc0430ed10aaba6fc1b49bc8716f5",
+          "data/raw/her2_functional_20260918/buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/README.md": "d71db857a207915074b0a179085ad2c58f305caa5b2ec75e3b09bc6f6874e34d",
+          "data/raw/her2_functional_20260918/buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/test.csv": "8c78b21ede36e6f0c88a7b44e3668ea9cab8b79ffcadbd6d0eaa02b75766d8ec",
+          "data/raw/her2_functional_20260918/buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/train.csv": "e7efdd8f2608d777ff0c730966b1792496734ac82e871d5d0a9ae95787cf7ff7",
+          "data/raw/her2_functional_20260918/buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/val.csv": "1db964bf7cd37da7d2009f2ecf20bf6cd1e095fbd81247e87545f809605c7366",
+          "data/raw/her2_functional_20260918/buzz/data/spr/spr_results.xlsx": "ccf5ef46cf4c3bb67c2bdba33b678e55ea144bb1ca7e2c69188fd99d2648ffe9",
+          "data/raw/her2_functional_20260918/buzz/data/spr/spr_submitted.csv": "98558f80555cc8511fefd6da4cbe4a8525aa7b1d39491d75b3adfb9a810d78ad",
+          "data/raw/her2_functional_20260918/buzz/src/classifiers/cnn/model.py": "ced9ef07c3ff7a6def9889b032f982edc956e72cf30c6f5f9cb9cbf118c5bb67",
+          "data/raw/her2_functional_20260918/buzz/src/classifiers/cnn/train.py": "3288af3e080b2344f0dcceee613403f51ef0c81cfc58847f01fc8b335b76b9a4",
+          "data/raw/her2_functional_20260918/buzz/src/classifiers/dataset.py": "89c69c680ac59c1e52a8a0c497bfa0d8f8a2ed0734481796139e66b9a8a0a86d",
+          "data/raw/her2_functional_20260918/piggen/README.md": "afe85c6da56f0a73254b796b2bce0b77160edc730ba649ff9498833ef1eb8383",
+          "data/raw/her2_functional_20260918/piggen/config.json": "4c5a54545ae1d8773d0793b7c9fee0c8bfaf4c2e384d16552278bcaa523b0a74",
+          "data/raw/her2_functional_20260918/piggen/generation_config.json": "d922c8de8235185b68ab3e1ed29de9276d4d36566056279c0372ee2ace6fe2bb",
+          "data/raw/her2_functional_20260918/piggen/model.safetensors": "4fac8e89ae5abb432e29c3af2ca5176da6b6bbeef64ea6847bd51393180918bd",
+          "data/raw/her2_functional_20260918/piggen/special_tokens_map.json": "8ac045b33e2e3858cff599eb4083fe16f30aa4f424e3ef4ff92d6b29eaa8ab57",
+          "data/raw/her2_functional_20260918/piggen/tokenizer.json": "66f2015ce989903c1319fcd89e751b805f9aacb83e898c3f8a221af6de195a73",
+          "data/raw/her2_functional_20260918/piggen/tokenizer_config.json": "b210d89151085258a2d6f65127604615a3a36ef0617cf154f3c974ffd05320c0",
+          "specs/benchmarks/absci_denovo_her2.json": "a739c15bf1f3afec7018db36a058750f8e5911a06c1d27437cb477143e9b005a",
+          "specs/benchmarks/buzz_her2_affinity.json": "aa6ce1a15caa215645921e7cde182ee7ab725076cb1bdb6e1b9f2b770f8bea3a",
+          "specs/benchmarks/piggen_backbone.json": "7e116850c2a83ae1d4131fe9813d5f410ec5c255dd85b78b3bf447bf90bb3309"
+        }
+      },
+      "initial_state_sha256": "86e8b0e32215aba35b1bd0dda93700322eb39187f81691f97324058669255065",
+      "mean_step_seconds": 0.1357386674316607,
+      "noncanonical_mass_mean": 6.787478923797607e-07,
+      "parity_after_training": {
+        "all_gradients_finite": true,
+        "all_gradients_nonzero": true,
+        "gradient_max_abs": 7.487833499908447e-07,
+        "largest_gradient_error_parameter": "gpt_neox.embed_in.weight",
+        "logits_max_abs": 8.106231689453125e-06,
+        "loss_abs": 0.0,
+        "max_gradient_norm_cached": 2.6227495670318604,
+        "max_gradient_norm_full": 2.6227495670318604,
+        "min_gradient_norm_full": 0.01530184131115675,
+        "parameters_in_model": 52,
+        "parameters_with_gradient": 52,
+        "tolerance": 2e-05
+      },
+      "parity_at_initialization": {
+        "all_gradients_finite": true,
+        "all_gradients_nonzero": true,
+        "gradient_max_abs": 3.248453140258789e-06,
+        "largest_gradient_error_parameter": "gpt_neox.embed_in.weight",
+        "logits_max_abs": 6.198883056640625e-06,
+        "loss_abs": 4.76837158203125e-07,
+        "max_gradient_norm_cached": 10.225473403930664,
+        "max_gradient_norm_full": 10.225464820861816,
+        "min_gradient_norm_full": 0.03894544020295143,
+        "parameters_in_model": 52,
+        "parameters_with_gradient": 52,
+        "tolerance": 2e-05
+      },
+      "peak_cuda_allocated_mib": 1144.611328125,
+      "plan": {
+        "batch_size": 128,
+        "checkpoints": [
+          1,
+          3,
+          5
+        ],
+        "drop_last": false,
+        "epochs": 5,
+        "exposures_per_epoch": 120504,
+        "rows": 120504,
+        "steps_per_epoch": 942,
+        "total_steps": 4710,
+        "warmup_steps": 236
+      },
+      "seed": 20260920,
+      "spill_signals": {
+        "low_free_vram_samples": 0,
+        "median_step_seconds": 0.1356283499917481,
+        "min_free_vram_mib": 194.06640625,
+        "suspected_sysmem_spill": false
+      },
+      "total_exposures": 602520,
+      "total_steps": 4710,
+      "training_and_final_probe_wall_seconds": 733.3691754000029,
+      "wall_clock_seconds": 733.8337944999803
+    }
+  },
+  "status": "three initial pretrained SFT seeds complete; remaining campaign pending"
+}
