@@ -44,6 +44,17 @@ esm = [
     "transformers>=4.40",
     "peft>=0.11",
 ]
+# HER2 post-training on the pinned p-IgGen release. `transformers` supplies the
+# native GPTNeoX classes and `safetensors` loads the released weights; both are
+# imported lazily inside `experiments/her2_policy.py`, so the data, metric and
+# preference layers work without them and their tests skip rather than fail.
+# The .xlsx assay workbook is read with the standard library, so no openpyxl.
+her2 = [
+    # The shared-prefix path uses GPTNeoX's mutable DynamicCache API. Pin the
+    # release exercised by the native GPU and gradient-parity checks.
+    "transformers==5.12.1",
+    "safetensors>=0.4",
+]
 # Optional TensorBoard scalar logging (enabled per-run with `tensorboard: true`).
 # Imported lazily so the base install and non-logging runs never require it.
 tb = [

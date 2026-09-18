@@ -1,0 +1,158 @@
+{
+  "schema_version": "her2-posttrain/1",
+  "raw_root": "data/raw/her2_functional_20260918",
+  "source_manifests": [
+    "specs/benchmarks/buzz_her2_affinity.json",
+    "specs/benchmarks/absci_denovo_her2.json",
+    "specs/benchmarks/piggen_backbone.json"
+  ],
+  "protocol": "specs/her2_hcdr3_benchmark.md",
+  "expected_counts": {
+    "train_rows": 367042,
+    "val_rows": 78652,
+    "test_rows": 78652,
+    "train_high": 120504,
+    "val_high": 25822,
+    "library_total": 524346,
+    "assay_workbook_rows": 768,
+    "assay_same_scaffold_rows": 740,
+    "assay_design_method_rows": 700,
+    "assay_primary_unique_cores": 695
+  },
+  "policy": {
+    "arms": ["sft", "scratch"],
+    "seeds": [20260918, 20260919, 20260920],
+    "epochs": 5,
+    "checkpoints": [1, 3, 5],
+    "batch_size": 128,
+    "fallback_batch_size": 64,
+    "precision": "float32",
+    "frozen_parameters": [],
+    "kl_coefficient": 0.0,
+    "reference_leash": false,
+    "optimization": {
+      "learning_rate": 0.0001,
+      "betas": [0.9, 0.999],
+      "weight_decay": 0.01,
+      "gradient_clip": 1.0,
+      "warmup_fraction": 0.05,
+      "final_learning_rate_fraction": 0.1
+    },
+    "selection_metric": "val_positive_nll_per_residue",
+    "selection_population": "val high-bin rows only"
+  },
+  "preflight": {
+    "batch_size": 128,
+    "fallback_batch_size": 64,
+    "primary_min_free_mib": 2000,
+    "fallback_min_free_mib": 1400,
+    "low_free_vram_mib": 128,
+    "step_time_check_step": 50,
+    "max_median_step_seconds": {"64": 0.1149, "128": 0.1935},
+    "probe_evidence": "outputs/claude_codex_her2_migration_20260918/cache_gpu_probe.json"
+  },
+  "classifier": {
+    "seeds": [20260918, 20260919, 20260920],
+    "epochs": 10,
+    "batch_size": 256,
+    "learning_rate": 0.0003,
+    "selection_metric": "val_three_class_cross_entropy"
+  },
+  "linear": {
+    "ridge": 0.0001,
+    "max_iterations": 100,
+    "line_search": "strong_wolfe",
+    "dtype": "float64",
+    "device": "cpu"
+  },
+  "continuation": {
+    "methods": ["continued_sft", "dpo"],
+    "seeds": [20260918, 20260919, 20260920],
+    "budgets_gpu_seconds": {
+      "continued_sft": [180, 360, 600],
+      "dpo": [180, 360, 600, 1200, 1800]
+    },
+    "budget_definition": "measured device-elapsed seconds of training updates plus DPO reference scoring",
+    "batch_sequences": 128,
+    "fallback_batch_sequences": 64,
+    "optimization": {
+      "learning_rate": 0.00001,
+      "betas": [0.9, 0.999],
+      "weight_decay": 0.01,
+      "gradient_clip": 1.0,
+      "warmup_updates": 100,
+      "schedule": "linear_warmup_then_constant"
+    },
+    "dpo": {
+      "beta": 0.1,
+      "log_probability": "sum_over_10_core_positions",
+      "rejected_class": "low",
+      "match_on": "wt_hamming_distance"
+    },
+    "pairing": {
+      "seed_base": 20260924,
+      "validation_seed": 20260925,
+      "validation_pairs": null
+    },
+    "reference": {
+      "score_batch_size": 256,
+      "parity_probe_rows": 64,
+      "parity_probe_seed": 20260926
+    },
+    "expected_counts": {
+      "train_chosen": 120477,
+      "train_rejected": 113530,
+      "reference_rows": 234007,
+      "val_chosen": 25722,
+      "excluded_train_chosen": 27,
+      "excluded_val_chosen": 100
+    },
+    "selection_metric": "val_average_precision",
+    "diversity_gates": {
+      "relative_floor": 0.9,
+      "min_unique_fraction": 0.9,
+      "max_single_core_frequency": 0.01,
+      "min_fraction_not_in_training": 0.5
+    }
+  },
+  "inference": {
+    "score_batch_size": 256,
+    "sample_batch_size": 256,
+    "progress_every": 100
+  },
+  "generation": {
+    "draws": 10000,
+    "temperature": 1.0,
+    "seed_base": 20260921,
+    "retain_duplicates": true,
+    "restrict_to_catalog": false
+  },
+  "evaluation": {
+    "k_values": [32, 100, 1000],
+    "bootstrap_draws": 1000,
+    "bootstrap_seed": 20260922,
+    "spearman_draws": 2000,
+    "assay_seed": 20260923,
+    "permutation_draws": 2000,
+    "confidence": 0.95,
+    "wt_distance_strata": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
+    "train_distance_strata": ["0", "1", "2", ">=3"],
+    "paired_comparisons": [
+      ["policy_sft_seed{seed}", "policy_scratch_seed{seed}"],
+      ["policy_sft_seed{seed}", "piggen_zeroshot"],
+      ["policy_sft_seed{seed}", "nn_label"],
+      ["policy_sft_seed{seed}", "linear_3class"],
+      ["cnn_3class_ensemble", "linear_3class"]
+    ]
+  },
+  "runtime": {
+    "cpu_threads": 4,
+    "cpu_threads_note": "the measured step-time and parity probes were taken at 4 intra-op threads"
+  },
+  "tolerances": {
+    "cached_vs_full_parity": 0.00002,
+    "sum_log_probability_atol": 0.00005,
+    "sum_log_probability_rtol": 0.000002,
+    "tolerance_note": "cached_vs_full_parity gates LOGITS and GRADIENTS (measured 6.20e-6 and 3.43e-6 on the pinned weights). The sum-log-probability pair gates SCORE comparisons -- sampler vs scorer, cached vs full, batch 16 vs 256 -- whose measured native fp32 worst cases are 2.38e-5, 3.34e-5 and 2.07e-5."
+  }
+}
