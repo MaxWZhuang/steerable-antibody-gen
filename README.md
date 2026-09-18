@@ -30,9 +30,9 @@ training core (98.4% within 2), where a plain nearest-training-neighbour label
 lookup already reaches 0.981 average precision. Beating that is the bar, and the
 proximity strata are reported rather than fixed.
 
-**Run status (2026-09-18).** The GPU campaign has started. The first p-IgGen SFT
-seed completed all five passes; the remaining initial runs and continuations are
-in progress. [Current results and limitations](reference/her2-posttrain.md) distinguish
+**Run status (2026-09-18).** The GPU campaign has started. All three pretrained p-IgGen SFT
+seeds completed five passes; each favors pass 3 by validation NLL. Random-initialization
+controls are running, with SFT and DPO continuations following the initial stage. [Current results and limitations](reference/her2-posttrain.md) distinguish
 validation observations from the pending final test and independent assay evaluation.
 The initial integrity
 audit read aggregate label counts and printed two example rows from **each split,
