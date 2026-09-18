@@ -37003,7 +37003,7 @@
   "provenance": {
     "config_sha256": "6b885ffb26a551572fdde0e4527d5aaea498a4f57a70f6d3b9b36158ba92f32f",
     "evaluation_sha256": "b2e05417d5ce4d389fa287ae6c8ecea84a590ca492f4643656306f43eef2b02a",
-    "render_script_sha256": "5d8861f48d1170bd763f2f8f30e15dd067f17f17ca34e83db7414b90c68dd20c",
+    "render_script_sha256": "9b37d5a401591686e65141cf5d47670fdaa3691cde27cb1fa9a2192aa69677ec",
     "validation_sha256": "894e52db80631f46fd8d99f47de60b5ac7f989a5e94d6732249918bbe986eac1"
   },
   "reporting_note": "No fitting or checkpoint selection in this renderer; all raw budgets retained",
