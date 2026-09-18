@@ -192,18 +192,26 @@ The added evaluation driver passed 37 driver/runner checks. It preserves the
 original training identities and binds its own hash and backend separately in
 the final freeze; it does not alter weights or relax the scoring tolerance.
 
-The uniform math-SDPA rerun has completed 26/31 policies. All 21 policies shared
+The uniform math-SDPA rerun has completed all 31 policies and the final selection
+is frozen. All 21 policies shared
 with the original partial pass reproduce its uniqueness fractions and eligibility
 decisions exactly; the largest absolute validation AP difference is 3.22e-8. The
 [rerun evidence](evidence/her2-math-validation-2026-09-18.json) retains the numerical
-manifest and completed records. Validation and final outcome evaluation remain
-in progress.
+manifest, complete records, reference-KL diagnostics and final selection. Final
+test and independent SPR evaluation follow this freeze.
 
-All nine continued-SFT checkpoints pass. All ten completed DPO checkpoints from
-the first two seeds fail the diversity gates. For seed 20260919, uniqueness falls
-from 40.22% at three minutes to 18.88% at thirty minutes (first seed: 42.03% to
-18.92%). Mode collapse therefore replicates across the first two DPO seeds; the
-third seed and reference-KL calculations remain pending.
+All nine continued-SFT checkpoints pass, retaining 97.18-97.98% unique draws.
+All fifteen DPO checkpoints fail the diversity gates. DPO uniqueness is
+40.22-43.86% at three minutes and 18.88-19.07% at thirty minutes across the three
+seeds. Thirty-minute KL from each model's own SFT parent is 5.326-6.477 nats,
+with Monte Carlo standard errors 0.0285-0.0333 nats. The policy moved substantially
+and mode collapse replicated across all seeds.
+
+The frozen validation rule selects the three-minute continued-SFT checkpoint
+for every seed and every allowed SFT budget. All DPO budgets are recorded as
+having no eligible checkpoint. Every raw checkpoint remains in the final
+scoring comparison. These decisions preceded model-based final test and SPR
+outcome access.
 
 Before fitting: 1,984 repository tests passed, 3 skipped; a native 22M-parameter GPU
 scoring/gradient check passed; and a tiny synthetic run completed both training

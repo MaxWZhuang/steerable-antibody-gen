@@ -289,6 +289,9 @@ def render():
         'or absence of overfitting. Three seeds do not resolve every small effect.',
         '- Equal GPU time is not equal update count or label information: DPO also reads '
         'low-bin examples, while continued SFT trains on eligible high-bin examples.',
+        '- One DPO beta and learning-rate schedule were tested. The scaling curves '
+        'characterize this configuration, not the best attainable performance of DPO '
+        'after hyperparameter tuning or a different objective.',
         '- p-IgGen\'s HER2 pretraining exposure remains unresolved. The scratch control tests '
         'random initialization at the same training schedule, not a tuned scratch optimum.',
         '- Initial source auditing read aggregate counts and two examples from every split, '
