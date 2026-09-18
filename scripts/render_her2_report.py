@@ -182,6 +182,27 @@ def render():
             'test_auroc': metric['auroc'], 'p1000': metric['precision_at_k']['1000'],
             'spr_spearman': assay['quantitative']['spearman'],
             'spr_binding_auc': assay['binary']['auroc']})
+    # Fixed descriptive endpoints, not a best-performing checkpoint search.
+    method_rows = []
+    for name, endpoint in result['assay']['endpoints'].items():
+        group = None
+        if name.startswith('policy_sft_seed') and '_minus_' not in name:
+            group = 'Initial SFT'
+        elif name.startswith('continued_sft_seed') and name.endswith('_budget180'):
+            group = 'Continued SFT, 3 min'
+        elif name.startswith('dpo_seed') and name.endswith('_budget180'):
+            group = 'DPO, 3 min'
+        elif name.startswith('dpo_seed') and name.endswith('_budget1800'):
+            group = 'DPO, 30 min'
+        elif name in ('cnn_3class_ensemble', 'nn_label'):
+            group = name
+        if group is not None:
+            for method, values in endpoint['by_method'].items():
+                method_rows.append({'scorer': group, 'design_method': method,
+                    'finite_KD_rows': values['quantitative_rows'], 'rho': values['spearman']})
+    method_table = pd.DataFrame(method_rows).groupby(['scorer', 'design_method']).agg(
+        finite_KD_rows=('finite_KD_rows', 'first'), mean_rho=('rho', 'mean'),
+        min_rho=('rho', 'min'), max_rho=('rho', 'max')).reset_index()
     initial = []
     for name, entry in training['policies'].items():
         for epoch, values in entry['epochs'].items():
@@ -204,6 +225,13 @@ def render():
         'SPR Spearman uses only finite positive KD measurements; the binary SPR AUROC '
         'uses measured binding versus nonbinding, including unquantified binders as positive. '
         'No numerical KD is assigned to nonbinding or unquantified records.', '',
+        '## Independent SPR within each source design method', '',
+        method_table.to_markdown(index=False, floatfmt='.4f'), '',
+        'The generator rows summarize three training seeds at fixed descriptive endpoints '
+        '(initial SFT, the first matched budget and the largest DPO budget). Min/max '
+        'describe seed spread, not confidence intervals. Each design-method stratum '
+        'uses only its own finite KD measurements. These strata reveal whether pooled '
+        'ranking depends on differences between the source design methods.', '',
         '## Every continuation checkpoint', '',
         diagnostics.to_markdown(index=False, floatfmt='.4f'), '',
         'Parent-relative scores are policy log density minus the same SFT parent that DPO '
@@ -224,6 +252,15 @@ def render():
         pd.DataFrame(initial).to_markdown(index=False, floatfmt='.4f'), '',
         'Initial checkpoints were selected by high-bin validation NLL. Their validation AP '
         'was diagnostic only. No best seed was selected.', '',
+        '## Generated matches to measured held-out sequences', '',
+        frame[['name', 'heldout_matches', 'heldout_high', 'not_in_train']].to_markdown(
+            index=False, floatfmt='.4f'), '',
+        '`heldout_matches` counts draws whose exact sequence appears in the published '
+        'validation or test catalogue. `heldout_high` is the high-bin fraction only '
+        'within those matches. This conditioning favors measured library members and '
+        'does not estimate the binding rate of all generated sequences. Duplicate '
+        'draws count repeatedly here; they are not independent assay replicates. '
+        '`not_in_train` is exact-sequence novelty, not functional novelty.', '',
         '## Initial-policy sampling', '',
         frame[frame.role == 'initial'][['name', 'entropy', 'unique', 'max_frequency',
             'not_in_train', 'mean_hamming']].to_markdown(index=False, floatfmt='.4f'), '',
