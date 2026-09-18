@@ -1,11 +1,11 @@
 # HER2 HCDR3 core benchmark and post-training protocol
 
-Status: **protocol fixed in advance, nothing fitted.** Every number below is a
-declared setting or an audited count from the published release. No HER2 model has
-been trained or selected, and no model-based test evaluation or assay-outcome
-evaluation has run. The initial audit read aggregate labels and printed two example
-rows from each split, including test (§7.2). Results will be added after the stages
-below run in order.
+**Protocol fixed before fitting, 2026-09-18.** Settings below were declared before
+HER2 fitting, checkpoint selection, model-based test evaluation or assay-outcome
+evaluation began. Counts come from the published release. The initial audit read
+aggregate labels and printed two example rows from each split, including test
+(§7.2). Execution status and results are recorded in the
+[run report](../reference/her2-posttrain.md).
 
 "Fixed in advance" means fixed here, in this repository, before any fit — it is not
 a claim of external preregistration.
