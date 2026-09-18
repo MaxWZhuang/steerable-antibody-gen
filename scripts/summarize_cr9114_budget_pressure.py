@@ -21,6 +21,7 @@ def number(value, digits=6):
 def finding(run):
     """Describe what the endpoint actually shows; never upgrade it to a claim."""
     endpoint = run["checkpoints"][str(run["config"]["steps"])]
+    baseline = run["checkpoints"]["0"]
     exact = endpoint["exhaustive"]
     development = exact["conditional_affinity"]["development"]
     delta = exact["conditional_affinity_delta_from_sft"]["development"]
@@ -30,8 +31,17 @@ def finding(run):
             f"{run['config']['steps'] * run['config']['batch_size']:,} labelled exposures, the policy moved "
             f"{exact['total_variation_from_sft']:.4f} in total variation from SFT over the 65,536 legal identities, "
             f"with exact entropy {exact['entropy_nats']:.4f} nats (effective support "
-            f"{exact['entropy_effective_support']:.1f}) against {run['checkpoints']['0']['exhaustive']['entropy_nats']:.4f} "
-            f"nats at SFT. Conditional measured affinity on the 8,704 evaluated development identities moved "
+            f"{exact['entropy_effective_support']:.1f}) against {baseline['exhaustive']['entropy_nats']:.4f} "
+            f"nats at SFT. Probability assigned to development blocks changed from "
+            f"{baseline['exhaustive']['split_mass']['development']:.4%} to "
+            f"{exact['split_mass']['development']:.4%}. The final {endpoint['sampled_affinity']['sample_count']:,} "
+            f"unconditional draws contained {endpoint['sampled_affinity']['split_counts'].get('development', 0):,} "
+            f"development identities and {endpoint['diversity']['unique_genotypes']:,} distinct identities overall.\n\n"
+            f"Ordinary top-16 affinity changed from {baseline['portfolios']['ordinary']['16']['mean_affinity']:.6f} "
+            f"to {endpoint['portfolios']['ordinary']['16']['mean_affinity']:.6f}; top-32 changed from "
+            f"{baseline['portfolios']['ordinary']['32']['mean_affinity']:.6f} to "
+            f"{endpoint['portfolios']['ordinary']['32']['mean_affinity']:.6f}. "
+            f"Conditional measured affinity on the 8,704 evaluated development identities moved "
             f"{number(delta['conditional_affinity_delta'])} "
             f"({'n/a' if ratio is None else f'{ratio:.1f}x'} its heuristic paired assay-SEM proxy), on "
             f"{number(development['measured_mass'], 6)} of the total probability mass with "

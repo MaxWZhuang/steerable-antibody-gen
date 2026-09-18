@@ -1,0 +1,3029 @@
+{
+  "schema_version": "cr9114-budget-pressure-evidence/1",
+  "completed_date": "2026-09-17",
+  "run_results_sha256": "4ab1b579ffa9065d00172297d4e6b6ccebe1e0e0852a84dee15775a0b7c869e6",
+  "run": {
+    "schema_version": "cr9114-budget-pressure-result/1",
+    "status": "completed",
+    "config": {
+      "schema_version": "cr9114-budget-pressure/1",
+      "seed": 20260925,
+      "steps": 16384,
+      "batch_size": 4,
+      "checkpoints": [
+        256,
+        2048,
+        8192,
+        16384
+      ],
+      "exhaustive_checkpoints": [
+        0,
+        16384
+      ],
+      "sequence_normalizer": 16,
+      "learning_rate": 1e-05,
+      "weight_decay": 0.01,
+      "gradient_clip": 1.0,
+      "kl_coefficient": 0.0,
+      "entropy_coefficient": 0.0,
+      "embedding_coefficient": 0.0,
+      "positive_quantile": 0.75,
+      "uncertainty_multiplier": 1.0,
+      "max_weight_ratio": 20.0,
+      "uniform_fraction": 0.25,
+      "budgets": [
+        16,
+        32
+      ],
+      "evaluation_samples": 1024,
+      "evaluation_sample_seed": 20260928,
+      "history_flush_every": 256,
+      "prior_directory": "outputs/cr9114_regularization_20260917",
+      "prior_arm": "seed_20260925_affinity",
+      "prior_evidence": "reference/evidence/cr9114-regularization-2026-09-17.json",
+      "prior_results_sha256": "fd41e1786df5a5f1476b05690005954667bf947e16adcd26140bc3fbd98f93de",
+      "prior_schedule_artifact": "schedule_20260925.npy",
+      "prior_schedule_sha256": "3c482b3a5ea9f8d6c427f50375abcfe4172a9cc7108f303dae408b2ef6ecbddc",
+      "expected_step_256_decoder_state_sha256": "1619d9fe8ba40ba7bcd525922d0563fc7c16445a05fa3658d650d793e1140477",
+      "reused_sample_artifacts": {
+        "0": "sft/samples.csv",
+        "256": "seed_20260925_affinity/samples.csv"
+      },
+      "reused_sample_sha256": {
+        "0": "3307f64e73d9ccf8b0e2ebd1de990ddad0db97526188e3be165cd3305a930ef8",
+        "256": "e73410f681dabe4878f307f89530a5b76cb1deb95b99f89ed77ca370456808ce"
+      },
+      "shortlist_directory": "outputs/cr9114_shortlist_20260917",
+      "shortlist_evidence": "reference/evidence/cr9114-shortlist-2026-09-17.json",
+      "shortlist_results_sha256": "c351e10c5d20827f549236b915cd4e1765dd3121c4ac50dfcd7d0a9f2815abfb",
+      "pilot_directory": "outputs/cr9114_5cjq_pilot_20260916",
+      "split_csv_sha256": "93e4188c88f9dfb8e1d8d41650d5b8eec3ae6c0a473eed3e3c9cf56e41871951",
+      "training_positives_artifact": "training_positives.csv",
+      "training_positives_sha256": "5035619749e76681010e0f1921841a10a95523333f8249a5076d110357bbf4e3",
+      "sft_exposure_seed": 20260916,
+      "sft_exposure_steps": 256,
+      "sft_exposure_batch_size": 4,
+      "expected_sft_exposure_draws": 1024,
+      "expected_sft_exposure_unique": 971,
+      "split_defining_loci_0based": [
+        2,
+        5,
+        8,
+        10
+      ],
+      "development_blocks": [
+        5,
+        7,
+        11
+      ],
+      "legal_identity_count": 65536,
+      "eligible_training_count": 38790,
+      "eligible_development_count": 11750,
+      "prior_development_count": 6656,
+      "fresh_development_count": 2048,
+      "allowed_development_total": 8704,
+      "withheld_development_count": 3046,
+      "training_population_count": 9698,
+      "training_population_weighted_expected_affinity": 9.540962930314794,
+      "exhaustive_score_batch_size": 16,
+      "exact_probability_tolerance": 2e-05,
+      "sample_rescore_tolerance": 0.0001,
+      "pool_score_tolerance": 1e-05,
+      "benchmark_note": "training_population_weighted_expected_affinity is the mean of the weighted TARGET distribution, recorded for orientation only. It is not an upper bound on reachable conditional affinity, a convergence criterion, or a gate.",
+      "scope": "One predeclared affinity-only continuation. No explicit regularizer, no result-based stopping, no checkpoint selection, no checkpoint promotion, no reserved-test evaluation."
+    },
+    "git_commit": "7493364c3702baec01ab134fe1e5393b47c7aebd",
+    "config_sha256": "40f5ea86aad5a03b7999a3daabe648db59db9307a6eda83fa70ff2869a0bc90f",
+    "script_sha256": "2f2197ad31b5089e2672406e84d29eab23baeddfa7f88904bbc43da775a0d7e9",
+    "initial_identity": {
+      "decoder_state_sha256": "c8ea340526ea1bbb53d018fb4db2a081a4a727bae76fbf1be34882862e3efb4a",
+      "encoder_state_sha256": "2138dd5f2f82d504b9d80f76238d4faae1eb39428b750e510f7d386102fed2aa",
+      "geometry_digest": "cf4c951fe4e97d728616e11819a99e82cec8d7d8aaf6c55eff9f4ffd526d8b92",
+      "sft_checkpoint_sha256": "e0da8b1221ee5218be881df183c39a2f4fc80d57c1814211d83312c277b4ca58",
+      "weights_sha256": "be4ba36edec22a9bfaa4946ff6b2815f1f19d8a3d7e0eada8b796d5a0eae9fd4",
+      "prepared_artifact_sha256": "70be19f822c05d4efaa84d01ab75940516001e147b218f18a09c9d5b6bfbe4f7"
+    },
+    "input_records_sha256": "82fdd8f3d361cdf292544829e5888963e315d3c743b604ea0c56f7ad3a80263f",
+    "prior_results_sha256": "fd41e1786df5a5f1476b05690005954667bf947e16adcd26140bc3fbd98f93de",
+    "prior_cohort_sha256": {
+      "outputs/cr9114_5cjq_pilot_20260916/development_scores.csv": "169b4afe31bf89ee1d47c9cbb1f1b8e783110898ef48d8337908250c6b76c2d2",
+      "outputs/cr9114_dpo_diagnostics_20260916/fresh_development.csv": "28de3dc5b7034283804eac1cd9170bd74bd2e4405d8423b01dadac2f7b4bbb8e",
+      "outputs/cr9114_diversity_pilot_20260916_v3/fresh_development.csv": "aa6a0ec8a98caf8904e607fd99e99bdf7f8527fbd0fe2f240cbec09cd26bf154",
+      "outputs/cr9114_affinity_pilot_20260916/fresh_development.csv": "7f93cb8690c645a717e0ffb7d9d26e2fdee4a6a346535d2a3e97a9d0b9872edc"
+    },
+    "shortlist_result_sha256": "c351e10c5d20827f549236b915cd4e1765dd3121c4ac50dfcd7d0a9f2815abfb",
+    "population": {
+      "training_records": 38790,
+      "positive_records": 9698,
+      "mean_threshold": 9.482658815267193,
+      "pooled_sample_variance": 0.015734210674519192,
+      "temperature": 0.1254360820279364,
+      "effective_sampling_population": 9085.392612947411,
+      "probability_ratio": 11.241735457250012,
+      "uniform_expected_affinity": 9.53200252779816,
+      "weighted_expected_affinity": 9.540962930314794,
+      "block_probability": {
+        "0": 0.03200135204194528,
+        "1": 0.036551938839063616,
+        "3": 0.16204863838730027,
+        "4": 0.09295971151494399,
+        "6": 0.18780351797516884,
+        "9": 0.02994905708553454,
+        "10": 0.09606257224644778,
+        "12": 0.07828936569754796,
+        "14": 0.1270464296499274,
+        "15": 0.15728741656212034
+      }
+    },
+    "training_population_max_measured_affinity": 9.793632742041872,
+    "schedule_sha256": "2cacfc95fa913dd16b8a5ca1390b0380bac3467e0182b0d6d5113902317714f8",
+    "schedule_prefix_matches_prior_arm": true,
+    "expected_step_256_decoder_state_sha256": "1619d9fe8ba40ba7bcd525922d0563fc7c16445a05fa3658d650d793e1140477",
+    "allowed_development_count": 8704,
+    "withheld_development_count": 3046,
+    "original_sft_exposure_draws": 1024,
+    "original_sft_exposure_unique": 971,
+    "original_sft_exposure_rng_state_verified": true,
+    "genotype_sequence_round_trip_verified": true,
+    "sft_support_mass_before_normalization": 0.9999999397473445,
+    "sft_repeat_scoring_max_error": 0.0,
+    "sft_pool_vs_pinned_shortlist_max_error": 0.0,
+    "reserved_test_labels_evaluated": false,
+    "withheld_development_evaluated": false,
+    "checkpoint_promoted": false,
+    "development_is_reused": true,
+    "checkpoints": {
+      "0": {
+        "step": 0,
+        "exhaustive_support_scored": true,
+        "sample_source": "outputs/cr9114_regularization_20260917/sft/samples.csv",
+        "sample_rescore_max_error": 6.67572021484375e-06,
+        "diversity": {
+          "sample_count": 1024,
+          "unique_genotypes": 1004,
+          "duplicate_fraction": 0.01953125,
+          "largest_observed_genotype_fraction": 0.001953125,
+          "entropy_nats_mc": 10.279182200320065,
+          "entropy_mc_standard_error": 0.02768187565369235,
+          "entropy_effective_support_mc": 29120.04944607695,
+          "collision_probability_unbiased": 3.8184261974584555e-05,
+          "mean_pairwise_hamming_unbiased": 7.314623044965787,
+          "allele_one_frequencies": [
+            0.626953125,
+            0.537109375,
+            0.61328125,
+            0.5615234375,
+            0.515625,
+            0.623046875,
+            0.513671875,
+            0.4912109375,
+            0.7626953125,
+            0.962890625,
+            0.4462890625,
+            0.5517578125,
+            0.552734375,
+            0.4931640625,
+            0.4951171875,
+            0.5693359375
+          ],
+          "sites_with_minor_allele_below_1pct": 0
+        },
+        "kl_to_sft_mc": {
+          "nats": -3.632158041000366e-08,
+          "draws": 1024,
+          "standard_error": 5.604249228955387e-08
+        },
+        "portfolios": {
+          "ordinary": {
+            "16": {
+              "selected_genotypes": [
+                "1101110111111001",
+                "1101010111111111",
+                "1101111111101011",
+                "1101111111101101",
+                "1100110111111111",
+                "1001111011111111",
+                "1001110111111011",
+                "1101110011111100",
+                "1101110111111100",
+                "1001111111111101",
+                "1101111011111100",
+                "1101110111111010",
+                "1001111111101111",
+                "1100110011111001",
+                "1101011111101101",
+                "1001110111111001"
+              ],
+              "mean_affinity": 9.572041412074592,
+              "mean_minus_sem": 9.49962085634967,
+              "quality_threshold": 9.482658815267193,
+              "quality_qualified_count": 16,
+              "quality_qualified_diversity": {
+                "unique": 16,
+                "mean_hamming": 3.675,
+                "minimum_hamming": 1,
+                "hamming_le_one_pair_fraction": 0.041666666666666664,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 11,
+                "largest_component": 3
+              },
+              "block_counts": {
+                "7": 16
+              },
+              "diversity": {
+                "unique": 16,
+                "mean_hamming": 3.675,
+                "minimum_hamming": 1,
+                "hamming_le_one_pair_fraction": 0.041666666666666664,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 11,
+                "largest_component": 3
+              },
+              "shared_with_sft": 16,
+              "swapped_from_sft": 0,
+              "identical_to_sft": true,
+              "shared_with_previous_checkpoint": 16
+            },
+            "32": {
+              "selected_genotypes": [
+                "1101110111111001",
+                "1101010111111111",
+                "1101111111101011",
+                "1101111111101101",
+                "1100110111111111",
+                "1001111011111111",
+                "1001110111111011",
+                "1101110011111100",
+                "1101110111111100",
+                "1001111111111101",
+                "1101111011111100",
+                "1101110111111010",
+                "1001111111101111",
+                "1100110011111001",
+                "1101011111101101",
+                "1001110111111001",
+                "1001011011111111",
+                "1100111111111011",
+                "1101010011111000",
+                "1101011111111010",
+                "1111000011111011",
+                "1110100111111101",
+                "1101010111111000",
+                "1111000111111111",
+                "1101111011110011",
+                "1101110111110011",
+                "1101010011101101",
+                "1101010111101001",
+                "1001010011111111",
+                "1001010011111011",
+                "1001010111111101",
+                "1001010011111101"
+              ],
+              "mean_affinity": 9.55985445784082,
+              "mean_minus_sem": 9.4874339021159,
+              "quality_threshold": 9.482658815267193,
+              "quality_qualified_count": 31,
+              "quality_qualified_diversity": {
+                "unique": 31,
+                "mean_hamming": 4.197849462365592,
+                "minimum_hamming": 1,
+                "hamming_le_one_pair_fraction": 0.023655913978494623,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 20,
+                "largest_component": 6
+              },
+              "block_counts": {
+                "7": 29,
+                "11": 3
+              },
+              "diversity": {
+                "unique": 32,
+                "mean_hamming": 4.296370967741935,
+                "minimum_hamming": 1,
+                "hamming_le_one_pair_fraction": 0.02217741935483871,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 21,
+                "largest_component": 6
+              },
+              "shared_with_sft": 32,
+              "swapped_from_sft": 0,
+              "identical_to_sft": true,
+              "shared_with_previous_checkpoint": 32
+            }
+          },
+          "diverse": {
+            "16": {
+              "selected_genotypes": [
+                "1101110111111001",
+                "1101011011101110",
+                "1110101011111101",
+                "1111000011111011",
+                "1001111011110011",
+                "1001111111101111",
+                "1001010011111111",
+                "1100110011111100",
+                "1101011111110111",
+                "1010100111111011",
+                "1001011111111100",
+                "1100110111111111",
+                "1101011111101101",
+                "1101010011111000",
+                "1101011111111010",
+                "1101111011110101"
+              ],
+              "mean_affinity": 9.564898190174876,
+              "mean_minus_sem": 9.492477634449955,
+              "quality_threshold": 9.482658815267193,
+              "quality_qualified_count": 16,
+              "quality_qualified_diversity": {
+                "unique": 16,
+                "mean_hamming": 5.233333333333333,
+                "minimum_hamming": 3,
+                "hamming_le_one_pair_fraction": 0.0,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 16,
+                "largest_component": 1
+              },
+              "block_counts": {
+                "7": 13,
+                "11": 3
+              },
+              "diversity": {
+                "unique": 16,
+                "mean_hamming": 5.233333333333333,
+                "minimum_hamming": 3,
+                "hamming_le_one_pair_fraction": 0.0,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 16,
+                "largest_component": 1
+              },
+              "shared_with_sft": 16,
+              "swapped_from_sft": 0,
+              "identical_to_sft": true,
+              "shared_with_previous_checkpoint": 16
+            },
+            "32": {
+              "selected_genotypes": [
+                "1101110111111001",
+                "1111001011111110",
+                "1001011011101101",
+                "1110100111101111",
+                "1101111111101110",
+                "1001111011110011",
+                "1010100011111001",
+                "0101010011111111",
+                "1100110011111100",
+                "1101011111110111",
+                "1001011111111000",
+                "1101010011101010",
+                "1011001111111101",
+                "1111000011101001",
+                "1111100111111010",
+                "1101110011100111",
+                "1000110111101101",
+                "1100110111111111",
+                "1001111111111101",
+                "1111000111111111",
+                "1001010011111011",
+                "1101111011110101",
+                "1110101011111101",
+                "1110100011111110",
+                "1001010011111100",
+                "1100111111101001",
+                "1001010111101001",
+                "1100111111110011",
+                "0100110011111011",
+                "1101011011110010",
+                "1111001111111000",
+                "1101010111110000"
+              ],
+              "mean_affinity": 9.537314376773129,
+              "mean_minus_sem": 9.46390245488255,
+              "quality_threshold": 9.482658815267193,
+              "quality_qualified_count": 29,
+              "quality_qualified_diversity": {
+                "unique": 29,
+                "mean_hamming": 5.586206896551724,
+                "minimum_hamming": 3,
+                "hamming_le_one_pair_fraction": 0.0,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 29,
+                "largest_component": 1
+              },
+              "block_counts": {
+                "7": 22,
+                "11": 10
+              },
+              "diversity": {
+                "unique": 32,
+                "mean_hamming": 5.699596774193548,
+                "minimum_hamming": 3,
+                "hamming_le_one_pair_fraction": 0.0,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 32,
+                "largest_component": 1
+              },
+              "shared_with_sft": 32,
+              "swapped_from_sft": 0,
+              "identical_to_sft": true,
+              "shared_with_previous_checkpoint": 32
+            }
+          }
+        },
+        "pool_conditional_affinity": {
+          "measured_mass": 0.03305669264658695,
+          "conditional_mean_affinity": 9.487129906457339,
+          "assay_sem_proxy": 0.0025841606969113804,
+          "positive_mass": 0.02371989524872671,
+          "conditional_positive_fraction": 0.7175519796344705,
+          "distinct_measured_genotypes": 2048,
+          "conditional_effective_genotypes": 823.813704220972
+        },
+        "pool_conditional_delta_from_sft": {
+          "conditional_affinity_delta": 0.0,
+          "assay_sem_proxy_for_delta": 0.0
+        },
+        "sampled_affinity": {
+          "sample_count": 1024,
+          "unique_draw_count": 1004,
+          "split_counts": {
+            "train": 707,
+            "development": 164,
+            "test": 153
+          },
+          "training_exposure_overlap_draw_count": 43,
+          "training_exposure_overlap_unique_count": 42,
+          "unscored_draw_count": 197,
+          "by_split": {
+            "train": {
+              "measured_mass": 0.6875,
+              "conditional_mean_affinity": 9.471282396782694,
+              "assay_sem_proxy": 0.0028832538961224346,
+              "positive_mass": 0.416015625,
+              "conditional_positive_fraction": 0.6051136363636364,
+              "distinct_measured_genotypes": 688,
+              "conditional_effective_genotypes": 673.3913043478261,
+              "measured_draw_count": 704,
+              "sampling_sem_conditional_mean": 0.006614700644102586
+            },
+            "development": {
+              "measured_mass": 0.1201171875,
+              "conditional_mean_affinity": 9.487385163133904,
+              "assay_sem_proxy": 0.006943298291243948,
+              "positive_mass": 0.0869140625,
+              "conditional_positive_fraction": 0.7235772357723579,
+              "distinct_measured_genotypes": 120,
+              "conditional_effective_genotypes": 117.2790697674418,
+              "measured_draw_count": 123,
+              "sampling_sem_conditional_mean": 0.013444032784781295
+            }
+          }
+        },
+        "sampled_draw_categories": {
+          "measured_train": 704,
+          "measured_development": 123,
+          "train_ineligible": 3,
+          "development_ineligible": 0,
+          "eligible_development_withheld": 41,
+          "test": 153,
+          "total": 1024
+        },
+        "sampled_exposure_overlap": {
+          "sft": {
+            "draw_count": 43,
+            "unique_count": 42,
+            "exposure_unique_count": 971
+          },
+          "continuation": {
+            "draw_count": 0,
+            "unique_count": 0,
+            "exposure_unique_count": 0
+          },
+          "union": {
+            "draw_count": 43,
+            "unique_count": 42,
+            "exposure_unique_count": 971
+          }
+        },
+        "exhaustive": {
+          "normalization_mass_before_correction": 0.9999999397473445,
+          "reference_normalization_mass": 0.9999999397473445,
+          "entropy_nats": 10.288871211493394,
+          "entropy_effective_support": 29403.56520624947,
+          "collision_probability": 4.5632873859170016e-05,
+          "collision_effective_support": 21914.026346141425,
+          "maximum_genotype_probability": 0.00017408187589780893,
+          "kl_to_sft_nats": 0.0,
+          "kl_from_sft_nats": 0.0,
+          "total_variation_from_sft": 0.0,
+          "site_allele_one_marginals": [
+            0.632073611048567,
+            0.5472464146418523,
+            0.5662900610843751,
+            0.5660576790724343,
+            0.539010265040942,
+            0.6235869860604513,
+            0.4948444118621237,
+            0.4839165633198293,
+            0.7562655294403948,
+            0.9593187896830517,
+            0.4365341689612753,
+            0.561365743828423,
+            0.5803656425307429,
+            0.5033554118304564,
+            0.5022105265388854,
+            0.5448635348842464
+          ],
+          "split_defining_site_marginals": {
+            "2": 0.5662900610843751,
+            "5": 0.6235869860604513,
+            "8": 0.7562655294403948,
+            "10": 0.4365341689612753
+          },
+          "other_site_marginals": {
+            "0": 0.632073611048567,
+            "1": 0.5472464146418523,
+            "3": 0.5660576790724343,
+            "4": 0.539010265040942,
+            "6": 0.4948444118621237,
+            "7": 0.4839165633198293,
+            "9": 0.9593187896830517,
+            "11": 0.561365743828423,
+            "12": 0.5803656425307429,
+            "13": 0.5033554118304564,
+            "14": 0.5022105265388854,
+            "15": 0.5448635348842464
+          },
+          "block_mass": {
+            "0": 0.02526911131228522,
+            "1": 0.014898576574892165,
+            "2": 0.06637881906146927,
+            "3": 0.05770266739948349,
+            "4": 0.04128676897291195,
+            "5": 0.02406198246141214,
+            "6": 0.10965403787523788,
+            "7": 0.0944579752579344,
+            "8": 0.03310642212993734,
+            "9": 0.01894927496975032,
+            "10": 0.08682049160894414,
+            "11": 0.0732876508827883,
+            "12": 0.05502291569655417,
+            "13": 0.03113941844186345,
+            "14": 0.14592726438138626,
+            "15": 0.12203662297315111
+          },
+          "split_mass": {
+            "development": 0.19180760860213486,
+            "test": 0.13062465963327005,
+            "train": 0.6775677317645967
+          },
+          "category_mass": {
+            "measured_train": 0.6761754031340084,
+            "measured_development": 0.14202037619410893,
+            "train_ineligible": 0.0013923286305925478,
+            "development_ineligible": 0.0002942245269621006,
+            "eligible_development_withheld": 0.04949300788106357,
+            "test": 0.1306246596332699,
+            "total": 1.0000000000000018
+          },
+          "seen_labelled_mass": {
+            "sft": 0.04160253644787009,
+            "continuation": 0.0,
+            "union": 0.04160253644787009
+          },
+          "conditional_affinity": {
+            "train": {
+              "measured_mass": 0.6761754031340041,
+              "conditional_mean_affinity": 9.462811317154863,
+              "assay_sem_proxy": 0.0006410186156210716,
+              "positive_mass": 0.41521489191891325,
+              "conditional_positive_fraction": 0.6140638804582869,
+              "distinct_measured_genotypes": 38790,
+              "conditional_effective_genotypes": 13258.166793967524
+            },
+            "development": {
+              "measured_mass": 0.14202037619410918,
+              "conditional_mean_affinity": 9.488510069256375,
+              "assay_sem_proxy": 0.0012484132549052155,
+              "positive_mass": 0.10304102580298952,
+              "conditional_positive_fraction": 0.7255369163517503,
+              "distinct_measured_genotypes": 8704,
+              "conditional_effective_genotypes": 3520.1701698825186
+            },
+            "development_block_5": {
+              "measured_mass": 0.017959383111839262,
+              "conditional_mean_affinity": 9.374410175044417,
+              "assay_sem_proxy": 0.0021201488257443827,
+              "positive_mass": 0.008491648117209795,
+              "conditional_positive_fraction": 0.47282515576004913,
+              "distinct_measured_genotypes": 2678,
+              "conditional_effective_genotypes": 1299.68847032246
+            },
+            "development_block_7": {
+              "measured_mass": 0.0693903235631268,
+              "conditional_mean_affinity": 9.518294916453828,
+              "assay_sem_proxy": 0.0019562082783017927,
+              "positive_mass": 0.060858835244589876,
+              "conditional_positive_fraction": 0.8770507488587291,
+              "distinct_measured_genotypes": 3007,
+              "conditional_effective_genotypes": 1420.4695082590893
+            },
+            "development_block_11": {
+              "measured_mass": 0.054670669519143095,
+              "conditional_mean_affinity": 9.488187840330125,
+              "assay_sem_proxy": 0.0019666076070690695,
+              "positive_mass": 0.03369054244118984,
+              "conditional_positive_fraction": 0.6162452872356539,
+              "distinct_measured_genotypes": 3019,
+              "conditional_effective_genotypes": 1428.8065374829525
+            }
+          },
+          "conditional_affinity_delta_from_sft": {
+            "train": {
+              "conditional_affinity_delta": 0.0,
+              "assay_sem_proxy_for_delta": 0.0
+            },
+            "development": {
+              "conditional_affinity_delta": 0.0,
+              "assay_sem_proxy_for_delta": 0.0
+            },
+            "development_block_5": {
+              "conditional_affinity_delta": 0.0,
+              "assay_sem_proxy_for_delta": 0.0
+            },
+            "development_block_7": {
+              "conditional_affinity_delta": 0.0,
+              "assay_sem_proxy_for_delta": 0.0
+            },
+            "development_block_11": {
+              "conditional_affinity_delta": 0.0,
+              "assay_sem_proxy_for_delta": 0.0
+            }
+          },
+          "measured_threshold_exceedance_mass": 0.5182559177219028
+        },
+        "exposure_counts": {
+          "sft_unique": 971,
+          "continuation_unique": 0,
+          "union_unique": 971
+        }
+      },
+      "256": {
+        "step": 256,
+        "exhaustive_support_scored": false,
+        "sample_source": "outputs/cr9114_regularization_20260917/seed_20260925_affinity/samples.csv",
+        "sample_rescore_max_error": 6.67572021484375e-06,
+        "diversity": {
+          "sample_count": 1024,
+          "unique_genotypes": 998,
+          "duplicate_fraction": 0.025390625,
+          "largest_observed_genotype_fraction": 0.0029296875,
+          "entropy_nats_mc": 10.243644014000893,
+          "entropy_mc_standard_error": 0.03179433182711278,
+          "entropy_effective_support_mc": 28103.348558382393,
+          "collision_probability_unbiased": 5.154875366568915e-05,
+          "mean_pairwise_hamming_unbiased": 7.265330981182796,
+          "allele_one_frequencies": [
+            0.6787109375,
+            0.5380859375,
+            0.515625,
+            0.5703125,
+            0.5908203125,
+            0.626953125,
+            0.5634765625,
+            0.52734375,
+            0.8095703125,
+            0.939453125,
+            0.4521484375,
+            0.4482421875,
+            0.5458984375,
+            0.5283203125,
+            0.48046875,
+            0.5771484375
+          ],
+          "sites_with_minor_allele_below_1pct": 0
+        },
+        "kl_to_sft_mc": {
+          "nats": 0.07028490491211414,
+          "draws": 1024,
+          "standard_error": 0.013195845920510981
+        },
+        "portfolios": {
+          "ordinary": {
+            "16": {
+              "selected_genotypes": [
+                "1101111111101101",
+                "1001111111101111",
+                "1101111111101011",
+                "1001111111101100",
+                "1101111111101110",
+                "1001111111111101",
+                "1101111011101100",
+                "1101111111101010",
+                "1100111111101101",
+                "1001111011111111",
+                "1100111111101111",
+                "1101111011111100",
+                "1101011111101101",
+                "1101111011100011",
+                "1100111111101001",
+                "1101110011101100"
+              ],
+              "mean_affinity": 9.584705134022872,
+              "mean_minus_sem": 9.512284578297951,
+              "quality_threshold": 9.482658815267193,
+              "quality_qualified_count": 16,
+              "quality_qualified_diversity": {
+                "unique": 16,
+                "mean_hamming": 3.308333333333333,
+                "minimum_hamming": 1,
+                "hamming_le_one_pair_fraction": 0.06666666666666667,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 8,
+                "largest_component": 5
+              },
+              "block_counts": {
+                "7": 16
+              },
+              "diversity": {
+                "unique": 16,
+                "mean_hamming": 3.308333333333333,
+                "minimum_hamming": 1,
+                "hamming_le_one_pair_fraction": 0.06666666666666667,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 8,
+                "largest_component": 5
+              },
+              "shared_with_sft": 7,
+              "swapped_from_sft": 9,
+              "identical_to_sft": false,
+              "shared_with_previous_checkpoint": 7
+            },
+            "32": {
+              "selected_genotypes": [
+                "1101111111101101",
+                "1001111111101111",
+                "1101111111101011",
+                "1001111111101100",
+                "1101111111101110",
+                "1001111111111101",
+                "1101111011101100",
+                "1101111111101010",
+                "1100111111101101",
+                "1001111011111111",
+                "1100111111101111",
+                "1101111011111100",
+                "1101011111101101",
+                "1101111011100011",
+                "1100111111101001",
+                "1101110011101100",
+                "1101111011110101",
+                "1101110111111001",
+                "1001111111110001",
+                "1000111111101001",
+                "1101111011100110",
+                "1101110111111100",
+                "1101111111110100",
+                "1001110011101100",
+                "1001011111101001",
+                "1101110011101110",
+                "1001110111111001",
+                "1001011011101101",
+                "1001110111111011",
+                "1101111111110110",
+                "1101110011100111",
+                "1001111011111000"
+              ],
+              "mean_affinity": 9.577684088663517,
+              "mean_minus_sem": 9.5052635329386,
+              "quality_threshold": 9.482658815267193,
+              "quality_qualified_count": 32,
+              "quality_qualified_diversity": {
+                "unique": 32,
+                "mean_hamming": 4.040322580645161,
+                "minimum_hamming": 1,
+                "hamming_le_one_pair_fraction": 0.028225806451612902,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 18,
+                "largest_component": 6
+              },
+              "block_counts": {
+                "7": 32
+              },
+              "diversity": {
+                "unique": 32,
+                "mean_hamming": 4.040322580645161,
+                "minimum_hamming": 1,
+                "hamming_le_one_pair_fraction": 0.028225806451612902,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 18,
+                "largest_component": 6
+              },
+              "shared_with_sft": 11,
+              "swapped_from_sft": 21,
+              "identical_to_sft": false,
+              "shared_with_previous_checkpoint": 11
+            }
+          },
+          "diverse": {
+            "16": {
+              "selected_genotypes": [
+                "1101111111101101",
+                "1001111011110011",
+                "1101110111111010",
+                "1101111011100110",
+                "1001110011101100",
+                "1000110111101111",
+                "1000111011101001",
+                "1001011111101000",
+                "1101110011110101",
+                "1001011011100101",
+                "1101111011111100",
+                "1001110111111001",
+                "1001110011100111",
+                "1100111111101110",
+                "1111101111101111",
+                "1001111111110000"
+              ],
+              "mean_affinity": 9.585826384872485,
+              "mean_minus_sem": 9.512428935971446,
+              "quality_threshold": 9.482658815267193,
+              "quality_qualified_count": 16,
+              "quality_qualified_diversity": {
+                "unique": 16,
+                "mean_hamming": 4.916666666666667,
+                "minimum_hamming": 3,
+                "hamming_le_one_pair_fraction": 0.0,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 16,
+                "largest_component": 1
+              },
+              "block_counts": {
+                "7": 15,
+                "11": 1
+              },
+              "diversity": {
+                "unique": 16,
+                "mean_hamming": 4.916666666666667,
+                "minimum_hamming": 3,
+                "hamming_le_one_pair_fraction": 0.0,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 16,
+                "largest_component": 1
+              },
+              "shared_with_sft": 1,
+              "swapped_from_sft": 15,
+              "identical_to_sft": false,
+              "shared_with_previous_checkpoint": 1
+            },
+            "32": {
+              "selected_genotypes": [
+                "1101111111101101",
+                "1001110011100010",
+                "1010101111101011",
+                "1001011011111111",
+                "1100111111110011",
+                "1110101011111101",
+                "1001110111111001",
+                "1101110011111100",
+                "1000110111101111",
+                "1000111011101001",
+                "1001011111101000",
+                "1100111011101110",
+                "1101011011100100",
+                "0001111111101110",
+                "1101010111100001",
+                "0001111111100001",
+                "1101111111101010",
+                "1101111011100011",
+                "1101111011110101",
+                "1101111111110110",
+                "1001111011111000",
+                "1111101111101111",
+                "1101010011101101",
+                "1100111111100100",
+                "1101010111111111",
+                "0101111111100111",
+                "1111101011101001",
+                "1100110011111001",
+                "0101111111111100",
+                "1000110011101100",
+                "1010100111101101",
+                "1100110111110101"
+              ],
+              "mean_affinity": 9.555555716368403,
+              "mean_minus_sem": 9.483009278013569,
+              "quality_threshold": 9.482658815267193,
+              "quality_qualified_count": 30,
+              "quality_qualified_diversity": {
+                "unique": 30,
+                "mean_hamming": 5.4206896551724135,
+                "minimum_hamming": 3,
+                "hamming_le_one_pair_fraction": 0.0,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 30,
+                "largest_component": 1
+              },
+              "block_counts": {
+                "7": 27,
+                "11": 5
+              },
+              "diversity": {
+                "unique": 32,
+                "mean_hamming": 5.4375,
+                "minimum_hamming": 3,
+                "hamming_le_one_pair_fraction": 0.0,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 32,
+                "largest_component": 1
+              },
+              "shared_with_sft": 3,
+              "swapped_from_sft": 29,
+              "identical_to_sft": false,
+              "shared_with_previous_checkpoint": 3
+            }
+          }
+        },
+        "pool_conditional_affinity": {
+          "measured_mass": 0.03620595071388533,
+          "conditional_mean_affinity": 9.488511899051145,
+          "assay_sem_proxy": 0.0028794616762634418,
+          "positive_mass": 0.0276043149894514,
+          "conditional_positive_fraction": 0.7624248071150602,
+          "distinct_measured_genotypes": 2048,
+          "conditional_effective_genotypes": 651.8740540014019
+        },
+        "pool_conditional_delta_from_sft": {
+          "conditional_affinity_delta": 0.0013819925938079458,
+          "assay_sem_proxy_for_delta": 0.001085091472454032
+        },
+        "sampled_affinity": {
+          "sample_count": 1024,
+          "unique_draw_count": 998,
+          "split_counts": {
+            "train": 690,
+            "development": 190,
+            "test": 144
+          },
+          "training_exposure_overlap_draw_count": 88,
+          "training_exposure_overlap_unique_count": 85,
+          "unscored_draw_count": 197,
+          "by_split": {
+            "train": {
+              "measured_mass": 0.6689453125,
+              "conditional_mean_affinity": 9.47142191979626,
+              "assay_sem_proxy": 0.0030437027467465198,
+              "positive_mass": 0.4365234375,
+              "conditional_positive_fraction": 0.6525547445255475,
+              "distinct_measured_genotypes": 664,
+              "conditional_effective_genotypes": 643.6556927297669,
+              "measured_draw_count": 685,
+              "sampling_sem_conditional_mean": 0.007902297581577506
+            },
+            "development": {
+              "measured_mass": 0.138671875,
+              "conditional_mean_affinity": 9.502614708339523,
+              "assay_sem_proxy": 0.006465062722025837,
+              "positive_mass": 0.111328125,
+              "conditional_positive_fraction": 0.8028169014084507,
+              "distinct_measured_genotypes": 140,
+              "conditional_effective_genotypes": 138.10958904109586,
+              "measured_draw_count": 142,
+              "sampling_sem_conditional_mean": 0.011399491745698768
+            }
+          }
+        },
+        "sampled_draw_categories": {
+          "measured_train": 685,
+          "measured_development": 142,
+          "train_ineligible": 5,
+          "development_ineligible": 0,
+          "eligible_development_withheld": 48,
+          "test": 144,
+          "total": 1024
+        },
+        "sampled_exposure_overlap": {
+          "sft": {
+            "draw_count": 47,
+            "unique_count": 46,
+            "exposure_unique_count": 971
+          },
+          "continuation": {
+            "draw_count": 47,
+            "unique_count": 45,
+            "exposure_unique_count": 966
+          },
+          "union": {
+            "draw_count": 88,
+            "unique_count": 85,
+            "exposure_unique_count": 1826
+          }
+        },
+        "decoder_state_sha256": "1619d9fe8ba40ba7bcd525922d0563fc7c16445a05fa3658d650d793e1140477",
+        "checkpoint_sha256": "83d4e9345692117533ca6d4f01b4b9dfdc75a2e27226a70a9acfbf40452860a8",
+        "strict_reload_verified": true,
+        "encoder_unchanged": true,
+        "optimizer_carried_forward": true,
+        "training_seconds": 37.11428409986547,
+        "wall_clock_seconds": 72.78258909998112,
+        "evaluation_and_io_seconds": 35.66830500011565,
+        "peak_cuda_allocated_mib": 1418.07373046875,
+        "exposure_counts": {
+          "sft_unique": 971,
+          "continuation_unique": 966,
+          "union_unique": 1826,
+          "continuation_draws": 1024,
+          "sft_continuation_shared_unique": 111
+        }
+      },
+      "2048": {
+        "step": 2048,
+        "exhaustive_support_scored": false,
+        "sample_source": "generated",
+        "sample_rescore_max_error": 5.7220458984375e-06,
+        "diversity": {
+          "sample_count": 1024,
+          "unique_genotypes": 990,
+          "duplicate_fraction": 0.033203125,
+          "largest_observed_genotype_fraction": 0.0029296875,
+          "entropy_nats_mc": 10.069873053580523,
+          "entropy_mc_standard_error": 0.02944586647491619,
+          "entropy_effective_support_mc": 23620.5660324271,
+          "collision_probability_unbiased": 6.682245845552297e-05,
+          "mean_pairwise_hamming_unbiased": 7.299807551319648,
+          "allele_one_frequencies": [
+            0.578125,
+            0.5419921875,
+            0.501953125,
+            0.580078125,
+            0.615234375,
+            0.6708984375,
+            0.4873046875,
+            0.5595703125,
+            0.703125,
+            0.984375,
+            0.3828125,
+            0.5322265625,
+            0.525390625,
+            0.5322265625,
+            0.4775390625,
+            0.4814453125
+          ],
+          "sites_with_minor_allele_below_1pct": 0
+        },
+        "kl_to_sft_mc": {
+          "nats": 0.20326574239879847,
+          "draws": 1024,
+          "standard_error": 0.0215378782733713
+        },
+        "portfolios": {
+          "ordinary": {
+            "16": {
+              "selected_genotypes": [
+                "1101110111111100",
+                "0100111111111100",
+                "0100111111111110",
+                "1101111111110100",
+                "0100110111101111",
+                "1101111011111100",
+                "0100111111111000",
+                "0100110011111110",
+                "0100111111111010",
+                "0100110111110111",
+                "1101110011111100",
+                "1001111111101100",
+                "0000110111111110",
+                "0000110111111101",
+                "0100110111101001",
+                "1101111111110110"
+              ],
+              "mean_affinity": 9.57738754889851,
+              "mean_minus_sem": 9.50377126185847,
+              "quality_threshold": 9.482658815267193,
+              "quality_qualified_count": 16,
+              "quality_qualified_diversity": {
+                "unique": 16,
+                "mean_hamming": 4.083333333333333,
+                "minimum_hamming": 1,
+                "hamming_le_one_pair_fraction": 0.058333333333333334,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 10,
+                "largest_component": 4
+              },
+              "block_counts": {
+                "7": 16
+              },
+              "diversity": {
+                "unique": 16,
+                "mean_hamming": 4.083333333333333,
+                "minimum_hamming": 1,
+                "hamming_le_one_pair_fraction": 0.058333333333333334,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 10,
+                "largest_component": 4
+              },
+              "shared_with_sft": 3,
+              "swapped_from_sft": 13,
+              "identical_to_sft": false,
+              "shared_with_previous_checkpoint": 2
+            },
+            "32": {
+              "selected_genotypes": [
+                "1101110111111100",
+                "0100111111111100",
+                "0100111111111110",
+                "1101111111110100",
+                "0100110111101111",
+                "1101111011111100",
+                "0100111111111000",
+                "0100110011111110",
+                "0100111111111010",
+                "0100110111110111",
+                "1101110011111100",
+                "1001111111101100",
+                "0000110111111110",
+                "0000110111111101",
+                "0100110111101001",
+                "1101111111110110",
+                "0100110111101011",
+                "1101111111101110",
+                "0000111111111100",
+                "1001111111111101",
+                "1101110111111010",
+                "1001110011111100",
+                "1001111111110000",
+                "0100110011111011",
+                "1101111011101100",
+                "1101111111101101",
+                "0000110111110100",
+                "1101110111111001",
+                "0100110111100000",
+                "1101111111101010",
+                "0100110111100010",
+                "0100111111100111"
+              ],
+              "mean_affinity": 9.57361604660212,
+              "mean_minus_sem": 9.499016793670158,
+              "quality_threshold": 9.482658815267193,
+              "quality_qualified_count": 32,
+              "quality_qualified_diversity": {
+                "unique": 32,
+                "mean_hamming": 4.516129032258065,
+                "minimum_hamming": 1,
+                "hamming_le_one_pair_fraction": 0.028225806451612902,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 19,
+                "largest_component": 5
+              },
+              "block_counts": {
+                "7": 32
+              },
+              "diversity": {
+                "unique": 32,
+                "mean_hamming": 4.516129032258065,
+                "minimum_hamming": 1,
+                "hamming_le_one_pair_fraction": 0.028225806451612902,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 19,
+                "largest_component": 5
+              },
+              "shared_with_sft": 7,
+              "swapped_from_sft": 25,
+              "identical_to_sft": false,
+              "shared_with_previous_checkpoint": 11
+            }
+          },
+          "diverse": {
+            "16": {
+              "selected_genotypes": [
+                "1101110111111100",
+                "0100111111100111",
+                "0100110011111011",
+                "1001111111110010",
+                "0000111111101000",
+                "0000110111111110",
+                "1110100111111101",
+                "1001111111101111",
+                "0101111101111110",
+                "0000110111110001",
+                "0100111011110000",
+                "0000110011101101",
+                "1101111011110101",
+                "0100111111111100",
+                "0100110111101001",
+                "1101111011101100"
+              ],
+              "mean_affinity": 9.564538176538075,
+              "mean_minus_sem": 9.485749798728115,
+              "quality_threshold": 9.482658815267193,
+              "quality_qualified_count": 15,
+              "quality_qualified_diversity": {
+                "unique": 15,
+                "mean_hamming": 5.180952380952381,
+                "minimum_hamming": 3,
+                "hamming_le_one_pair_fraction": 0.0,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 15,
+                "largest_component": 1
+              },
+              "block_counts": {
+                "5": 1,
+                "7": 14,
+                "11": 1
+              },
+              "diversity": {
+                "unique": 16,
+                "mean_hamming": 5.35,
+                "minimum_hamming": 3,
+                "hamming_le_one_pair_fraction": 0.0,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 16,
+                "largest_component": 1
+              },
+              "shared_with_sft": 2,
+              "swapped_from_sft": 14,
+              "identical_to_sft": false,
+              "shared_with_previous_checkpoint": 0
+            },
+            "32": {
+              "selected_genotypes": [
+                "1101110111111100",
+                "0000110111100011",
+                "1010101111111001",
+                "0100111011110000",
+                "1001111111110010",
+                "0000111011111111",
+                "1110100111101111",
+                "0000110111110100",
+                "0100110011101010",
+                "0000111111101000",
+                "1001111111101111",
+                "0101111101111110",
+                "1101111011110101",
+                "1100111111111011",
+                "0100111111111100",
+                "0100110111101111",
+                "1101111011101100",
+                "0100110111100000",
+                "1101111111101010",
+                "1001111011111000",
+                "0100110011110111",
+                "1001011111111100",
+                "1001110111111001",
+                "0000110011101101",
+                "1001110111100000",
+                "1001110011110110",
+                "0101110101111000",
+                "1101110111110011",
+                "1100110111110101",
+                "1100111111101101",
+                "1101111101110100",
+                "1101010111110110"
+              ],
+              "mean_affinity": 9.577997544072064,
+              "mean_minus_sem": 9.501043202346604,
+              "quality_threshold": 9.482658815267193,
+              "quality_qualified_count": 32,
+              "quality_qualified_diversity": {
+                "unique": 32,
+                "mean_hamming": 5.48991935483871,
+                "minimum_hamming": 3,
+                "hamming_le_one_pair_fraction": 0.0,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 32,
+                "largest_component": 1
+              },
+              "block_counts": {
+                "5": 3,
+                "7": 27,
+                "11": 2
+              },
+              "diversity": {
+                "unique": 32,
+                "mean_hamming": 5.48991935483871,
+                "minimum_hamming": 3,
+                "hamming_le_one_pair_fraction": 0.0,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 32,
+                "largest_component": 1
+              },
+              "shared_with_sft": 2,
+              "swapped_from_sft": 30,
+              "identical_to_sft": false,
+              "shared_with_previous_checkpoint": 5
+            }
+          }
+        },
+        "pool_conditional_affinity": {
+          "measured_mass": 0.030888135769708884,
+          "conditional_mean_affinity": 9.520401805062562,
+          "assay_sem_proxy": 0.0030200938801474447,
+          "positive_mass": 0.0253645961455005,
+          "conditional_positive_fraction": 0.8211760118710317,
+          "distinct_measured_genotypes": 2048,
+          "conditional_effective_genotypes": 621.140445065649
+        },
+        "pool_conditional_delta_from_sft": {
+          "conditional_affinity_delta": 0.033271898605223324,
+          "assay_sem_proxy_for_delta": 0.0015888669551466705
+        },
+        "sampled_affinity": {
+          "sample_count": 1024,
+          "unique_draw_count": 990,
+          "split_counts": {
+            "train": 707,
+            "development": 167,
+            "test": 150
+          },
+          "training_exposure_overlap_draw_count": 330,
+          "training_exposure_overlap_unique_count": 310,
+          "unscored_draw_count": 192,
+          "by_split": {
+            "train": {
+              "measured_mass": 0.6884765625,
+              "conditional_mean_affinity": 9.500818041736206,
+              "assay_sem_proxy": 0.0029472384180451662,
+              "positive_mass": 0.5,
+              "conditional_positive_fraction": 0.726241134751773,
+              "distinct_measured_genotypes": 677,
+              "conditional_effective_genotypes": 651.4089121887288,
+              "measured_draw_count": 705,
+              "sampling_sem_conditional_mean": 0.005217084125489237
+            },
+            "development": {
+              "measured_mass": 0.1240234375,
+              "conditional_mean_affinity": 9.533171879564174,
+              "assay_sem_proxy": 0.006805900858827049,
+              "positive_mass": 0.1025390625,
+              "conditional_positive_fraction": 0.826771653543307,
+              "distinct_measured_genotypes": 124,
+              "conditional_effective_genotypes": 121.2706766917294,
+              "measured_draw_count": 127,
+              "sampling_sem_conditional_mean": 0.005478054378557431
+            }
+          }
+        },
+        "sampled_draw_categories": {
+          "measured_train": 705,
+          "measured_development": 127,
+          "train_ineligible": 2,
+          "development_ineligible": 0,
+          "eligible_development_withheld": 40,
+          "test": 150,
+          "total": 1024
+        },
+        "sampled_exposure_overlap": {
+          "sft": {
+            "draw_count": 49,
+            "unique_count": 46,
+            "exposure_unique_count": 971
+          },
+          "continuation": {
+            "draw_count": 311,
+            "unique_count": 291,
+            "exposure_unique_count": 5451
+          },
+          "union": {
+            "draw_count": 330,
+            "unique_count": 310,
+            "exposure_unique_count": 5877
+          }
+        },
+        "decoder_state_sha256": "037ebd3eb8fc68d8e55ea1ed04566226895089c087bd8e0ea69c45c5009cf9f4",
+        "checkpoint_sha256": "2365ba11f04bcf46b5006e88e302748dbb31aa5cae39a0610081bb921f497652",
+        "strict_reload_verified": true,
+        "encoder_unchanged": true,
+        "optimizer_carried_forward": true,
+        "training_seconds": 295.4009150993661,
+        "wall_clock_seconds": 412.38680999999633,
+        "evaluation_and_io_seconds": 116.98589490063023,
+        "peak_cuda_allocated_mib": 1989.61328125,
+        "exposure_counts": {
+          "sft_unique": 971,
+          "continuation_unique": 5451,
+          "union_unique": 5877,
+          "continuation_draws": 8192,
+          "sft_continuation_shared_unique": 545
+        }
+      },
+      "8192": {
+        "step": 8192,
+        "exhaustive_support_scored": false,
+        "sample_source": "generated",
+        "sample_rescore_max_error": 7.62939453125e-06,
+        "diversity": {
+          "sample_count": 1024,
+          "unique_genotypes": 969,
+          "duplicate_fraction": 0.0537109375,
+          "largest_observed_genotype_fraction": 0.00390625,
+          "entropy_nats_mc": 9.560843395069242,
+          "entropy_mc_standard_error": 0.028073559740752155,
+          "entropy_effective_support_mc": 14197.815519058318,
+          "collision_probability_unbiased": 0.00011264357282502443,
+          "mean_pairwise_hamming_unbiased": 7.246067021016618,
+          "allele_one_frequencies": [
+            0.66015625,
+            0.56640625,
+            0.5234375,
+            0.6640625,
+            0.59765625,
+            0.7001953125,
+            0.517578125,
+            0.521484375,
+            0.71484375,
+            0.955078125,
+            0.3818359375,
+            0.51171875,
+            0.4609375,
+            0.5126953125,
+            0.4658203125,
+            0.451171875
+          ],
+          "sites_with_minor_allele_below_1pct": 0
+        },
+        "kl_to_sft_mc": {
+          "nats": 0.7321844911202788,
+          "draws": 1024,
+          "standard_error": 0.02730445302212867
+        },
+        "portfolios": {
+          "ordinary": {
+            "16": {
+              "selected_genotypes": [
+                "1101111111110100",
+                "1101111011111100",
+                "1101110111111100",
+                "1101111111110110",
+                "1101111011110000",
+                "1001111111110000",
+                "1101110011111100",
+                "1101111011110101",
+                "1101111011101100",
+                "1001111111111101",
+                "1001111111101100",
+                "1101111111101101",
+                "1101110011110101",
+                "1101111111101110",
+                "1101111011110010",
+                "1101110111111001"
+              ],
+              "mean_affinity": 9.577531904644397,
+              "mean_minus_sem": 9.505111348919476,
+              "quality_threshold": 9.482658815267193,
+              "quality_qualified_count": 16,
+              "quality_qualified_diversity": {
+                "unique": 16,
+                "mean_hamming": 3.3583333333333334,
+                "minimum_hamming": 1,
+                "hamming_le_one_pair_fraction": 0.05,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 10,
+                "largest_component": 4
+              },
+              "block_counts": {
+                "7": 16
+              },
+              "diversity": {
+                "unique": 16,
+                "mean_hamming": 3.3583333333333334,
+                "minimum_hamming": 1,
+                "hamming_le_one_pair_fraction": 0.05,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 10,
+                "largest_component": 4
+              },
+              "shared_with_sft": 6,
+              "swapped_from_sft": 10,
+              "identical_to_sft": false,
+              "shared_with_previous_checkpoint": 6
+            },
+            "32": {
+              "selected_genotypes": [
+                "1101111111110100",
+                "1101111011111100",
+                "1101110111111100",
+                "1101111111110110",
+                "1101111011110000",
+                "1001111111110000",
+                "1101110011111100",
+                "1101111011110101",
+                "1101111011101100",
+                "1001111111111101",
+                "1001111111101100",
+                "1101111111101101",
+                "1101110011110101",
+                "1101111111101110",
+                "1101111011110010",
+                "1101110111111001",
+                "1101111010110100",
+                "1001111111110010",
+                "1001111111110001",
+                "1001111011111000",
+                "1001110011111100",
+                "1101110011100100",
+                "1101110011101100",
+                "1101111011100110",
+                "1101110111111010",
+                "1101111111101010",
+                "1100110111110101",
+                "1100111111101101",
+                "1101110110111101",
+                "1101110110111000",
+                "1101111110100110",
+                "1101111011100010"
+              ],
+              "mean_affinity": 9.571880039541925,
+              "mean_minus_sem": 9.499459483817004,
+              "quality_threshold": 9.482658815267193,
+              "quality_qualified_count": 31,
+              "quality_qualified_diversity": {
+                "unique": 31,
+                "mean_hamming": 3.92258064516129,
+                "minimum_hamming": 1,
+                "hamming_le_one_pair_fraction": 0.034408602150537634,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 16,
+                "largest_component": 7
+              },
+              "block_counts": {
+                "7": 32
+              },
+              "diversity": {
+                "unique": 32,
+                "mean_hamming": 3.9536290322580645,
+                "minimum_hamming": 1,
+                "hamming_le_one_pair_fraction": 0.03225806451612903,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 17,
+                "largest_component": 7
+              },
+              "shared_with_sft": 7,
+              "swapped_from_sft": 25,
+              "identical_to_sft": false,
+              "shared_with_previous_checkpoint": 15
+            }
+          },
+          "diverse": {
+            "16": {
+              "selected_genotypes": [
+                "1101111111110100",
+                "1100110011111001",
+                "1001110011101100",
+                "0100110111100000",
+                "1101111111101011",
+                "1101110110111101",
+                "1101111010111110",
+                "1101010111111000",
+                "1001111111111101",
+                "1101110011110101",
+                "1101111011110010",
+                "1001111011111000",
+                "1100111111101101",
+                "1101111110100110",
+                "0100111111111100",
+                "1101110111110011"
+              ],
+              "mean_affinity": 9.576596680979915,
+              "mean_minus_sem": 9.504176125254993,
+              "quality_threshold": 9.482658815267193,
+              "quality_qualified_count": 16,
+              "quality_qualified_diversity": {
+                "unique": 16,
+                "mean_hamming": 4.9,
+                "minimum_hamming": 3,
+                "hamming_le_one_pair_fraction": 0.0,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 16,
+                "largest_component": 1
+              },
+              "block_counts": {
+                "7": 16
+              },
+              "diversity": {
+                "unique": 16,
+                "mean_hamming": 4.9,
+                "minimum_hamming": 3,
+                "hamming_le_one_pair_fraction": 0.0,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 16,
+                "largest_component": 1
+              },
+              "shared_with_sft": 0,
+              "swapped_from_sft": 16,
+              "identical_to_sft": false,
+              "shared_with_previous_checkpoint": 1
+            },
+            "32": {
+              "selected_genotypes": [
+                "1101111111110100",
+                "0100110111101011",
+                "1101110010101000",
+                "1001010011111101",
+                "1001111111101111",
+                "1100111011110011",
+                "1101110111111001",
+                "1001111011111000",
+                "1001110111100000",
+                "1101111010111110",
+                "1001110011110110",
+                "0100111111111000",
+                "1101010011110000",
+                "1001111110110010",
+                "1101011111111010",
+                "1101110110100110",
+                "0100110011111110",
+                "0000110111110100",
+                "1101110011111100",
+                "1001111111110001",
+                "1101111011100110",
+                "1100110111110101",
+                "1100111111101101",
+                "1001011111111100",
+                "1001111110101100",
+                "0100110111100000",
+                "1101010111110110",
+                "1101110110111111",
+                "1100110011101111",
+                "1101011011101000",
+                "1001111010100000",
+                "1101111011110000"
+              ],
+              "mean_affinity": 9.551505331926975,
+              "mean_minus_sem": 9.47842346967046,
+              "quality_threshold": 9.482658815267193,
+              "quality_qualified_count": 29,
+              "quality_qualified_diversity": {
+                "unique": 29,
+                "mean_hamming": 5.241379310344827,
+                "minimum_hamming": 2,
+                "hamming_le_one_pair_fraction": 0.0,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 29,
+                "largest_component": 1
+              },
+              "block_counts": {
+                "7": 32
+              },
+              "diversity": {
+                "unique": 32,
+                "mean_hamming": 5.300403225806452,
+                "minimum_hamming": 2,
+                "hamming_le_one_pair_fraction": 0.0,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 32,
+                "largest_component": 1
+              },
+              "shared_with_sft": 1,
+              "swapped_from_sft": 31,
+              "identical_to_sft": false,
+              "shared_with_previous_checkpoint": 10
+            }
+          }
+        },
+        "pool_conditional_affinity": {
+          "measured_mass": 0.00036797039160753477,
+          "conditional_mean_affinity": 9.517493403923682,
+          "assay_sem_proxy": 0.003475666620901197,
+          "positive_mass": 0.0002886389315971785,
+          "conditional_positive_fraction": 0.7844080343970484,
+          "distinct_measured_genotypes": 2048,
+          "conditional_effective_genotypes": 448.4476237871008
+        },
+        "pool_conditional_delta_from_sft": {
+          "conditional_affinity_delta": 0.030363497466343786,
+          "assay_sem_proxy_for_delta": 0.0025276706773668424
+        },
+        "sampled_affinity": {
+          "sample_count": 1024,
+          "unique_draw_count": 969,
+          "split_counts": {
+            "train": 1020,
+            "test": 3,
+            "development": 1
+          },
+          "training_exposure_overlap_draw_count": 767,
+          "training_exposure_overlap_unique_count": 716,
+          "unscored_draw_count": 4,
+          "by_split": {
+            "train": {
+              "measured_mass": 0.9951171875,
+              "conditional_mean_affinity": 9.51649284388677,
+              "assay_sem_proxy": 0.0024629598272659253,
+              "positive_mass": 0.7783203125,
+              "conditional_positive_fraction": 0.7821393523061824,
+              "distinct_measured_genotypes": 964,
+              "conditional_effective_genotypes": 913.2462620932279,
+              "measured_draw_count": 1019,
+              "sampling_sem_conditional_mean": 0.003177870808233907
+            },
+            "development": {
+              "measured_mass": 0.0009765625,
+              "conditional_mean_affinity": 9.594359934685688,
+              "assay_sem_proxy": 0.0724205557249211,
+              "positive_mass": 0.0009765625,
+              "conditional_positive_fraction": 1.0,
+              "distinct_measured_genotypes": 1,
+              "conditional_effective_genotypes": 1.0,
+              "measured_draw_count": 1,
+              "sampling_sem_conditional_mean": null
+            }
+          }
+        },
+        "sampled_draw_categories": {
+          "measured_train": 1019,
+          "measured_development": 1,
+          "train_ineligible": 1,
+          "development_ineligible": 0,
+          "eligible_development_withheld": 0,
+          "test": 3,
+          "total": 1024
+        },
+        "sampled_exposure_overlap": {
+          "sft": {
+            "draw_count": 69,
+            "unique_count": 64,
+            "exposure_unique_count": 971
+          },
+          "continuation": {
+            "draw_count": 765,
+            "unique_count": 714,
+            "exposure_unique_count": 9259
+          },
+          "union": {
+            "draw_count": 767,
+            "unique_count": 716,
+            "exposure_unique_count": 9310
+          }
+        },
+        "decoder_state_sha256": "499f907e7b031b654ab6fefee2d9e010cc780c9447d5221db1c4a9585a9c9518",
+        "checkpoint_sha256": "ec5c70d9e8ca3bc3e63ee843e7ba19ecbe847ee6edc7f585a98dd7ee5659affd",
+        "strict_reload_verified": true,
+        "encoder_unchanged": true,
+        "optimizer_carried_forward": true,
+        "training_seconds": 1182.451219399809,
+        "wall_clock_seconds": 1381.5437044999853,
+        "evaluation_and_io_seconds": 199.09248510017642,
+        "peak_cuda_allocated_mib": 1989.61328125,
+        "exposure_counts": {
+          "sft_unique": 971,
+          "continuation_unique": 9259,
+          "union_unique": 9310,
+          "continuation_draws": 32768,
+          "sft_continuation_shared_unique": 920
+        }
+      },
+      "16384": {
+        "step": 16384,
+        "exhaustive_support_scored": true,
+        "sample_source": "generated",
+        "sample_rescore_max_error": 6.67572021484375e-06,
+        "diversity": {
+          "sample_count": 1024,
+          "unique_genotypes": 979,
+          "duplicate_fraction": 0.0439453125,
+          "largest_observed_genotype_fraction": 0.0029296875,
+          "entropy_nats_mc": 9.482964078895748,
+          "entropy_mc_standard_error": 0.022554080750626773,
+          "entropy_effective_support_mc": 13134.059262643894,
+          "collision_probability_unbiased": 8.97330156402737e-05,
+          "mean_pairwise_hamming_unbiased": 7.213156005620723,
+          "allele_one_frequencies": [
+            0.6630859375,
+            0.5673828125,
+            0.5771484375,
+            0.634765625,
+            0.6171875,
+            0.6767578125,
+            0.53515625,
+            0.529296875,
+            0.7353515625,
+            0.97265625,
+            0.3935546875,
+            0.46875,
+            0.4521484375,
+            0.4736328125,
+            0.5205078125,
+            0.4892578125
+          ],
+          "sites_with_minor_allele_below_1pct": 0
+        },
+        "kl_to_sft_mc": {
+          "nats": 0.7500135581940413,
+          "draws": 1024,
+          "standard_error": 0.02459503508419809
+        },
+        "portfolios": {
+          "ordinary": {
+            "16": {
+              "selected_genotypes": [
+                "1101111110100110",
+                "1001111110100001",
+                "1101111110111111",
+                "1001111110101011",
+                "1101111010101111",
+                "1001111110101100",
+                "1001111110101110",
+                "1101111010101110",
+                "1001111110110010",
+                "1101111010110100",
+                "1001111010100011",
+                "1101111010111010",
+                "1001111010101001",
+                "1001111010100000",
+                "1101111010111110",
+                "1101110110111101"
+              ],
+              "mean_affinity": 9.498454259650194,
+              "mean_minus_sem": 9.426033703925272,
+              "quality_threshold": 9.482658815267193,
+              "quality_qualified_count": 10,
+              "quality_qualified_diversity": {
+                "unique": 10,
+                "mean_hamming": 3.488888888888889,
+                "minimum_hamming": 1,
+                "hamming_le_one_pair_fraction": 0.044444444444444446,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 8,
+                "largest_component": 3
+              },
+              "block_counts": {
+                "7": 16
+              },
+              "diversity": {
+                "unique": 16,
+                "mean_hamming": 3.7416666666666667,
+                "minimum_hamming": 1,
+                "hamming_le_one_pair_fraction": 0.03333333333333333,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 12,
+                "largest_component": 4
+              },
+              "shared_with_sft": 0,
+              "swapped_from_sft": 16,
+              "identical_to_sft": false,
+              "shared_with_previous_checkpoint": 0
+            },
+            "32": {
+              "selected_genotypes": [
+                "1101111110100110",
+                "1001111110100001",
+                "1101111110111111",
+                "1001111110101011",
+                "1101111010101111",
+                "1001111110101100",
+                "1001111110101110",
+                "1101111010101110",
+                "1001111110110010",
+                "1101111010110100",
+                "1001111010100011",
+                "1101111010111010",
+                "1001111010101001",
+                "1001111010100000",
+                "1101111010111110",
+                "1101110110111101",
+                "1101110110100100",
+                "1001111010110001",
+                "1101110110111000",
+                "1101110110111111",
+                "1001111010101110",
+                "1101110110100110",
+                "1101110110101110",
+                "1001111010111011",
+                "1101111111101101",
+                "1101110010100001",
+                "1101111111101011",
+                "1101111111101010",
+                "1101111111110100",
+                "1101110010101000",
+                "1100111111110011",
+                "1001110110100110"
+              ],
+              "mean_affinity": 9.510253369069243,
+              "mean_minus_sem": 9.437522497857568,
+              "quality_threshold": 9.482658815267193,
+              "quality_qualified_count": 20,
+              "quality_qualified_diversity": {
+                "unique": 20,
+                "mean_hamming": 4.005263157894737,
+                "minimum_hamming": 1,
+                "hamming_le_one_pair_fraction": 0.042105263157894736,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 12,
+                "largest_component": 4
+              },
+              "block_counts": {
+                "7": 32
+              },
+              "diversity": {
+                "unique": 32,
+                "mean_hamming": 4.235887096774194,
+                "minimum_hamming": 1,
+                "hamming_le_one_pair_fraction": 0.02620967741935484,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 19,
+                "largest_component": 7
+              },
+              "shared_with_sft": 2,
+              "swapped_from_sft": 30,
+              "identical_to_sft": false,
+              "shared_with_previous_checkpoint": 7
+            }
+          },
+          "diverse": {
+            "16": {
+              "selected_genotypes": [
+                "1101111110100110",
+                "1101110111111001",
+                "1001111010101001",
+                "1100111011110011",
+                "1101111010111010",
+                "1001111111101111",
+                "1001111111110000",
+                "0100111111100111",
+                "1101111011101100",
+                "1001110010100010",
+                "0100111111111010",
+                "1101111110111111",
+                "1001111110101100",
+                "1101111010110100",
+                "1101110010100001",
+                "1101111111101010"
+              ],
+              "mean_affinity": 9.539686299439836,
+              "mean_minus_sem": 9.467265743714915,
+              "quality_threshold": 9.482658815267193,
+              "quality_qualified_count": 13,
+              "quality_qualified_diversity": {
+                "unique": 13,
+                "mean_hamming": 4.948717948717949,
+                "minimum_hamming": 3,
+                "hamming_le_one_pair_fraction": 0.0,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 13,
+                "largest_component": 1
+              },
+              "block_counts": {
+                "7": 16
+              },
+              "diversity": {
+                "unique": 16,
+                "mean_hamming": 5.025,
+                "minimum_hamming": 3,
+                "hamming_le_one_pair_fraction": 0.0,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 16,
+                "largest_component": 1
+              },
+              "shared_with_sft": 2,
+              "swapped_from_sft": 14,
+              "identical_to_sft": false,
+              "shared_with_previous_checkpoint": 1
+            },
+            "32": {
+              "selected_genotypes": [
+                "1101111110100110",
+                "1100110011111001",
+                "0000110111100011",
+                "1001111010101001",
+                "1001111111110000",
+                "0100111111111010",
+                "1001110010110111",
+                "1101011111101101",
+                "1101111010111010",
+                "1101110110111101",
+                "1101111011100011",
+                "1100111111110111",
+                "1001110111111011",
+                "1100111011101110",
+                "1100110111100000",
+                "1000110111101101",
+                "1101111010101111",
+                "1001111110101100",
+                "1101111010110100",
+                "1101110010100001",
+                "1101111111101010",
+                "1001111111101111",
+                "1100111111101001",
+                "1001110010100010",
+                "1001110010111100",
+                "0100110111101111",
+                "1101110011110101",
+                "0000111011100010",
+                "0101111111110110",
+                "0100111011110000",
+                "1101110011101100",
+                "0101111111100000"
+              ],
+              "mean_affinity": 9.533958090152082,
+              "mean_minus_sem": 9.460349714344893,
+              "quality_threshold": 9.482658815267193,
+              "quality_qualified_count": 26,
+              "quality_qualified_diversity": {
+                "unique": 26,
+                "mean_hamming": 5.28923076923077,
+                "minimum_hamming": 3,
+                "hamming_le_one_pair_fraction": 0.0,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 26,
+                "largest_component": 1
+              },
+              "block_counts": {
+                "7": 32
+              },
+              "diversity": {
+                "unique": 32,
+                "mean_hamming": 5.38508064516129,
+                "minimum_hamming": 3,
+                "hamming_le_one_pair_fraction": 0.0,
+                "identity_collision_pair_fraction": 0.0,
+                "hamming_le_one_components": 32,
+                "largest_component": 1
+              },
+              "shared_with_sft": 2,
+              "swapped_from_sft": 30,
+              "identical_to_sft": false,
+              "shared_with_previous_checkpoint": 2
+            }
+          }
+        },
+        "pool_conditional_affinity": {
+          "measured_mass": 6.920960902771707e-05,
+          "conditional_mean_affinity": 9.529644144817437,
+          "assay_sem_proxy": 0.003911006071069451,
+          "positive_mass": 5.695685562788494e-05,
+          "conditional_positive_fraction": 0.8229616729242735,
+          "distinct_measured_genotypes": 2048,
+          "conditional_effective_genotypes": 354.08469685689704
+        },
+        "pool_conditional_delta_from_sft": {
+          "conditional_affinity_delta": 0.042514238360098724,
+          "assay_sem_proxy_for_delta": 0.003138754413563438
+        },
+        "sampled_affinity": {
+          "sample_count": 1024,
+          "unique_draw_count": 979,
+          "split_counts": {
+            "train": 1024
+          },
+          "training_exposure_overlap_draw_count": 813,
+          "training_exposure_overlap_unique_count": 771,
+          "unscored_draw_count": 1,
+          "by_split": {
+            "train": {
+              "measured_mass": 0.9990234375,
+              "conditional_mean_affinity": 9.520538047056863,
+              "assay_sem_proxy": 0.00243334132425295,
+              "positive_mass": 0.794921875,
+              "conditional_positive_fraction": 0.7956989247311823,
+              "distinct_measured_genotypes": 978,
+              "conditional_effective_genotypes": 936.9104744852282,
+              "measured_draw_count": 1023,
+              "sampling_sem_conditional_mean": 0.0023555001339074385
+            },
+            "development": {
+              "measured_mass": 0.0,
+              "conditional_mean_affinity": null,
+              "assay_sem_proxy": null,
+              "positive_mass": 0.0,
+              "conditional_positive_fraction": null,
+              "distinct_measured_genotypes": 0,
+              "conditional_effective_genotypes": null,
+              "measured_draw_count": 0,
+              "sampling_sem_conditional_mean": null
+            }
+          }
+        },
+        "sampled_draw_categories": {
+          "measured_train": 1023,
+          "measured_development": 0,
+          "train_ineligible": 1,
+          "development_ineligible": 0,
+          "eligible_development_withheld": 0,
+          "test": 0,
+          "total": 1024
+        },
+        "sampled_exposure_overlap": {
+          "sft": {
+            "draw_count": 71,
+            "unique_count": 68,
+            "exposure_unique_count": 971
+          },
+          "continuation": {
+            "draw_count": 813,
+            "unique_count": 771,
+            "exposure_unique_count": 9672
+          },
+          "union": {
+            "draw_count": 813,
+            "unique_count": 771,
+            "exposure_unique_count": 9674
+          }
+        },
+        "exhaustive": {
+          "normalization_mass_before_correction": 0.9999999038107356,
+          "reference_normalization_mass": 0.9999999397473445,
+          "entropy_nats": 9.503671472823635,
+          "entropy_effective_support": 13408.866856585424,
+          "collision_probability": 9.037900811758792e-05,
+          "collision_effective_support": 11064.51620600822,
+          "maximum_genotype_probability": 0.00026320171189544116,
+          "kl_to_sft_nats": 0.7672281043687292,
+          "kl_from_sft_nats": 2.5301723338084363,
+          "total_variation_from_sft": 0.46783000675875375,
+          "site_allele_one_marginals": [
+            0.6755813427574413,
+            0.5755595645209173,
+            0.5298247222253326,
+            0.6383600931782849,
+            0.6338462708640851,
+            0.6547730927923935,
+            0.5166384673454161,
+            0.5279480149350172,
+            0.7281992204714125,
+            0.9632222327757325,
+            0.36856941254369857,
+            0.47100900695796794,
+            0.4885771645561159,
+            0.4872272952631165,
+            0.5319976645649864,
+            0.4569680932725899
+          ],
+          "split_defining_site_marginals": {
+            "2": 0.5298247222253326,
+            "5": 0.6547730927923935,
+            "8": 0.7281992204714125,
+            "10": 0.36856941254369857
+          },
+          "other_site_marginals": {
+            "0": 0.6755813427574413,
+            "1": 0.5755595645209173,
+            "3": 0.6383600931782849,
+            "4": 0.6338462708640851,
+            "6": 0.5166384673454161,
+            "7": 0.5279480149350172,
+            "9": 0.9632222327757325,
+            "11": 0.47100900695796794,
+            "12": 0.4885771645561159,
+            "13": 0.4872272952631165,
+            "14": 0.5319976645649864,
+            "15": 0.4569680932725899
+          },
+          "block_mass": {
+            "0": 0.025330221993650197,
+            "1": 0.03591012308938518,
+            "2": 4.678576443333032e-05,
+            "3": 0.14737202873782218,
+            "4": 0.08411209550604394,
+            "5": 2.2750824084994286e-05,
+            "6": 0.17700937495577196,
+            "7": 0.0003718969034762575,
+            "8": 4.476066911123504e-05,
+            "9": 0.03443096276045942,
+            "10": 0.10206547117805945,
+            "11": 2.6553014686230396e-05,
+            "12": 0.09172444677374078,
+            "13": 0.00022541791211237505,
+            "14": 0.15109743061549122,
+            "15": 0.15020967930167192
+          },
+          "split_mass": {
+            "development": 0.00042120074224748217,
+            "test": 0.00031696434565694044,
+            "train": 0.9992618349120963
+          },
+          "category_mass": {
+            "measured_train": 0.9987772542167255,
+            "measured_development": 0.00031259774643444183,
+            "train_ineligible": 0.00048458069536459595,
+            "development_ineligible": 7.644860201826712e-08,
+            "eligible_development_withheld": 0.00010852654721102229,
+            "test": 0.0003169643456569406,
+            "total": 1.0000000000000007
+          },
+          "seen_labelled_mass": {
+            "sft": 0.07776672084982257,
+            "continuation": 0.7863299897405942,
+            "union": 0.7864830677863663
+          },
+          "conditional_affinity": {
+            "train": {
+              "measured_mass": 0.9987772542167317,
+              "conditional_mean_affinity": 9.520987752654355,
+              "assay_sem_proxy": 0.0007044726758013099,
+              "positive_mass": 0.7878870203875081,
+              "conditional_positive_fraction": 0.7888515853371035,
+              "distinct_measured_genotypes": 38790,
+              "conditional_effective_genotypes": 11040.361253144236
+            },
+            "development": {
+              "measured_mass": 0.0003125977464344415,
+              "conditional_mean_affinity": 9.527577288901796,
+              "assay_sem_proxy": 0.001914399794928645,
+              "positive_mass": 0.0002516761848954475,
+              "conditional_positive_fraction": 0.8051119618299278,
+              "distinct_measured_genotypes": 8704,
+              "conditional_effective_genotypes": 1470.7728400385324
+            },
+            "development_block_5": {
+              "measured_mass": 1.7822113104059182e-05,
+              "conditional_mean_affinity": 9.51948777157348,
+              "assay_sem_proxy": 0.0027821191821414504,
+              "positive_mass": 1.4254141425658706e-05,
+              "conditional_positive_fraction": 0.7998008621330188,
+              "distinct_measured_genotypes": 2678,
+              "conditional_effective_genotypes": 706.4993707260523
+            },
+            "development_block_7": {
+              "measured_mass": 0.000275134057151443,
+              "conditional_mean_affinity": 9.529686242425848,
+              "assay_sem_proxy": 0.002160957979802257,
+              "positive_mass": 0.00022283393002992804,
+              "conditional_positive_fraction": 0.8099103845485505,
+              "distinct_measured_genotypes": 3007,
+              "conditional_effective_genotypes": 1154.2574192672207
+            },
+            "development_block_11": {
+              "measured_mass": 1.9641576178939284e-05,
+              "conditional_mean_affinity": 9.505375779070784,
+              "assay_sem_proxy": 0.002374389639477654,
+              "positive_mass": 1.4588113439860776e-05,
+              "conditional_positive_fraction": 0.7427160278258578,
+              "distinct_measured_genotypes": 3019,
+              "conditional_effective_genotypes": 946.3292791107779
+            }
+          },
+          "conditional_affinity_delta_from_sft": {
+            "train": {
+              "conditional_affinity_delta": 0.05817643549949202,
+              "assay_sem_proxy_for_delta": 0.0004192338483111904
+            },
+            "development": {
+              "conditional_affinity_delta": 0.03906721964542101,
+              "assay_sem_proxy_for_delta": 0.001600154361475406
+            },
+            "development_block_5": {
+              "conditional_affinity_delta": 0.14507759652906674,
+              "assay_sem_proxy_for_delta": 0.001901311686502609
+            },
+            "development_block_7": {
+              "conditional_affinity_delta": 0.011391325972019825,
+              "assay_sem_proxy_for_delta": 0.0016928740469895215
+            },
+            "development_block_11": {
+              "conditional_affinity_delta": 0.017187938740657566,
+              "assay_sem_proxy_for_delta": 0.0014448178372832713
+            }
+          },
+          "measured_threshold_exceedance_mass": 0.7881386965724035
+        },
+        "decoder_state_sha256": "efc877ef8f69752cbf17563d38d88039f31c1c08916718b994b4217885322252",
+        "checkpoint_sha256": "870f005a88d5567691fc2cdd0e8946e10da8d5c213fc6f6d6c382b40ad065f9e",
+        "strict_reload_verified": true,
+        "encoder_unchanged": true,
+        "optimizer_carried_forward": true,
+        "training_seconds": 2366.829507300514,
+        "wall_clock_seconds": 3352.218742099998,
+        "evaluation_and_io_seconds": 985.3892347994843,
+        "peak_cuda_allocated_mib": 1989.61328125,
+        "exposure_counts": {
+          "sft_unique": 971,
+          "continuation_unique": 9672,
+          "union_unique": 9674,
+          "continuation_draws": 65536,
+          "sft_continuation_shared_unique": 969
+        }
+      }
+    },
+    "runtime": {
+      "torch_version": "2.11.0+cu126",
+      "cuda_version": "12.6",
+      "gpu": "NVIDIA GeForce GTX 1650 SUPER",
+      "deterministic_algorithms": true
+    },
+    "training_seconds": 2366.829507300514,
+    "wall_clock_seconds": 3352.7345235999965,
+    "evaluation_and_io_seconds": 985.9050162994827,
+    "timing_note": "training_seconds is the optimizer loop only. wall_clock_seconds additionally covers intermediate sampling, rescoring, exhaustive endpoint scoring and checkpoint I/O; the prior arm reported a training-only number measured over a different budget, so neither field is a like-for-like throughput comparison against it.",
+    "peak_cuda_allocated_mib": 1989.61328125,
+    "output_sha256": {
+      "allowed_development.csv": "63064328bf7e3509353e5eae0e91830a34b3bc3dea70da74ec797627f99731b9",
+      "continuation_exposures.csv": "847622a338257ec78a48dcac648ae3c3391bd395ce21c9f63ca23797deec26de",
+      "development_records.csv": "b7d99ab1f62b78d0de614ffc6f8dd6e1f953ab923a88bd2c41ade23276c44d0c",
+      "history.json": "cac3ce7c0b8c2bafef7b2bed54c40c1e193649601c6ff31a56c65259165b2110",
+      "schedule.npy": "2cacfc95fa913dd16b8a5ca1390b0380bac3467e0182b0d6d5113902317714f8",
+      "sft/development_scores.csv": "60205f2024e01a4e1ec01661578f4626dc9e23e693400e1da3d2b12fb9501434",
+      "sft/exhaustive_log_q.npy": "f660cfee900796093fb15e7077abe3344a36fd5785699787a7ac0b8da82d5a65",
+      "sft/exhaustive_progress.json": "596b5a06ff6f23d37f75b0648a9a7789ff77b1312adb740cbcbe2c4c83aa2ceb",
+      "sft/pool_scoring_progress.json": "0f79d0af0dbbf5984284efb37c169571f817bcc6ff711950da96279bab71b1e3",
+      "sft/result.json": "321d0b449830dc6de9d976dd4e7cc44596dc453dc2dbecf15498ba0a47e8ed3f",
+      "sft/samples.csv": "243fdc606da6acb38a697bab94561512051b74d4f1a7a9f76fca82c75651b76f",
+      "sft/selections_before_evaluation.json": "7242b7f295104f8afc0a6c6c045923aca823854ce3a95392a015b472eddb1bed",
+      "sft_exposures.csv": "e76c5be47ad0226c38207ce55cb33c93e2ba5ceaab82dbd451c52b13d4354eae",
+      "step_00256/decoder_step_00256.pt": "83d4e9345692117533ca6d4f01b4b9dfdc75a2e27226a70a9acfbf40452860a8",
+      "step_00256/development_scores.csv": "88441994a1a11cbbc8fdaccbff6a1a5049ac2b9f1e41c66287b5323b654fd9c3",
+      "step_00256/pool_scoring_progress.json": "e09597ad57b69612abeee415ed35cb934a62c9f03845125070611034f0e659a6",
+      "step_00256/result.json": "d20350741b6199a1542478b9d47933e59d468502433ecc81d6f5bd49ac6afc91",
+      "step_00256/samples.csv": "935fdda583de85d618d27756cd84d814fb24ed9e906ab2b07aca19391a145795",
+      "step_00256/selections_before_evaluation.json": "54cad6220bb040125cd22c63617eb5c93534551c33cd31e8dbca99f4cbcec609",
+      "step_02048/decoder_step_02048.pt": "2365ba11f04bcf46b5006e88e302748dbb31aa5cae39a0610081bb921f497652",
+      "step_02048/development_scores.csv": "b1459489dc4820eb6245733d9588423eac2cfec5095c970db61b656b974a39de",
+      "step_02048/pool_scoring_progress.json": "9528d0c4a80400163b658220c3bc3ec14208be868ee081af011e1e2d883d513d",
+      "step_02048/result.json": "5dbf67dd5baf19329f435f614ddbf94c799c16d6f2bc0179cf6fbea37e945ce5",
+      "step_02048/samples.csv": "adbba310a0d291a7775a36e59bf9ec7ea3d34b03d29140fe3f0dc033452c1771",
+      "step_02048/selections_before_evaluation.json": "db2c304044688b068838bae0c7f4805781cbe13849a873be52c1b7bf48e9f3b5",
+      "step_08192/decoder_step_08192.pt": "ec5c70d9e8ca3bc3e63ee843e7ba19ecbe847ee6edc7f585a98dd7ee5659affd",
+      "step_08192/development_scores.csv": "eb9230a8f802c96bf760495695961b4c8908a019164a632bc653d8305927c4c5",
+      "step_08192/pool_scoring_progress.json": "ba97dfab59b77b3ecfcc08f12437a69e2b8f26e3a755f4e7ee049fe9136a0b0e",
+      "step_08192/result.json": "0a26ce2bec0831a187ff557744e3563e12b655498d89505c0b6a4ab0f6a09e90",
+      "step_08192/samples.csv": "397c10065c87dfeac01cf70a203fa2cb878374df7be50fd353c58c85e4832958",
+      "step_08192/selections_before_evaluation.json": "31389a2b302feddec58b0bf64bf6f168c358acaa4ec6e5db317a9cc96b642626",
+      "step_16384/decoder_step_16384.pt": "870f005a88d5567691fc2cdd0e8946e10da8d5c213fc6f6d6c382b40ad065f9e",
+      "step_16384/development_scores.csv": "ea7667a472fd1cfbc954acfb70ac5f67f1794cd983a9253db1496584d32e21ed",
+      "step_16384/exhaustive_log_q.npy": "9d58c8a371aec4b4789fcfb9b7c598b65048a1b5dcccb802d1b7fcf8458a97ac",
+      "step_16384/exhaustive_progress.json": "b616a7ebb787f86cc6d807528bee5685413095e1f3c104c6a028eab9301b6c01",
+      "step_16384/pool_scoring_progress.json": "fc9c617073e935620b7201738da48bd293fc4d4a868de885be94259948edaa4b",
+      "step_16384/result.json": "cb78bc6f973192d0ee924c9c730966f641daaeab0c4e55fd72cff6a715d5dba9",
+      "step_16384/samples.csv": "d31f2aa62dc003b5297f56c1a2a34f37a6f62ff0f251472266f8a04fd9c66343",
+      "step_16384/selections_before_evaluation.json": "42500913923956c0d13277945e6e8390df3a7c1af806c005f1d31e701333c345",
+      "training_population.csv": "5275a4b5ab9cf2816b4801f6d2482551a701ab6d4821492ccd5037909b285876"
+    }
+  },
+  "independent_audit": {
+    "passes": true,
+    "audited_directory": "outputs/cr9114_budget_pressure_20260917",
+    "output_artifacts_checked": 40,
+    "checkpoints_checked": 4,
+    "independent_formulas": true,
+    "schedule_and_population_recomputed": true,
+    "original_sft_exposures_recomputed": true,
+    "continuation_exposures_recomputed": true,
+    "whitelist_recomputed": true,
+    "development_pool_compared_to_pinned_cohort_and_source": true,
+    "endpoint_normalization_regated": true,
+    "timing_fields_internally_consistent": true,
+    "allowed_development_total": 8704,
+    "withheld_development_total": 3046,
+    "withheld_label_perturbation_changed_nothing": true,
+    "test_labelled_rows_rejected": true,
+    "step_256_reproduces_prior_arm_decoder_state": true,
+    "reserved_test_labels_evaluated": false,
+    "withheld_development_evaluated": false,
+    "checkpoint_promoted": false,
+    "checkpoints": {
+      "0": {
+        "exhaustive_recomputed": true
+      },
+      "256": {
+        "exhaustive_recomputed": false,
+        "reproduces_prior_arm_decoder_state": true
+      },
+      "2048": {
+        "exhaustive_recomputed": false
+      },
+      "8192": {
+        "exhaustive_recomputed": false
+      },
+      "16384": {
+        "exhaustive_recomputed": true
+      }
+    },
+    "recomputed": "Exact endpoint distributions, per-site and per-block mass, category mass, conditional and paired affinity, selections and portfolios, sampled diversity/KL/Hamming and their standard errors, split and exposure counts, the training population, both schedules, the SFT exposure replay and generator state, the development whitelist and every pinned artifact hash.",
+    "not_recomputed": "Recorded metadata is read back, not re-derived: torch/CUDA versions, the deterministic-algorithm flag, and the strict-reload, optimizer-carried-forward, encoder-unchanged and RNG-invariance assertions, which were checked live during the run. Timing fields are only checked for internal consistency. Training itself is not replayed.",
+    "scope": "Recomputation agreement is numerical evidence only. Conditional affinity remains conditional on measured identities, Monte Carlo KL and entropy remain estimates, and the endpoint normalization check bounds float accumulation at the endpoints only, not at the intermediate checkpoints."
+  },
+  "validation": {
+    "full_suite": {
+      "passed": 1826,
+      "skipped": 3,
+      "warnings": 13,
+      "seconds": 108.64,
+      "log_sha256": "673b23199df5314aaa4a3a7239b1e23827627977662953148526fce481975007"
+    }
+  },
+  "movement": {
+    "0": {
+      "kl_to_sft_mc": {
+        "nats": -3.632158041000366e-08,
+        "draws": 1024,
+        "standard_error": 5.604249228955387e-08
+      },
+      "entropy_nats_mc": 10.279182200320065,
+      "unique_draws": 1004,
+      "mean_pairwise_hamming_unbiased": 7.314623044965787,
+      "ordinary_top16_affinity": 9.572041412074592,
+      "ordinary_top32_affinity": 9.55985445784082,
+      "shared_with_sft_top16": 16,
+      "pool_conditional_affinity": {
+        "measured_mass": 0.03305669264658695,
+        "conditional_mean_affinity": 9.487129906457339,
+        "assay_sem_proxy": 0.0025841606969113804,
+        "positive_mass": 0.02371989524872671,
+        "conditional_positive_fraction": 0.7175519796344705,
+        "distinct_measured_genotypes": 2048,
+        "conditional_effective_genotypes": 823.813704220972
+      },
+      "pool_conditional_delta_from_sft": {
+        "conditional_affinity_delta": 0.0,
+        "assay_sem_proxy_for_delta": 0.0
+      },
+      "sampled_affinity": {
+        "sample_count": 1024,
+        "unique_draw_count": 1004,
+        "split_counts": {
+          "train": 707,
+          "development": 164,
+          "test": 153
+        },
+        "training_exposure_overlap_draw_count": 43,
+        "training_exposure_overlap_unique_count": 42,
+        "unscored_draw_count": 197,
+        "by_split": {
+          "train": {
+            "measured_mass": 0.6875,
+            "conditional_mean_affinity": 9.471282396782694,
+            "assay_sem_proxy": 0.0028832538961224346,
+            "positive_mass": 0.416015625,
+            "conditional_positive_fraction": 0.6051136363636364,
+            "distinct_measured_genotypes": 688,
+            "conditional_effective_genotypes": 673.3913043478261,
+            "measured_draw_count": 704,
+            "sampling_sem_conditional_mean": 0.006614700644102586
+          },
+          "development": {
+            "measured_mass": 0.1201171875,
+            "conditional_mean_affinity": 9.487385163133904,
+            "assay_sem_proxy": 0.006943298291243948,
+            "positive_mass": 0.0869140625,
+            "conditional_positive_fraction": 0.7235772357723579,
+            "distinct_measured_genotypes": 120,
+            "conditional_effective_genotypes": 117.2790697674418,
+            "measured_draw_count": 123,
+            "sampling_sem_conditional_mean": 0.013444032784781295
+          }
+        }
+      }
+    },
+    "256": {
+      "kl_to_sft_mc": {
+        "nats": 0.07028490491211414,
+        "draws": 1024,
+        "standard_error": 0.013195845920510981
+      },
+      "entropy_nats_mc": 10.243644014000893,
+      "unique_draws": 998,
+      "mean_pairwise_hamming_unbiased": 7.265330981182796,
+      "ordinary_top16_affinity": 9.584705134022872,
+      "ordinary_top32_affinity": 9.577684088663517,
+      "shared_with_sft_top16": 7,
+      "pool_conditional_affinity": {
+        "measured_mass": 0.03620595071388533,
+        "conditional_mean_affinity": 9.488511899051145,
+        "assay_sem_proxy": 0.0028794616762634418,
+        "positive_mass": 0.0276043149894514,
+        "conditional_positive_fraction": 0.7624248071150602,
+        "distinct_measured_genotypes": 2048,
+        "conditional_effective_genotypes": 651.8740540014019
+      },
+      "pool_conditional_delta_from_sft": {
+        "conditional_affinity_delta": 0.0013819925938079458,
+        "assay_sem_proxy_for_delta": 0.001085091472454032
+      },
+      "sampled_affinity": {
+        "sample_count": 1024,
+        "unique_draw_count": 998,
+        "split_counts": {
+          "train": 690,
+          "development": 190,
+          "test": 144
+        },
+        "training_exposure_overlap_draw_count": 88,
+        "training_exposure_overlap_unique_count": 85,
+        "unscored_draw_count": 197,
+        "by_split": {
+          "train": {
+            "measured_mass": 0.6689453125,
+            "conditional_mean_affinity": 9.47142191979626,
+            "assay_sem_proxy": 0.0030437027467465198,
+            "positive_mass": 0.4365234375,
+            "conditional_positive_fraction": 0.6525547445255475,
+            "distinct_measured_genotypes": 664,
+            "conditional_effective_genotypes": 643.6556927297669,
+            "measured_draw_count": 685,
+            "sampling_sem_conditional_mean": 0.007902297581577506
+          },
+          "development": {
+            "measured_mass": 0.138671875,
+            "conditional_mean_affinity": 9.502614708339523,
+            "assay_sem_proxy": 0.006465062722025837,
+            "positive_mass": 0.111328125,
+            "conditional_positive_fraction": 0.8028169014084507,
+            "distinct_measured_genotypes": 140,
+            "conditional_effective_genotypes": 138.10958904109586,
+            "measured_draw_count": 142,
+            "sampling_sem_conditional_mean": 0.011399491745698768
+          }
+        }
+      }
+    },
+    "2048": {
+      "kl_to_sft_mc": {
+        "nats": 0.20326574239879847,
+        "draws": 1024,
+        "standard_error": 0.0215378782733713
+      },
+      "entropy_nats_mc": 10.069873053580523,
+      "unique_draws": 990,
+      "mean_pairwise_hamming_unbiased": 7.299807551319648,
+      "ordinary_top16_affinity": 9.57738754889851,
+      "ordinary_top32_affinity": 9.57361604660212,
+      "shared_with_sft_top16": 3,
+      "pool_conditional_affinity": {
+        "measured_mass": 0.030888135769708884,
+        "conditional_mean_affinity": 9.520401805062562,
+        "assay_sem_proxy": 0.0030200938801474447,
+        "positive_mass": 0.0253645961455005,
+        "conditional_positive_fraction": 0.8211760118710317,
+        "distinct_measured_genotypes": 2048,
+        "conditional_effective_genotypes": 621.140445065649
+      },
+      "pool_conditional_delta_from_sft": {
+        "conditional_affinity_delta": 0.033271898605223324,
+        "assay_sem_proxy_for_delta": 0.0015888669551466705
+      },
+      "sampled_affinity": {
+        "sample_count": 1024,
+        "unique_draw_count": 990,
+        "split_counts": {
+          "train": 707,
+          "development": 167,
+          "test": 150
+        },
+        "training_exposure_overlap_draw_count": 330,
+        "training_exposure_overlap_unique_count": 310,
+        "unscored_draw_count": 192,
+        "by_split": {
+          "train": {
+            "measured_mass": 0.6884765625,
+            "conditional_mean_affinity": 9.500818041736206,
+            "assay_sem_proxy": 0.0029472384180451662,
+            "positive_mass": 0.5,
+            "conditional_positive_fraction": 0.726241134751773,
+            "distinct_measured_genotypes": 677,
+            "conditional_effective_genotypes": 651.4089121887288,
+            "measured_draw_count": 705,
+            "sampling_sem_conditional_mean": 0.005217084125489237
+          },
+          "development": {
+            "measured_mass": 0.1240234375,
+            "conditional_mean_affinity": 9.533171879564174,
+            "assay_sem_proxy": 0.006805900858827049,
+            "positive_mass": 0.1025390625,
+            "conditional_positive_fraction": 0.826771653543307,
+            "distinct_measured_genotypes": 124,
+            "conditional_effective_genotypes": 121.2706766917294,
+            "measured_draw_count": 127,
+            "sampling_sem_conditional_mean": 0.005478054378557431
+          }
+        }
+      }
+    },
+    "8192": {
+      "kl_to_sft_mc": {
+        "nats": 0.7321844911202788,
+        "draws": 1024,
+        "standard_error": 0.02730445302212867
+      },
+      "entropy_nats_mc": 9.560843395069242,
+      "unique_draws": 969,
+      "mean_pairwise_hamming_unbiased": 7.246067021016618,
+      "ordinary_top16_affinity": 9.577531904644397,
+      "ordinary_top32_affinity": 9.571880039541925,
+      "shared_with_sft_top16": 6,
+      "pool_conditional_affinity": {
+        "measured_mass": 0.00036797039160753477,
+        "conditional_mean_affinity": 9.517493403923682,
+        "assay_sem_proxy": 0.003475666620901197,
+        "positive_mass": 0.0002886389315971785,
+        "conditional_positive_fraction": 0.7844080343970484,
+        "distinct_measured_genotypes": 2048,
+        "conditional_effective_genotypes": 448.4476237871008
+      },
+      "pool_conditional_delta_from_sft": {
+        "conditional_affinity_delta": 0.030363497466343786,
+        "assay_sem_proxy_for_delta": 0.0025276706773668424
+      },
+      "sampled_affinity": {
+        "sample_count": 1024,
+        "unique_draw_count": 969,
+        "split_counts": {
+          "train": 1020,
+          "test": 3,
+          "development": 1
+        },
+        "training_exposure_overlap_draw_count": 767,
+        "training_exposure_overlap_unique_count": 716,
+        "unscored_draw_count": 4,
+        "by_split": {
+          "train": {
+            "measured_mass": 0.9951171875,
+            "conditional_mean_affinity": 9.51649284388677,
+            "assay_sem_proxy": 0.0024629598272659253,
+            "positive_mass": 0.7783203125,
+            "conditional_positive_fraction": 0.7821393523061824,
+            "distinct_measured_genotypes": 964,
+            "conditional_effective_genotypes": 913.2462620932279,
+            "measured_draw_count": 1019,
+            "sampling_sem_conditional_mean": 0.003177870808233907
+          },
+          "development": {
+            "measured_mass": 0.0009765625,
+            "conditional_mean_affinity": 9.594359934685688,
+            "assay_sem_proxy": 0.0724205557249211,
+            "positive_mass": 0.0009765625,
+            "conditional_positive_fraction": 1.0,
+            "distinct_measured_genotypes": 1,
+            "conditional_effective_genotypes": 1.0,
+            "measured_draw_count": 1,
+            "sampling_sem_conditional_mean": null
+          }
+        }
+      }
+    },
+    "16384": {
+      "kl_to_sft_mc": {
+        "nats": 0.7500135581940413,
+        "draws": 1024,
+        "standard_error": 0.02459503508419809
+      },
+      "entropy_nats_mc": 9.482964078895748,
+      "unique_draws": 979,
+      "mean_pairwise_hamming_unbiased": 7.213156005620723,
+      "ordinary_top16_affinity": 9.498454259650194,
+      "ordinary_top32_affinity": 9.510253369069243,
+      "shared_with_sft_top16": 0,
+      "pool_conditional_affinity": {
+        "measured_mass": 6.920960902771707e-05,
+        "conditional_mean_affinity": 9.529644144817437,
+        "assay_sem_proxy": 0.003911006071069451,
+        "positive_mass": 5.695685562788494e-05,
+        "conditional_positive_fraction": 0.8229616729242735,
+        "distinct_measured_genotypes": 2048,
+        "conditional_effective_genotypes": 354.08469685689704
+      },
+      "pool_conditional_delta_from_sft": {
+        "conditional_affinity_delta": 0.042514238360098724,
+        "assay_sem_proxy_for_delta": 0.003138754413563438
+      },
+      "sampled_affinity": {
+        "sample_count": 1024,
+        "unique_draw_count": 979,
+        "split_counts": {
+          "train": 1024
+        },
+        "training_exposure_overlap_draw_count": 813,
+        "training_exposure_overlap_unique_count": 771,
+        "unscored_draw_count": 1,
+        "by_split": {
+          "train": {
+            "measured_mass": 0.9990234375,
+            "conditional_mean_affinity": 9.520538047056863,
+            "assay_sem_proxy": 0.00243334132425295,
+            "positive_mass": 0.794921875,
+            "conditional_positive_fraction": 0.7956989247311823,
+            "distinct_measured_genotypes": 978,
+            "conditional_effective_genotypes": 936.9104744852282,
+            "measured_draw_count": 1023,
+            "sampling_sem_conditional_mean": 0.0023555001339074385
+          },
+          "development": {
+            "measured_mass": 0.0,
+            "conditional_mean_affinity": null,
+            "assay_sem_proxy": null,
+            "positive_mass": 0.0,
+            "conditional_positive_fraction": null,
+            "distinct_measured_genotypes": 0,
+            "conditional_effective_genotypes": null,
+            "measured_draw_count": 0,
+            "sampling_sem_conditional_mean": null
+          }
+        }
+      }
+    }
+  },
+  "exact_endpoints": {
+    "0": {
+      "normalization_mass_before_correction": 0.9999999397473445,
+      "reference_normalization_mass": 0.9999999397473445,
+      "entropy_nats": 10.288871211493394,
+      "entropy_effective_support": 29403.56520624947,
+      "collision_probability": 4.5632873859170016e-05,
+      "collision_effective_support": 21914.026346141425,
+      "maximum_genotype_probability": 0.00017408187589780893,
+      "kl_to_sft_nats": 0.0,
+      "kl_from_sft_nats": 0.0,
+      "total_variation_from_sft": 0.0,
+      "site_allele_one_marginals": [
+        0.632073611048567,
+        0.5472464146418523,
+        0.5662900610843751,
+        0.5660576790724343,
+        0.539010265040942,
+        0.6235869860604513,
+        0.4948444118621237,
+        0.4839165633198293,
+        0.7562655294403948,
+        0.9593187896830517,
+        0.4365341689612753,
+        0.561365743828423,
+        0.5803656425307429,
+        0.5033554118304564,
+        0.5022105265388854,
+        0.5448635348842464
+      ],
+      "split_defining_site_marginals": {
+        "2": 0.5662900610843751,
+        "5": 0.6235869860604513,
+        "8": 0.7562655294403948,
+        "10": 0.4365341689612753
+      },
+      "other_site_marginals": {
+        "0": 0.632073611048567,
+        "1": 0.5472464146418523,
+        "3": 0.5660576790724343,
+        "4": 0.539010265040942,
+        "6": 0.4948444118621237,
+        "7": 0.4839165633198293,
+        "9": 0.9593187896830517,
+        "11": 0.561365743828423,
+        "12": 0.5803656425307429,
+        "13": 0.5033554118304564,
+        "14": 0.5022105265388854,
+        "15": 0.5448635348842464
+      },
+      "block_mass": {
+        "0": 0.02526911131228522,
+        "1": 0.014898576574892165,
+        "2": 0.06637881906146927,
+        "3": 0.05770266739948349,
+        "4": 0.04128676897291195,
+        "5": 0.02406198246141214,
+        "6": 0.10965403787523788,
+        "7": 0.0944579752579344,
+        "8": 0.03310642212993734,
+        "9": 0.01894927496975032,
+        "10": 0.08682049160894414,
+        "11": 0.0732876508827883,
+        "12": 0.05502291569655417,
+        "13": 0.03113941844186345,
+        "14": 0.14592726438138626,
+        "15": 0.12203662297315111
+      },
+      "split_mass": {
+        "development": 0.19180760860213486,
+        "test": 0.13062465963327005,
+        "train": 0.6775677317645967
+      },
+      "category_mass": {
+        "measured_train": 0.6761754031340084,
+        "measured_development": 0.14202037619410893,
+        "train_ineligible": 0.0013923286305925478,
+        "development_ineligible": 0.0002942245269621006,
+        "eligible_development_withheld": 0.04949300788106357,
+        "test": 0.1306246596332699,
+        "total": 1.0000000000000018
+      },
+      "seen_labelled_mass": {
+        "sft": 0.04160253644787009,
+        "continuation": 0.0,
+        "union": 0.04160253644787009
+      },
+      "conditional_affinity": {
+        "train": {
+          "measured_mass": 0.6761754031340041,
+          "conditional_mean_affinity": 9.462811317154863,
+          "assay_sem_proxy": 0.0006410186156210716,
+          "positive_mass": 0.41521489191891325,
+          "conditional_positive_fraction": 0.6140638804582869,
+          "distinct_measured_genotypes": 38790,
+          "conditional_effective_genotypes": 13258.166793967524
+        },
+        "development": {
+          "measured_mass": 0.14202037619410918,
+          "conditional_mean_affinity": 9.488510069256375,
+          "assay_sem_proxy": 0.0012484132549052155,
+          "positive_mass": 0.10304102580298952,
+          "conditional_positive_fraction": 0.7255369163517503,
+          "distinct_measured_genotypes": 8704,
+          "conditional_effective_genotypes": 3520.1701698825186
+        },
+        "development_block_5": {
+          "measured_mass": 0.017959383111839262,
+          "conditional_mean_affinity": 9.374410175044417,
+          "assay_sem_proxy": 0.0021201488257443827,
+          "positive_mass": 0.008491648117209795,
+          "conditional_positive_fraction": 0.47282515576004913,
+          "distinct_measured_genotypes": 2678,
+          "conditional_effective_genotypes": 1299.68847032246
+        },
+        "development_block_7": {
+          "measured_mass": 0.0693903235631268,
+          "conditional_mean_affinity": 9.518294916453828,
+          "assay_sem_proxy": 0.0019562082783017927,
+          "positive_mass": 0.060858835244589876,
+          "conditional_positive_fraction": 0.8770507488587291,
+          "distinct_measured_genotypes": 3007,
+          "conditional_effective_genotypes": 1420.4695082590893
+        },
+        "development_block_11": {
+          "measured_mass": 0.054670669519143095,
+          "conditional_mean_affinity": 9.488187840330125,
+          "assay_sem_proxy": 0.0019666076070690695,
+          "positive_mass": 0.03369054244118984,
+          "conditional_positive_fraction": 0.6162452872356539,
+          "distinct_measured_genotypes": 3019,
+          "conditional_effective_genotypes": 1428.8065374829525
+        }
+      },
+      "conditional_affinity_delta_from_sft": {
+        "train": {
+          "conditional_affinity_delta": 0.0,
+          "assay_sem_proxy_for_delta": 0.0
+        },
+        "development": {
+          "conditional_affinity_delta": 0.0,
+          "assay_sem_proxy_for_delta": 0.0
+        },
+        "development_block_5": {
+          "conditional_affinity_delta": 0.0,
+          "assay_sem_proxy_for_delta": 0.0
+        },
+        "development_block_7": {
+          "conditional_affinity_delta": 0.0,
+          "assay_sem_proxy_for_delta": 0.0
+        },
+        "development_block_11": {
+          "conditional_affinity_delta": 0.0,
+          "assay_sem_proxy_for_delta": 0.0
+        }
+      },
+      "measured_threshold_exceedance_mass": 0.5182559177219028
+    },
+    "16384": {
+      "normalization_mass_before_correction": 0.9999999038107356,
+      "reference_normalization_mass": 0.9999999397473445,
+      "entropy_nats": 9.503671472823635,
+      "entropy_effective_support": 13408.866856585424,
+      "collision_probability": 9.037900811758792e-05,
+      "collision_effective_support": 11064.51620600822,
+      "maximum_genotype_probability": 0.00026320171189544116,
+      "kl_to_sft_nats": 0.7672281043687292,
+      "kl_from_sft_nats": 2.5301723338084363,
+      "total_variation_from_sft": 0.46783000675875375,
+      "site_allele_one_marginals": [
+        0.6755813427574413,
+        0.5755595645209173,
+        0.5298247222253326,
+        0.6383600931782849,
+        0.6338462708640851,
+        0.6547730927923935,
+        0.5166384673454161,
+        0.5279480149350172,
+        0.7281992204714125,
+        0.9632222327757325,
+        0.36856941254369857,
+        0.47100900695796794,
+        0.4885771645561159,
+        0.4872272952631165,
+        0.5319976645649864,
+        0.4569680932725899
+      ],
+      "split_defining_site_marginals": {
+        "2": 0.5298247222253326,
+        "5": 0.6547730927923935,
+        "8": 0.7281992204714125,
+        "10": 0.36856941254369857
+      },
+      "other_site_marginals": {
+        "0": 0.6755813427574413,
+        "1": 0.5755595645209173,
+        "3": 0.6383600931782849,
+        "4": 0.6338462708640851,
+        "6": 0.5166384673454161,
+        "7": 0.5279480149350172,
+        "9": 0.9632222327757325,
+        "11": 0.47100900695796794,
+        "12": 0.4885771645561159,
+        "13": 0.4872272952631165,
+        "14": 0.5319976645649864,
+        "15": 0.4569680932725899
+      },
+      "block_mass": {
+        "0": 0.025330221993650197,
+        "1": 0.03591012308938518,
+        "2": 4.678576443333032e-05,
+        "3": 0.14737202873782218,
+        "4": 0.08411209550604394,
+        "5": 2.2750824084994286e-05,
+        "6": 0.17700937495577196,
+        "7": 0.0003718969034762575,
+        "8": 4.476066911123504e-05,
+        "9": 0.03443096276045942,
+        "10": 0.10206547117805945,
+        "11": 2.6553014686230396e-05,
+        "12": 0.09172444677374078,
+        "13": 0.00022541791211237505,
+        "14": 0.15109743061549122,
+        "15": 0.15020967930167192
+      },
+      "split_mass": {
+        "development": 0.00042120074224748217,
+        "test": 0.00031696434565694044,
+        "train": 0.9992618349120963
+      },
+      "category_mass": {
+        "measured_train": 0.9987772542167255,
+        "measured_development": 0.00031259774643444183,
+        "train_ineligible": 0.00048458069536459595,
+        "development_ineligible": 7.644860201826712e-08,
+        "eligible_development_withheld": 0.00010852654721102229,
+        "test": 0.0003169643456569406,
+        "total": 1.0000000000000007
+      },
+      "seen_labelled_mass": {
+        "sft": 0.07776672084982257,
+        "continuation": 0.7863299897405942,
+        "union": 0.7864830677863663
+      },
+      "conditional_affinity": {
+        "train": {
+          "measured_mass": 0.9987772542167317,
+          "conditional_mean_affinity": 9.520987752654355,
+          "assay_sem_proxy": 0.0007044726758013099,
+          "positive_mass": 0.7878870203875081,
+          "conditional_positive_fraction": 0.7888515853371035,
+          "distinct_measured_genotypes": 38790,
+          "conditional_effective_genotypes": 11040.361253144236
+        },
+        "development": {
+          "measured_mass": 0.0003125977464344415,
+          "conditional_mean_affinity": 9.527577288901796,
+          "assay_sem_proxy": 0.001914399794928645,
+          "positive_mass": 0.0002516761848954475,
+          "conditional_positive_fraction": 0.8051119618299278,
+          "distinct_measured_genotypes": 8704,
+          "conditional_effective_genotypes": 1470.7728400385324
+        },
+        "development_block_5": {
+          "measured_mass": 1.7822113104059182e-05,
+          "conditional_mean_affinity": 9.51948777157348,
+          "assay_sem_proxy": 0.0027821191821414504,
+          "positive_mass": 1.4254141425658706e-05,
+          "conditional_positive_fraction": 0.7998008621330188,
+          "distinct_measured_genotypes": 2678,
+          "conditional_effective_genotypes": 706.4993707260523
+        },
+        "development_block_7": {
+          "measured_mass": 0.000275134057151443,
+          "conditional_mean_affinity": 9.529686242425848,
+          "assay_sem_proxy": 0.002160957979802257,
+          "positive_mass": 0.00022283393002992804,
+          "conditional_positive_fraction": 0.8099103845485505,
+          "distinct_measured_genotypes": 3007,
+          "conditional_effective_genotypes": 1154.2574192672207
+        },
+        "development_block_11": {
+          "measured_mass": 1.9641576178939284e-05,
+          "conditional_mean_affinity": 9.505375779070784,
+          "assay_sem_proxy": 0.002374389639477654,
+          "positive_mass": 1.4588113439860776e-05,
+          "conditional_positive_fraction": 0.7427160278258578,
+          "distinct_measured_genotypes": 3019,
+          "conditional_effective_genotypes": 946.3292791107779
+        }
+      },
+      "conditional_affinity_delta_from_sft": {
+        "train": {
+          "conditional_affinity_delta": 0.05817643549949202,
+          "assay_sem_proxy_for_delta": 0.0004192338483111904
+        },
+        "development": {
+          "conditional_affinity_delta": 0.03906721964542101,
+          "assay_sem_proxy_for_delta": 0.001600154361475406
+        },
+        "development_block_5": {
+          "conditional_affinity_delta": 0.14507759652906674,
+          "assay_sem_proxy_for_delta": 0.001901311686502609
+        },
+        "development_block_7": {
+          "conditional_affinity_delta": 0.011391325972019825,
+          "assay_sem_proxy_for_delta": 0.0016928740469895215
+        },
+        "development_block_11": {
+          "conditional_affinity_delta": 0.017187938740657566,
+          "assay_sem_proxy_for_delta": 0.0014448178372832713
+        }
+      },
+      "measured_threshold_exceedance_mass": 0.7881386965724035
+    }
+  }
+}
