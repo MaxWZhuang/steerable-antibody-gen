@@ -75,7 +75,7 @@ checkpoint hash and scientific source-code hash was verified before continuation
 <!-- continuation-progress:start -->
 ## Continuation fitting progress
 
-2 of 6 trajectories completed. Only completed trajectories appear below.
+3 of 6 trajectories completed. Only completed trajectories appear below.
 
 | method        |     seed |   GPU minutes |   updates |   validation high NLL |   validation pair accuracy |
 |:--------------|---------:|--------------:|----------:|----------------------:|---------------------------:|
@@ -87,6 +87,9 @@ checkpoint hash and scientific source-code hash was verified before continuation
 | dpo           | 20260918 |      10.00000 |      3540 |               3.85419 |                    0.99545 |
 | dpo           | 20260918 |      20.00000 |      7538 |               4.20228 |                    0.99584 |
 | dpo           | 20260918 |      30.00000 |     11535 |               4.62396 |                    0.99635 |
+| continued_sft | 20260919 |       3.00000 |      1327 |               1.49859 |                    0.97220 |
+| continued_sft | 20260919 |       6.00000 |      2654 |               1.50530 |                    0.97228 |
+| continued_sft | 20260919 |      10.00000 |      4423 |               1.52515 |                    0.97076 |
 
 These are validation diagnostics, not final affinity or diversity results. No continuation checkpoint is selected until full validation ranking and generation diagnostics are complete. [Progress evidence](evidence/her2-continuation-progress-2026-09-18.json) retains actual GPU time, unique and repeated exposures, reference costs and checkpoint digests.
 <!-- continuation-progress:end -->

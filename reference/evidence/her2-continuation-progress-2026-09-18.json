@@ -356,6 +356,271 @@
       "whole_run_wall_note": "includes model loading, reference preparation, updates and checkpoint evaluation; trajectory_wall_seconds starts after reference preparation",
       "whole_run_wall_seconds": 693.8574353999575
     },
+    "continued_sft_seed20260919": {
+      "batch_sequences": 128,
+      "budget_note": "budgets are measured device-elapsed training seconds; they are not FLOP or energy measurements, and no equal-update or equal-epoch fairness is claimed. Wall time above includes the excluded checkpoint/validation cost reported beside it.",
+      "budgets": {
+        "180.0": {
+          "actual_gpu_seconds": 180.1152000122072,
+          "budget_evaluation_wall_seconds": 23.06370689999312,
+          "checkpoint": "outputs/her2_posttrain_20260918/continuation/continued_sft_seed20260919/budget_180.pt",
+          "checkpoint_sha256": "8be91909c27932dff50ed5daaf4b13c3ae3228cf9a73cc873eb6de8d7d541a6e",
+          "core_token_exposures": 1697570,
+          "distinct_exposures": {
+            "chosen_population": 120477,
+            "distinct_chosen_fraction": 1.0,
+            "distinct_chosen_rows": 120477,
+            "distinct_rejected_rows": 0,
+            "note": "continued SFT trains on the chosen positives only: no pairs, no rejected rows and no reference cache",
+            "rejected_population": 0,
+            "unit": "distinct eligible training rows reached so far in this trajectory"
+          },
+          "evaluation_note": "checkpoint I/O and validation are excluded from the training GPU budget and reported here instead of subtracted from anything",
+          "evaluation_wall_seconds": 23.06369719997747,
+          "excluded_evaluation_wall_seconds": 0.0,
+          "exposures": {
+            "sequences": 169757
+          },
+          "last_loss": 1.3584409952163696,
+          "last_update_gpu_seconds": 0.13555917358398437,
+          "overshoot_seconds": 0.11520001220719678,
+          "overshoot_within_one_update": true,
+          "precharged_gpu_seconds": 0.0,
+          "state_sha256": "af8826a42e8a59fefb1d8f9b5da155c0729321ce6335a2a5d60dc71951eeff6c",
+          "target_gpu_seconds": 180.0,
+          "trajectory_wall_seconds": 181.18498190003447,
+          "updates": 1327,
+          "val_pair_metrics": {
+            "chosen_nll_per_residue": 1.4989916301257464,
+            "implicit_reward_accuracy": 0.8236140269030402,
+            "mean_chosen_sum_log_probability": -14.989916301257464,
+            "mean_dpo_loss": 0.5924885519709318,
+            "mean_implicit_margin": 2.3200916040092925,
+            "mean_log_probability_gap": 13.574905145243385,
+            "mean_rejected_sum_log_probability": -28.564821446500847,
+            "pair_accuracy": 0.9722027836093616,
+            "pair_ties": 0,
+            "pairs": 25722,
+            "rejected_nll_per_residue": 2.8564821446500845
+          },
+          "val_positive_nll_per_residue": 1.498592834245151
+        },
+        "360.0": {
+          "actual_gpu_seconds": 360.06050384521524,
+          "budget_evaluation_wall_seconds": 23.130683100025635,
+          "checkpoint": "outputs/her2_posttrain_20260918/continuation/continued_sft_seed20260919/budget_360.pt",
+          "checkpoint_sha256": "816db99368ce23862b1765c39c714350e116ae080eaa934c7dbf17e7c7e4904e",
+          "core_token_exposures": 3395140,
+          "distinct_exposures": {
+            "chosen_population": 120477,
+            "distinct_chosen_fraction": 1.0,
+            "distinct_chosen_rows": 120477,
+            "distinct_rejected_rows": 0,
+            "note": "continued SFT trains on the chosen positives only: no pairs, no rejected rows and no reference cache",
+            "rejected_population": 0,
+            "unit": "distinct eligible training rows reached so far in this trajectory"
+          },
+          "evaluation_note": "checkpoint I/O and validation are excluded from the training GPU budget and reported here instead of subtracted from anything",
+          "evaluation_wall_seconds": 23.130674100015312,
+          "excluded_evaluation_wall_seconds": 23.06370689999312,
+          "exposures": {
+            "sequences": 339514
+          },
+          "last_loss": 1.3219527006149292,
+          "last_update_gpu_seconds": 0.1355853729248047,
+          "overshoot_seconds": 0.060503845215237106,
+          "overshoot_within_one_update": true,
+          "precharged_gpu_seconds": 0.0,
+          "state_sha256": "5cefddc19488d4f91e294e9ff7809b5c37e1ab87b7b196f5d5b7fd34318b9d89",
+          "target_gpu_seconds": 360.0,
+          "trajectory_wall_seconds": 385.5123699000105,
+          "updates": 2654,
+          "val_pair_metrics": {
+            "chosen_nll_per_residue": 1.505675446517211,
+            "implicit_reward_accuracy": 0.833488842236218,
+            "mean_chosen_sum_log_probability": -15.05675446517211,
+            "mean_dpo_loss": 0.5745985269425941,
+            "mean_implicit_margin": 2.7919316157593195,
+            "mean_log_probability_gap": 14.04674515699341,
+            "mean_rejected_sum_log_probability": -29.103499622165522,
+            "pair_accuracy": 0.972280538060804,
+            "pair_ties": 0,
+            "pairs": 25722,
+            "rejected_nll_per_residue": 2.9103499622165523
+          },
+          "val_positive_nll_per_residue": 1.5053017435966884
+        },
+        "600.0": {
+          "actual_gpu_seconds": 600.0657532577524,
+          "budget_evaluation_wall_seconds": 23.13765129999956,
+          "checkpoint": "outputs/her2_posttrain_20260918/continuation/continued_sft_seed20260919/budget_600.pt",
+          "checkpoint_sha256": "3a6a3cba1c1cbd2a6cee3ef1eb4c00a7506e30214f9c59c890805a184051608b",
+          "core_token_exposures": 5657480,
+          "distinct_exposures": {
+            "chosen_population": 120477,
+            "distinct_chosen_fraction": 1.0,
+            "distinct_chosen_rows": 120477,
+            "distinct_rejected_rows": 0,
+            "note": "continued SFT trains on the chosen positives only: no pairs, no rejected rows and no reference cache",
+            "rejected_population": 0,
+            "unit": "distinct eligible training rows reached so far in this trajectory"
+          },
+          "evaluation_note": "checkpoint I/O and validation are excluded from the training GPU budget and reported here instead of subtracted from anything",
+          "evaluation_wall_seconds": 23.13764099997934,
+          "excluded_evaluation_wall_seconds": 46.19439000001876,
+          "exposures": {
+            "sequences": 565748
+          },
+          "last_loss": 1.3090513944625854,
+          "last_update_gpu_seconds": 0.1363435516357422,
+          "overshoot_seconds": 0.06575325775236252,
+          "overshoot_within_one_update": true,
+          "precharged_gpu_seconds": 0.0,
+          "state_sha256": "8a0efd4eb98985478da87be73daf5f78d282f303ee2fe326c43e937ed56bf297",
+          "target_gpu_seconds": 600.0,
+          "trajectory_wall_seconds": 650.7565689000185,
+          "updates": 4423,
+          "val_pair_metrics": {
+            "chosen_nll_per_residue": 1.5255720357558986,
+            "implicit_reward_accuracy": 0.8490008552989659,
+            "mean_chosen_sum_log_probability": -15.255720357558987,
+            "mean_dpo_loss": 0.5445246846379533,
+            "mean_implicit_margin": 3.6227788981155977,
+            "mean_log_probability_gap": 14.877592439349689,
+            "mean_rejected_sum_log_probability": -30.133312796908676,
+            "pair_accuracy": 0.9707643262576783,
+            "pair_ties": 0,
+            "pairs": 25722,
+            "rejected_nll_per_residue": 3.013331279690868
+          },
+          "val_positive_nll_per_residue": 1.5251514602193126
+        }
+      },
+      "clock": {
+        "definition": "device elapsed time of training updates and charged reference scoring",
+        "gpu_seconds": 600.0657532577524,
+        "measured_segments": 4423,
+        "reused_charges": [],
+        "source": "cuda_events"
+      },
+      "core_token_exposures": 5657480,
+      "distinct_exposures": {
+        "chosen_population": 120477,
+        "distinct_chosen_fraction": 1.0,
+        "distinct_chosen_rows": 120477,
+        "distinct_rejected_rows": 0,
+        "note": "continued SFT trains on the chosen positives only: no pairs, no rejected rows and no reference cache",
+        "rejected_population": 0,
+        "unit": "distinct eligible training rows reached so far in this trajectory"
+      },
+      "excluded_evaluation_wall_seconds": 69.33204130001832,
+      "excluded_wall_seconds": {
+        "budget_checkpoints_and_validation": 69.33204130001832,
+        "note": "wall-clock costs that are real but are NOT training: they are excluded from the measured GPU budget and reported here, not subtracted from anything",
+        "parent_validation_reference": 15.124336400011089
+      },
+      "exposures": {
+        "sequences": 565748
+      },
+      "final_state_sha256": "8a0efd4eb98985478da87be73daf5f78d282f303ee2fe326c43e937ed56bf297",
+      "gpu_seconds": 600.0657532577524,
+      "identity": {
+        "base_selection_sha256": "7ec668143e3d391da077baff89cbc3eea534431c26df21cc3c469d65cfb24e08",
+        "batch_sequences": 128,
+        "budgets": [
+          180,
+          360,
+          600
+        ],
+        "code_digests": {
+          "scripts/evaluate_her2.py": "7290fd4d9e3af5a5e2a8b5bb354681d57184570a26220cfe5e086fc4bef8ed9e",
+          "scripts/posttrain_her2.py": "78255e7e818ea6276bc87d428966855b34caa0985782d476876d071616235e3f",
+          "scripts/train_her2.py": "5ee7b82abe178eb0e2c59869dab6435a99ecda41c6313295f06c8d1ba1fd4bd7",
+          "src/smallAntibodyGen/experiments/dpo.py": "8af932de44867c0da2d2dabf19affed361131f3c4a3cebd03c13ff61c5dad3cd",
+          "src/smallAntibodyGen/experiments/her2_baselines.py": "2bc9989dabf7ebeb4acba55183f410bf75a16436b84e0389be9635b8796529fb",
+          "src/smallAntibodyGen/experiments/her2_data.py": "b1a23df120e037072f350c83af05cc06550cc7de54d831afbb990e1d4953156b",
+          "src/smallAntibodyGen/experiments/her2_eval.py": "de0510effd417119674b052cedb2b67785e881db545eb12399f107821269364b",
+          "src/smallAntibodyGen/experiments/her2_policy.py": "6ab1d138e32cf1fec61e2bb3808638b62a5711461a5cc6f257265ed9a4517e91",
+          "src/smallAntibodyGen/experiments/her2_preferences.py": "a97000c0ef7e361192848bbebe85b4aced6ae2621d4ef26867deed22b13e2299",
+          "src/smallAntibodyGen/experiments/her2_runtime.py": "c20c1448ffd269879a20efe0be81529a83521aa4a7668a63011be8f7045fe75b"
+        },
+        "config_digest": "38b3567ef14b446e46fed04c1e7e6cbfbf4c20fd5a657f917d97bf501e91ec02",
+        "config_sha256": "6b885ffb26a551572fdde0e4527d5aaea498a4f57a70f6d3b9b36158ba92f32f",
+        "device": "cuda",
+        "method": "continued_sft",
+        "optimization": {
+          "betas": [
+            0.9,
+            0.999
+          ],
+          "gradient_clip": 1.0,
+          "learning_rate": 1e-05,
+          "schedule": "linear_warmup_then_constant",
+          "warmup_updates": 100,
+          "weight_decay": 0.01
+        },
+        "parent_checkpoint": "outputs/her2_posttrain_20260918/policy_sft_seed20260919/epoch_3.pt",
+        "parent_sha256": "7fbb47f49d34b841b44f4444e242e8c04eda4cc1ea41b575e9e0d740ba778e1e",
+        "preflight_batch_size": 128,
+        "seed": 20260919,
+        "source_digests": {
+          "data/raw/her2_functional_20260918/absci/LICENSE": "12e4c580339a117464d1ca9417c7c06026d7f535ea5cb55ef0aa482e6c7bb769",
+          "data/raw/her2_functional_20260918/absci/README.md": "698f39c41a8e5a9e27fe0ad869cf59ada8c5daf1b0bea6e94c54ccdd6abe0b0d",
+          "data/raw/her2_functional_20260918/absci/functionality-developability-cross_reactivity-data.csv": "f67f8284ce21f86b56b17f75493b05217d8f603565487692372083f626fa08b5",
+          "data/raw/her2_functional_20260918/absci/spr-controls.csv": "33939f99b489b36e9f893641f3b4013ae4898093875067db31569801b15b2489",
+          "data/raw/her2_functional_20260918/absci/zero-shot-binders.csv": "c12742bd36ae8881a38cd41e50fd3922cbd885b184531d1151889f5fa610b639",
+          "data/raw/her2_functional_20260918/buzz/LICENSE": "1116f69e31e2648f5223c0d62510048f41992995452c4d4f2533ceaa7b7133c9",
+          "data/raw/her2_functional_20260918/buzz/README.md": "33ca49193f1ef38d019a40797decf2453fbdc0430ed10aaba6fc1b49bc8716f5",
+          "data/raw/her2_functional_20260918/buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/README.md": "d71db857a207915074b0a179085ad2c58f305caa5b2ec75e3b09bc6f6874e34d",
+          "data/raw/her2_functional_20260918/buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/test.csv": "8c78b21ede36e6f0c88a7b44e3668ea9cab8b79ffcadbd6d0eaa02b75766d8ec",
+          "data/raw/her2_functional_20260918/buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/train.csv": "e7efdd8f2608d777ff0c730966b1792496734ac82e871d5d0a9ae95787cf7ff7",
+          "data/raw/her2_functional_20260918/buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/val.csv": "1db964bf7cd37da7d2009f2ecf20bf6cd1e095fbd81247e87545f809605c7366",
+          "data/raw/her2_functional_20260918/buzz/data/spr/spr_results.xlsx": "ccf5ef46cf4c3bb67c2bdba33b678e55ea144bb1ca7e2c69188fd99d2648ffe9",
+          "data/raw/her2_functional_20260918/buzz/data/spr/spr_submitted.csv": "98558f80555cc8511fefd6da4cbe4a8525aa7b1d39491d75b3adfb9a810d78ad",
+          "data/raw/her2_functional_20260918/buzz/src/classifiers/cnn/model.py": "ced9ef07c3ff7a6def9889b032f982edc956e72cf30c6f5f9cb9cbf118c5bb67",
+          "data/raw/her2_functional_20260918/buzz/src/classifiers/cnn/train.py": "3288af3e080b2344f0dcceee613403f51ef0c81cfc58847f01fc8b335b76b9a4",
+          "data/raw/her2_functional_20260918/buzz/src/classifiers/dataset.py": "89c69c680ac59c1e52a8a0c497bfa0d8f8a2ed0734481796139e66b9a8a0a86d",
+          "data/raw/her2_functional_20260918/piggen/README.md": "afe85c6da56f0a73254b796b2bce0b77160edc730ba649ff9498833ef1eb8383",
+          "data/raw/her2_functional_20260918/piggen/config.json": "4c5a54545ae1d8773d0793b7c9fee0c8bfaf4c2e384d16552278bcaa523b0a74",
+          "data/raw/her2_functional_20260918/piggen/generation_config.json": "d922c8de8235185b68ab3e1ed29de9276d4d36566056279c0372ee2ace6fe2bb",
+          "data/raw/her2_functional_20260918/piggen/model.safetensors": "4fac8e89ae5abb432e29c3af2ca5176da6b6bbeef64ea6847bd51393180918bd",
+          "data/raw/her2_functional_20260918/piggen/special_tokens_map.json": "8ac045b33e2e3858cff599eb4083fe16f30aa4f424e3ef4ff92d6b29eaa8ab57",
+          "data/raw/her2_functional_20260918/piggen/tokenizer.json": "66f2015ce989903c1319fcd89e751b805f9aacb83e898c3f8a221af6de195a73",
+          "data/raw/her2_functional_20260918/piggen/tokenizer_config.json": "b210d89151085258a2d6f65127604615a3a36ef0617cf154f3c974ffd05320c0",
+          "specs/benchmarks/absci_denovo_her2.json": "a739c15bf1f3afec7018db36a058750f8e5911a06c1d27437cb477143e9b005a",
+          "specs/benchmarks/buzz_her2_affinity.json": "aa6ce1a15caa215645921e7cde182ee7ab725076cb1bdb6e1b9f2b770f8bea3a",
+          "specs/benchmarks/piggen_backbone.json": "7e116850c2a83ae1d4131fe9813d5f410ec5c255dd85b78b3bf447bf90bb3309"
+        }
+      },
+      "method": "continued_sft",
+      "parent_state_sha256": "9f0d7bf0947b6a036521506a321012b57cca09a422b1b099f7e54b051e64cb54",
+      "peak_cuda_allocated_mib": 1146.486328125,
+      "population": {
+        "chosen_digest": "d66b76687040944c5c926b7a377a9e8138531ea4450a21c3eafb81f8c56eb8b0",
+        "chosen_rows": 120477,
+        "excluded_chosen_by_distance": {
+          "1": 27
+        },
+        "excluded_chosen_rows": 27,
+        "matched_on": "hamming distance to the wild-type core",
+        "rejected_class": "low only; mid is never treated as a non-binder",
+        "rejected_digest": "d32520149ea28f349b579e5abc51ea116bded24be851db745a051689ca4746de",
+        "rejected_rows": 113530,
+        "split": "train"
+      },
+      "precharged_gpu_seconds": 0.0,
+      "seed": 20260919,
+      "trajectory_wall_seconds": 673.8942308000405,
+      "updates": 4423,
+      "validation_reference": {
+        "digest": "1f40095f0e6f3ecdfab1c29103a73875b9b02e5a0fb05e0752444bd77c2d7d71",
+        "note": "parent scores on the fixed validation pairs, taken before the first update; an evaluation cost, reported separately and not charged to the training GPU budget",
+        "pairs": 25722,
+        "wall_seconds": 15.124336400011089
+      },
+      "whole_run_wall_note": "includes model loading, reference preparation, updates and checkpoint evaluation; trajectory_wall_seconds starts after reference preparation",
+      "whole_run_wall_seconds": 689.573865399987
+    },
     "dpo_seed20260918": {
       "batch_sequences": 128,
       "budget_note": "budgets are measured device-elapsed training seconds; they are not FLOP or energy measurements, and no equal-update or equal-epoch fairness is claimed. Wall time above includes the excluded checkpoint/validation cost reported beside it.",
