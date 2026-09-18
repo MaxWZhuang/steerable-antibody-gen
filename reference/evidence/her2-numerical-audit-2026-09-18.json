@@ -1,0 +1,199 @@
+{
+  "driver_tests": {
+    "command": "python -m pytest src/smallAntibodyGen/tests/test_her2_math_driver.py src/smallAntibodyGen/tests/test_her2_runner.py -q",
+    "passed": 37
+  },
+  "failed_checkpoint_diagnosis": {
+    "checkpoint": "dpo_seed20260919_budget1200",
+    "checkpoint_sha256": "193f0718960715100befb567b0b94561fbcfd0da85b99041a71efcfdb9c4ef2f",
+    "draw_rows_different_between_backends": 0,
+    "draws": 10000,
+    "fp64_reference": {
+      "full64_sum_log_probabilities": [
+        -12.983043663708965,
+        -19.71143816106843,
+        -13.216050916212605,
+        -10.968249140853025,
+        -10.318544877517056,
+        -9.090849158364462,
+        -8.823464922991828,
+        -7.790113524923045,
+        -8.823464922991828,
+        -7.89320234981399,
+        -9.090849158364462,
+        -11.271388784712713,
+        -7.790113524923045,
+        -9.090849158364462,
+        -7.790113524923045,
+        -10.122637728530124
+      ],
+      "full_vs_autoregressive_max_absolute_error": 8.526512829121202e-14,
+      "original_sampled_sum_log_probabilities": [
+        -12.9830137998797,
+        -19.71143414574908,
+        -13.216049163216667,
+        -10.968241384718567,
+        -10.318543723309176,
+        -9.09083122620359,
+        -8.823453849647194,
+        -7.790126158390194,
+        -8.823453849647194,
+        -7.893198466394097,
+        -9.09083122620359,
+        -11.271394727285951,
+        -7.790126158390194,
+        -9.09083122620359,
+        -7.790126158390194,
+        -10.122646863106638
+      ],
+      "original_sampler_vs_full64_max_absolute_error": 2.9863829265508457e-05,
+      "original_scored_sum_log_probabilities": [
+        -12.983097076416016,
+        -19.711400985717773,
+        -13.21601676940918,
+        -10.968282699584961,
+        -10.318580627441406,
+        -9.090888977050781,
+        -8.823484420776367,
+        -7.790096282958984,
+        -8.823484420776367,
+        -7.893226623535156,
+        -9.090888977050781,
+        -11.271358489990234,
+        -7.790096282958984,
+        -9.090888977050781,
+        -7.790096282958984,
+        -10.122610092163086
+      ],
+      "original_scorer_vs_full64_max_absolute_error": 5.341270705017109e-05,
+      "rows": [
+        838,
+        1100,
+        1253,
+        1688,
+        2530,
+        2727,
+        3359,
+        3547,
+        4040,
+        4386,
+        5096,
+        6046,
+        6829,
+        6874,
+        8028,
+        8331
+      ]
+    },
+    "math_fp32": {
+      "failed_rows": [],
+      "max_absolute_error": 6.065657362341881e-05,
+      "passes_original_tolerance": true,
+      "worst_row": 2727
+    },
+    "no_optimizer_updates": true,
+    "original": {
+      "failed_rows": [
+        838
+      ],
+      "max_absolute_error": 8.327653631567955e-05,
+      "passes_original_tolerance": false,
+      "worst_row": 838
+    },
+    "original_tolerance": {
+      "cached_vs_full_parity": 2e-05,
+      "sum_log_probability_atol": 5e-05,
+      "sum_log_probability_rtol": 2e-06,
+      "tolerance_note": "cached_vs_full_parity gates LOGITS and GRADIENTS (measured 6.20e-6 and 3.43e-6 on the pinned weights). The sum-log-probability pair gates SCORE comparisons -- sampler vs scorer, cached vs full, batch 16 vs 256 -- whose measured native fp32 worst cases are 2.38e-5, 3.34e-5 and 2.07e-5."
+    },
+    "reserved_labels_read": false,
+    "seed": 20260935
+  },
+  "no_training_or_reserved_outcome_access": true,
+  "remaining_dpo_checkpoints": {
+    "all_passed": true,
+    "backend": "SDPBackend.MATH",
+    "draws_per_policy": 10000,
+    "dtype": "float32",
+    "optimizer_updates": 0,
+    "records": {
+      "dpo_seed20260919_budget1200": {
+        "checkpoint_sha256": "193f0718960715100befb567b0b94561fbcfd0da85b99041a71efcfdb9c4ef2f",
+        "failed_rows": [],
+        "max_absolute_error": 6.065657362341881e-05,
+        "passed": true,
+        "seed": 20260935
+      },
+      "dpo_seed20260919_budget180": {
+        "checkpoint_sha256": "39ad73350d2b97ad88fb57444143d2414dfbc5144e978098a1e31d868bc82256",
+        "failed_rows": [],
+        "max_absolute_error": 3.914744593203068e-05,
+        "passed": true,
+        "seed": 20260936
+      },
+      "dpo_seed20260919_budget1800": {
+        "checkpoint_sha256": "4d5923ac1315712cb744590484d6f04c8d52dbe9b7f54b153093f3ada4877ec0",
+        "failed_rows": [],
+        "max_absolute_error": 4.176013044343563e-05,
+        "passed": true,
+        "seed": 20260937
+      },
+      "dpo_seed20260919_budget360": {
+        "checkpoint_sha256": "a4cdbf3c7c404a310d59b1f5d091ed9eded0d5bdcb0fc69b8feba1bcfe370cb1",
+        "failed_rows": [],
+        "max_absolute_error": 3.7323334254324436e-05,
+        "passed": true,
+        "seed": 20260938
+      },
+      "dpo_seed20260919_budget600": {
+        "checkpoint_sha256": "68fe2cb76f410df8a1fe3c4f8d9d6b71c07fe4676f917e5bca4974dc51e8cc24",
+        "failed_rows": [],
+        "max_absolute_error": 5.266442894935608e-05,
+        "passed": true,
+        "seed": 20260939
+      },
+      "dpo_seed20260920_budget1200": {
+        "checkpoint_sha256": "3a2c7c561c3e2b15291ae23493dc3605768eb348d4866d3a96cadd44dc9bf97d",
+        "failed_rows": [],
+        "max_absolute_error": 4.907028051093221e-05,
+        "passed": true,
+        "seed": 20260940
+      },
+      "dpo_seed20260920_budget180": {
+        "checkpoint_sha256": "160ce26d90a6dd78cd9a670f189fe37f9141c3bbaa430790a6c74317b330daed",
+        "failed_rows": [],
+        "max_absolute_error": 4.5794527977705e-05,
+        "passed": true,
+        "seed": 20260941
+      },
+      "dpo_seed20260920_budget1800": {
+        "checkpoint_sha256": "a2d9e221eb1e3355edac91e879145b42e53a70c518c8c4feb71e6ff5f8188493",
+        "failed_rows": [],
+        "max_absolute_error": 6.198139772095601e-05,
+        "passed": true,
+        "seed": 20260942
+      },
+      "dpo_seed20260920_budget360": {
+        "checkpoint_sha256": "e7aa93ceef7362cef3a02c42fd1f5df7f0fe4bd4526c862631f97044a8a049f5",
+        "failed_rows": [],
+        "max_absolute_error": 3.5464297980070114e-05,
+        "passed": true,
+        "seed": 20260943
+      },
+      "dpo_seed20260920_budget600": {
+        "checkpoint_sha256": "4e15214a8b55b2c2f7921f004d4ec96d41f1872b427c80cf67af763ece3da3f6",
+        "failed_rows": [],
+        "max_absolute_error": 5.173072713660076e-05,
+        "passed": true,
+        "seed": 20260944
+      }
+    },
+    "reserved_labels_read": false,
+    "tolerances": {
+      "cached_vs_full_parity": 2e-05,
+      "sum_log_probability_atol": 5e-05,
+      "sum_log_probability_rtol": 2e-06,
+      "tolerance_note": "cached_vs_full_parity gates LOGITS and GRADIENTS (measured 6.20e-6 and 3.43e-6 on the pinned weights). The sum-log-probability pair gates SCORE comparisons -- sampler vs scorer, cached vs full, batch 16 vs 256 -- whose measured native fp32 worst cases are 2.38e-5, 3.34e-5 and 2.07e-5."
+    }
+  }
+}

@@ -344,3 +344,37 @@ python scripts/evaluate_her2.py
 ```
 
 Code, config and this protocol are committed before any fitting begins.
+
+## 9. Numerical evaluation amendment — 2026-09-18
+
+After fitting, before final selection or model-based test/SPR evaluation, the
+automatic-SDPA FP32 sampler/scorer check failed on one of 10,000 draws for
+`dpo_seed20260919_budget1200`: 8.32765e-5 nats exceeded the original combined
+absolute/relative tolerance. FP64 full teacher forcing and autoregression agreed
+to 8.53e-14 nats on the 16 worst rows. Native PyTorch **math SDPA** passed the
+original tolerance in FP32 and reproduced all 10,000 sequences for that checkpoint.
+All ten remaining DPO checkpoints passed this check under math SDPA.
+
+This is an evaluation-only amendment. Original training code, configuration,
+weights, budget accounting, seeds, draw counts, tolerances, diversity gates and
+selection rules are retained. All 31 policies are revalidated uniformly under
+math SDPA in `validation_math/`; the original partial automatic-SDPA evidence is
+retained separately. The final evaluator uses the same math backend.
+
+`scripts/evaluate_her2_math.py` binds its own hash, the backend, original scientific
+code hashes, config, input artifacts and torch/CUDA versions in a separate
+numerical manifest. The final selection freeze binds that manifest before
+reserved outcome access. The original scientific-code hash list does **not**
+include this added driver; its separate hash is therefore required and checked.
+Manifest drift, an unprovenanced validation directory, and validation changes
+after final evaluation begins are refused.
+
+```bash
+python scripts/evaluate_her2_math.py --stage validate
+python scripts/evaluate_her2_math.py --stage evaluate
+```
+
+The [numerical audit](../reference/evidence/her2-numerical-audit-2026-09-18.json)
+records the native failures, FP64 diagnosis and math-SDPA checks. Final outcome
+results must disclose this amendment rather than describe evaluation as wholly
+unchanged from the original preregistration.

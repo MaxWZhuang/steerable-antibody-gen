@@ -177,6 +177,21 @@ These are validation observations. [Sampling progress evidence](evidence/her2-va
 
 ## Verification and artifacts
 
+Validation paused after 21/31 policies because one FP32 sampler/scorer comparison
+exceeded its original tolerance. A read-only FP64 diagnosis supports rounding,
+not a cache-logic discrepancy: full teacher forcing and autoregression agreed to
+8.53e-14 nats on the worst rows. Native math SDPA passed the unchanged FP32
+tolerance, with identical 10,000 draws on the failing checkpoint; the ten remaining
+DPO checkpoints also passed. All 31 policies are being revalidated uniformly
+under this backend before final selection. The original partial tables above
+remain preliminary automatic-SDPA evidence. See the
+[numerical amendment](../specs/her2_hcdr3_benchmark.md#9-numerical-evaluation-amendment--2026-09-18)
+and [audit evidence](evidence/her2-numerical-audit-2026-09-18.json).
+
+The added evaluation driver passed 37 driver/runner checks. It preserves the
+original training identities and binds its own hash and backend separately in
+the final freeze; it does not alter weights or relax the scoring tolerance.
+
 Before fitting: 1,984 repository tests passed, 3 skipped; a native 22M-parameter GPU
 scoring/gradient check passed; and a tiny synthetic run completed both training
 methods, checkpointing, generation, validation and the final evaluation handoff.
