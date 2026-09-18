@@ -1,223 +1,311 @@
-# HER2 p-IgGen post-training: run in progress
+# HER2 p-IgGen SFT and DPO benchmark
 
-Snapshot: 2026-09-18, after all initial and continuation fits. Implementation
-commit `08d57ae`; validation and sampling are in progress; final evaluation remains pending.
+Completed campaign, 2026-09-18. See the [fixed protocol](../specs/her2_hcdr3_benchmark.md).
 
-p-IgGen is the generator. The CNN is an auxiliary classifier added by Codex to
-compare ranking of measured sequences. It does not generate sequences, supply
-rewards or preference pairs, or choose checkpoints. DPO preferences use measured
-high-versus-low bins at matched wild-type mutation distance.
+p-IgGen is the generator. The CNN and additive model are auxiliary ranking comparators on measured populations; neither supplies rewards, preferences, or generator checkpoint selection.
 
-The [fixed protocol](../specs/her2_hcdr3_benchmark.md) compares continued SFT and
-DPO at 3/6/10 additional measured GPU minutes per seed, with DPO also continuing
-to 20/30 minutes. There are three seeds. Reference scoring is charged to DPO;
-the common initial SFT cost is reported separately.
+The fixed diversity criteria accept 9/9 continued-SFT checkpoints and 0/15 DPO checkpoints. Selection remains the validation-frozen decision; the test and SPR outcomes below do not reselect a checkpoint.
 
-## Initial pretrained SFT: all three seeds
+At three additional GPU minutes, mean test AP is 0.9701 for continued SFT and 0.9729 for DPO. 9/9 matched-budget paired AP intervals have a positive lower bound. These row-resampling intervals do not account for dependence among neighboring sequences.
 
-Batch 128, all 120,504 training high-bin rows per pass, five passes per seed.
-Each run took about 12.2 minutes including validation and checkpoint checks.
-Native cached/full scoring and all 52 parameter-gradient checks passed after
-training in each run; no run triggered the suspected memory-spill flag.
+Continued SFT retains 97.18%-97.98% unique draws. DPO falls from 40.22%-43.86% at three minutes to 18.88%-19.07% at thirty minutes. Its thirty-minute KL from its own SFT parent is 5.326-6.477 nats: substantial distribution movement accompanies replicated mode collapse.
 
-| Seed | Pass | Validation high-bin NLL/residue | Validation AP | Validation AUROC |
-|---|---|---:|---:|---:|
-| 20260918 | 1 | 1.565302 | 0.942168 | 0.961068 |
-| 20260918 | 3 | 1.491964 | 0.965874 | 0.978198 |
-| 20260918 | 5 | 1.502257 | 0.969287 | 0.980280 |
-| 20260919 | 1 | 1.564050 | 0.938045 | 0.959678 |
-| 20260919 | 3 | 1.488833 | 0.967717 | 0.979037 |
-| 20260919 | 5 | 1.501824 | 0.969823 | 0.980580 |
-| 20260920 | 1 | 1.558214 | 0.940381 | 0.961579 |
-| 20260920 | 3 | 1.486741 | 0.966903 | 0.978529 |
-| 20260920 | 5 | 1.500826 | 0.970103 | 0.980810 |
+At the first matched budget, both methods rank 1,000/1,000 high-bin sequences at the top in every seed. That endpoint is saturated. DPO's mean AP is lower inside every reported training-distance stratum despite its higher aggregate AP. The aggregate bin-ranking gain alone therefore does not establish better within-stratum ranking or a measurable top-candidate affinity gain.
 
-The declared initial checkpoint rule uses validation high-bin NLL, so pass 3 is
-best for every pretrained seed. In all three seeds, NLL worsened after pass 3 while training loss continued to
-fall, which is consistent with the onset of overfitting. The slightly better AP
-at pass 5 does not change the selection rule. These three pass-3 parents are now
-frozen for both continuation methods.
+On 152 independent designs with a finite KD, continued-SFT correlations at three minutes are 0.491-0.528, versus 0.320-0.384 for DPO. Thirty-minute DPO correlations are 0.294-0.375. These are observed correlations on the same cohort, not three independent assay cohorts; no paired SPR difference interval was prespecified or computed.
 
-The [initial SFT evidence](evidence/her2-initial-sft-2026-09-18.json) retains the
-pretrained per-seed training reports and checkpoint hashes. Generation and final
-evaluation remain pending. These are
-provisional validation observations, not a final benchmark result.
-The validation nearest-neighbor baseline already reaches approximately 0.981 AP,
-and 90.2% of validation cores are one mutation from a training core. Independent
-assay evaluation and generated-sequence diversity have not yet been measured for
-the fitted policies. No measured affinity is assigned to unassayed new sequences.
+Initial pretrained SFT parents have SPR correlations of 0.539-0.556; scratch controls have 0.536-0.585. Pretraining improves library-ranking point estimates under this schedule, but these results do not establish an affinity-transfer advantage over scratch or an improvement from additional post-training. This diagnostic comparison does not alter the frozen choices.
 
-## Matched random-initialization controls
+The planned binary SPR endpoint is **unavailable**. Of 695 independent designs, 152 have a finite KD, 96 have an I.C. binding observation without a reliable KD, 434 contain literal N/A, and 13 are blank. The workbook defines N.B. as no binding but contains no N.B. primary-cohort entries. N/A is not silently recoded as nonbinding. Consequently all 248 recognized binary outcomes are positive and AUROC is undefined. See the [assay availability audit](evidence/her2-assay-availability-2026-09-18.json).
 
-The same architecture, batch size, five-pass schedule and validation-NLL rule
-select pass 5 for each random-initialization control. Each run took about 12.2
-minutes. Cached/full scoring and all 52 parameter-gradient checks passed;
-none triggered the suspected memory-spill flag.
+![Scaling curves](figures/her2-posttrain-scaling.svg)
 
-| Seed | Selected pass | Validation high-bin NLL/residue | Validation AP |
-|---|---:|---:|---:|
-| 20260918 | 5 | 1.541481 | 0.945652 |
-| 20260919 | 5 | 1.538224 | 0.948217 |
-| 20260920 | 5 | 1.542707 | 0.946272 |
+Lines show seed means, bands show the range across three seeds, and faint lines show individual trajectories. Crosses mark raw checkpoints that fail diversity eligibility. These bands are not confidence intervals. The initial SFT cost is separate from the additional GPU budgets. DPO reference scoring is included in its budget.
 
-Pretraining improves validation ranking under this shared schedule. This does
-not establish the best performance attainable by a separately tuned scratch
-model, and the nearest-neighbor baseline still has higher validation AP than
-either generator arm.
+## Compute comparison
 
-All auxiliary classifier fits also finished. Validation three-class cross-entropy
-selected pass 10 for each CNN seed (0.129181, 0.132055, 0.137546); the additive
-model achieved 0.666580. These classification losses are not directly comparable
-with generator sequence NLL. The [complete initial-stage evidence](evidence/her2-initial-fits-2026-09-18.json)
-includes all fits and the intermediate selection record. Every selected
-checkpoint hash and scientific source-code hash was verified before continuation.
+| method        |   target_minutes |   actual_minutes |   test_ap |   ap_min |   ap_max |   spr_spearman |   spr_binding_auc |   entropy |   unique |   eligible_seeds |
+|:--------------|-----------------:|-----------------:|----------:|---------:|---------:|---------------:|------------------:|----------:|---------:|-----------------:|
+| continued_sft |           3.0000 |           3.0012 |    0.9701 |   0.9695 |   0.9705 |         0.5144 |               nan |   13.6918 |   0.9754 |                3 |
+| continued_sft |           6.0000 |           6.0010 |    0.9698 |   0.9691 |   0.9705 |         0.5115 |               nan |   13.6956 |   0.9788 |                3 |
+| continued_sft |          10.0000 |          10.0012 |    0.9689 |   0.9686 |   0.9694 |         0.4988 |               nan |   13.4314 |   0.9768 |                3 |
+| dpo           |           3.0000 |           3.0014 |    0.9729 |   0.9715 |   0.9736 |         0.3484 |               nan |    8.4810 |   0.4204 |                0 |
+| dpo           |           6.0000 |           6.0015 |    0.9728 |   0.9720 |   0.9738 |         0.3315 |               nan |    8.0322 |   0.3529 |                0 |
+| dpo           |          10.0000 |          10.0019 |    0.9724 |   0.9714 |   0.9736 |         0.3530 |               nan |    7.7064 |   0.3126 |                0 |
+| dpo           |          20.0000 |          20.0010 |    0.9733 |   0.9727 |   0.9743 |         0.3270 |               nan |    6.7780 |   0.2225 |                0 |
+| dpo           |          30.0000 |          30.0010 |    0.9725 |   0.9708 |   0.9735 |         0.3402 |               nan |    6.3177 |   0.1896 |                0 |
 
-## Initial policy sampling
+## Ranking baselines and initial policies
 
-Each policy produced 10,000 native temperature-1 draws, with duplicates retained. All seven initial policies pass the declared distributional diversity checks.
+| scorer                      |   test_ap |   test_auroc |   p1000 |   spr_spearman | spr_binding_auc   |
+|:----------------------------|----------:|-------------:|--------:|---------------:|:------------------|
+| cnn_3class_ensemble         |    0.9925 |       0.9960 |  1.0000 |         0.3732 |                   |
+| cnn_3class_seed20260918     |    0.9917 |       0.9956 |  1.0000 |         0.1947 |                   |
+| cnn_3class_seed20260919     |    0.9912 |       0.9953 |  1.0000 |         0.4193 |                   |
+| cnn_3class_seed20260920     |    0.9904 |       0.9949 |  1.0000 |         0.3140 |                   |
+| linear_3class               |    0.8417 |       0.9050 |  0.9870 |         0.1466 |                   |
+| neg_wt_hamming              |    0.4509 |       0.6405 |  0.8000 |         0.4314 |                   |
+| nn_label                    |    0.9795 |       0.9909 |  0.9940 |         0.4329 |                   |
+| piggen_zeroshot             |    0.4717 |       0.6400 |  0.7350 |         0.1410 |                   |
+| policy_scratch_seed20260918 |    0.9463 |       0.9639 |  1.0000 |         0.5362 |                   |
+| policy_scratch_seed20260919 |    0.9493 |       0.9661 |  1.0000 |         0.5673 |                   |
+| policy_scratch_seed20260920 |    0.9468 |       0.9644 |  0.9990 |         0.5846 |                   |
+| policy_sft_seed20260918     |    0.9671 |       0.9790 |  1.0000 |         0.5453 |                   |
+| policy_sft_seed20260919     |    0.9688 |       0.9798 |  1.0000 |         0.5561 |                   |
+| policy_sft_seed20260920     |    0.9676 |       0.9793 |  1.0000 |         0.5386 |                   |
+| prior                       |    0.3283 |       0.5000 |  0.4740 |       nan      |                   |
 
-| policy                      |   validation AP |   joint entropy (nats) |   unique fraction |   not exactly in train |   mean core Hamming | eligible   |
-|:----------------------------|----------------:|-----------------------:|------------------:|-----------------------:|--------------------:|:-----------|
-| piggen_zeroshot             |         0.46958 |               23.71456 |           0.99920 |                1.00000 |             9.15365 | True       |
-| policy_scratch_seed20260918 |         0.94565 |               15.41947 |           0.97840 |                0.78170 |             7.55492 | True       |
-| policy_scratch_seed20260919 |         0.94822 |               15.39218 |           0.98110 |                0.77330 |             7.54397 | True       |
-| policy_scratch_seed20260920 |         0.94627 |               15.45066 |           0.98150 |                0.78730 |             7.50908 | True       |
-| policy_sft_seed20260918     |         0.96587 |               14.28494 |           0.97630 |                0.67760 |             7.50636 | True       |
-| policy_sft_seed20260919     |         0.96772 |               14.46298 |           0.97910 |                0.68580 |             7.55122 | True       |
-| policy_sft_seed20260920     |         0.96690 |               14.55890 |           0.98100 |                0.70670 |             7.47170 | True       |
+SPR Spearman uses only 152 finite positive KD measurements. Binary SPR AUROC is undefined in this release under the documented outcome rules; blank/NaN entries are unavailable metrics, not zero scores. No numerical KD is assigned to N/A, missing or unquantified records.
 
-The pretrained SFT parents improve validation ranking while retaining broad sequence diversity: 97.63-98.10% unique draws, and 67.76-70.67% not exactly present in training. These are sequence-distribution diagnostics, not experimental affinity measurements of the novel draws. Continuation sampling and independent outcome evaluation remain pending.
+Precision-at-K uses the fixed lexicographic sequence tie-break. Its value for the constant prior therefore reflects that ordering and is not an estimate of the precision of random selection.
 
-[Initial sampling evidence](evidence/her2-initial-generation-2026-09-18.json) includes the persisted draw hashes and detailed diversity diagnostics.
+## Quantitative SPR uncertainty at fixed endpoints
 
-<!-- continuation-progress:start -->
-## Continuation fitting progress
+| name                                 |   spr_quantitative_n |   spr_spearman |   spr_ci_low |   spr_ci_high |
+|:-------------------------------------|---------------------:|---------------:|-------------:|--------------:|
+| continued_sft_seed20260918_budget180 |                  152 |         0.5238 |       0.4060 |        0.6290 |
+| continued_sft_seed20260919_budget180 |                  152 |         0.4912 |       0.3540 |        0.6204 |
+| continued_sft_seed20260920_budget180 |                  152 |         0.5283 |       0.4004 |        0.6434 |
+| dpo_seed20260918_budget180           |                  152 |         0.3409 |       0.1995 |        0.4735 |
+| dpo_seed20260918_budget1800          |                  152 |         0.2944 |       0.1524 |        0.4367 |
+| dpo_seed20260919_budget180           |                  152 |         0.3203 |       0.1689 |        0.4634 |
+| dpo_seed20260919_budget1800          |                  152 |         0.3753 |       0.2269 |        0.5182 |
+| dpo_seed20260920_budget180           |                  152 |         0.3840 |       0.2439 |        0.5127 |
+| dpo_seed20260920_budget1800          |                  152 |         0.3507 |       0.1970 |        0.4966 |
+| policy_sft_seed20260918              |                  152 |         0.5453 |       0.4325 |        0.6529 |
+| policy_sft_seed20260919              |                  152 |         0.5561 |       0.4329 |        0.6640 |
+| policy_sft_seed20260920              |                  152 |         0.5386 |       0.4095 |        0.6500 |
 
-6 of 6 trajectories completed. Only completed trajectories appear below.
+Each interval is a 95% percentile interval from 2,000 paired-row resamples of that scorer and the finite KD measurements. It is an interval for one correlation, not for the difference between two scorers. Quantification success can introduce selection bias relative to all 695 designs.
 
-| method        |     seed |   GPU minutes |   updates |   validation high NLL |   validation pair accuracy |
-|:--------------|---------:|--------------:|----------:|----------------------:|---------------------------:|
-| continued_sft | 20260918 |       3.00000 |      1335 |               1.49891 |                    0.97154 |
-| continued_sft | 20260918 |       6.00000 |      2663 |               1.50421 |                    0.97123 |
-| continued_sft | 20260918 |      10.00000 |      4431 |               1.52686 |                    0.97104 |
-| dpo           | 20260918 |       3.00000 |       741 |               3.19986 |                    0.99230 |
-| dpo           | 20260918 |       6.00000 |      1941 |               3.62332 |                    0.99452 |
-| dpo           | 20260918 |      10.00000 |      3540 |               3.85419 |                    0.99545 |
-| dpo           | 20260918 |      20.00000 |      7538 |               4.20228 |                    0.99584 |
-| dpo           | 20260918 |      30.00000 |     11535 |               4.62396 |                    0.99635 |
-| continued_sft | 20260919 |       3.00000 |      1327 |               1.49859 |                    0.97220 |
-| continued_sft | 20260919 |       6.00000 |      2654 |               1.50530 |                    0.97228 |
-| continued_sft | 20260919 |      10.00000 |      4423 |               1.52515 |                    0.97076 |
-| dpo           | 20260919 |       3.00000 |       742 |               3.16644 |                    0.99347 |
-| dpo           | 20260919 |       6.00000 |      1941 |               3.50013 |                    0.99549 |
-| dpo           | 20260919 |      10.00000 |      3540 |               3.80018 |                    0.99557 |
-| dpo           | 20260919 |      20.00000 |      7539 |               4.34547 |                    0.99580 |
-| dpo           | 20260919 |      30.00000 |     11539 |               4.55968 |                    0.99654 |
-| continued_sft | 20260920 |       3.00000 |      1326 |               1.49653 |                    0.97368 |
-| continued_sft | 20260920 |       6.00000 |      2652 |               1.50536 |                    0.97255 |
-| continued_sft | 20260920 |      10.00000 |      4420 |               1.52640 |                    0.97185 |
-| dpo           | 20260920 |       3.00000 |       741 |               3.24992 |                    0.99226 |
-| dpo           | 20260920 |       6.00000 |      1940 |               3.53793 |                    0.99522 |
-| dpo           | 20260920 |      10.00000 |      3539 |               3.69654 |                    0.99561 |
-| dpo           | 20260920 |      20.00000 |      7537 |               4.16278 |                    0.99627 |
-| dpo           | 20260920 |      30.00000 |     11535 |               4.72645 |                    0.99627 |
+## Test ranking by distance to training sequences
 
-These are validation diagnostics, not final affinity or diversity results. No continuation checkpoint is selected until full validation ranking and generation diagnostics are complete. [Progress evidence](evidence/her2-continuation-progress-2026-09-18.json) retains actual GPU time, unique and repeated exposures, reference costs and checkpoint digests.
-<!-- continuation-progress:end -->
+| scorer               | train_distance   |   rows |   high_fraction |   mean_AP |   min_AP |   max_AP |   mean_AUROC |
+|:---------------------|:-----------------|-------:|----------------:|----------:|---------:|---------:|-------------:|
+| Continued SFT, 3 min | 1                |  70856 |          0.3318 |    0.9837 |   0.9832 |   0.9839 |       0.9913 |
+| Continued SFT, 3 min | 2                |   6649 |          0.2991 |    0.8694 |   0.8669 |   0.8722 |       0.9295 |
+| Continued SFT, 3 min | >=3              |   1147 |          0.2833 |    0.6838 |   0.6817 |   0.6863 |       0.8126 |
+| DPO, 3 min           | 1                |  70856 |          0.3318 |    0.9812 |   0.9801 |   0.9818 |       0.9893 |
+| DPO, 3 min           | 2                |   6649 |          0.2991 |    0.8628 |   0.8565 |   0.8683 |       0.9266 |
+| DPO, 3 min           | >=3              |   1147 |          0.2833 |    0.6560 |   0.6526 |   0.6621 |       0.8089 |
+| cnn_3class_ensemble  | 1                |  70856 |          0.3318 |    0.9957 |   0.9957 |   0.9957 |       0.9978 |
+| cnn_3class_ensemble  | 2                |   6649 |          0.2991 |    0.9309 |   0.9309 |   0.9309 |       0.9654 |
+| cnn_3class_ensemble  | >=3              |   1147 |          0.2833 |    0.7264 |   0.7264 |   0.7264 |       0.8498 |
+| nn_label             | 1                |  70856 |          0.3318 |    0.9858 |   0.9858 |   0.9858 |       0.9938 |
+| nn_label             | 2                |   6649 |          0.2991 |    0.8933 |   0.8933 |   0.8933 |       0.9528 |
+| nn_label             | >=3              |   1147 |          0.2833 |    0.2833 |   0.2833 |   0.2833 |       0.5000 |
 
-All three continued-SFT trajectories are complete. Their 10-minute high-bin NLL
-is 1.525151-1.526862, with held-out preference accuracy 0.970764-0.971853. The
-increase in validation NLL relative to the selected parents repeats across seeds.
+Generator rows summarize the three seeds at the first matched budget. Min/max describe seed spread. The nearest-neighbor comparator searches through Hamming distance two and returns the training prior beyond that; its distance >=3 row is therefore a constant-score fallback. Differences in overall ranking can reflect ordering between strata as well as within them, so the aggregate AP should not stand in for every stratum.
 
-All three DPO seeds improve held-out preference ordering while sharply worsening
-the likelihood of measured high-bin sequences. At 30 GPU minutes, pair accuracy
-is 0.996268-0.996540 and high-bin NLL is 4.559677-4.726449 per residue, compared
-with initial parent NLL 1.486741-1.491964. Preference-accuracy gains from 10 to
-30 minutes are 0.066-0.097 percentage points; the third seed has no further pair
-accuracy gain from 20 to 30 minutes while its high-bin NLL keeps increasing.
-This is not evidence that generated antibodies bind better, and likelihood
-change alone does not establish collapse or DPO overfitting. Full ranking,
-actual sampling and independent assay evaluation are still needed.
+## Independent SPR within each source design method
 
-All 24 budget checkpoint hashes and six parent states verified against their
-recorded identities. Every budget exceeded its nominal target by less than one
-update; total charged training/reference time was 7,200.399 GPU seconds. Source
-code and configuration hashes remained unchanged. The
-[integrity record](evidence/her2-continuation-integrity-2026-09-18.json) also retains
-the separately measured whole-run wall time and update counts.
+| scorer               | design_method   |   finite_KD_rows |   mean_rho |   min_rho |   max_rho |
+|:---------------------|:----------------|-----------------:|-----------:|----------:|----------:|
+| Continued SFT, 3 min | ablang_all      |               29 |     0.3667 |    0.3241 |    0.4241 |
+| Continued SFT, 3 min | ablang_one      |               23 |     0.1370 |    0.0494 |    0.2480 |
+| Continued SFT, 3 min | blosum          |               63 |     0.5722 |    0.5474 |    0.5896 |
+| Continued SFT, 3 min | esm_one         |               22 |     0.4143 |    0.3495 |    0.5189 |
+| Continued SFT, 3 min | protein_mpnn    |               15 |     0.2619 |    0.1893 |    0.3500 |
+| DPO, 3 min           | ablang_all      |               29 |     0.2959 |    0.1404 |    0.4266 |
+| DPO, 3 min           | ablang_one      |               23 |    -0.0375 |   -0.2480 |    0.1206 |
+| DPO, 3 min           | blosum          |               63 |     0.4219 |    0.3968 |    0.4588 |
+| DPO, 3 min           | esm_one         |               22 |     0.2181 |    0.1485 |    0.2739 |
+| DPO, 3 min           | protein_mpnn    |               15 |    -0.1369 |   -0.2464 |   -0.0464 |
+| DPO, 30 min          | ablang_all      |               29 |     0.2547 |    0.1640 |    0.3212 |
+| DPO, 30 min          | ablang_one      |               23 |     0.0985 |    0.0049 |    0.2836 |
+| DPO, 30 min          | blosum          |               63 |     0.3273 |    0.1822 |    0.4123 |
+| DPO, 30 min          | esm_one         |               22 |     0.2626 |    0.1327 |    0.3563 |
+| DPO, 30 min          | protein_mpnn    |               15 |     0.0571 |   -0.0357 |    0.1393 |
+| Initial SFT          | ablang_all      |               29 |     0.4043 |    0.3813 |    0.4483 |
+| Initial SFT          | ablang_one      |               23 |     0.2424 |    0.1739 |    0.3281 |
+| Initial SFT          | blosum          |               63 |     0.6013 |    0.5953 |    0.6053 |
+| Initial SFT          | esm_one         |               22 |     0.4832 |    0.3721 |    0.5460 |
+| Initial SFT          | protein_mpnn    |               15 |     0.3048 |    0.2571 |    0.3821 |
+| cnn_3class_ensemble  | ablang_all      |               29 |     0.2567 |    0.2567 |    0.2567 |
+| cnn_3class_ensemble  | ablang_one      |               23 |    -0.0316 |   -0.0316 |   -0.0316 |
+| cnn_3class_ensemble  | blosum          |               63 |     0.4234 |    0.4234 |    0.4234 |
+| cnn_3class_ensemble  | esm_one         |               22 |     0.2671 |    0.2671 |    0.2671 |
+| cnn_3class_ensemble  | protein_mpnn    |               15 |    -0.3750 |   -0.3750 |   -0.3750 |
+| nn_label             | ablang_all      |               29 |     0.1337 |    0.1337 |    0.1337 |
+| nn_label             | ablang_one      |               23 |     0.3129 |    0.3129 |    0.3129 |
+| nn_label             | blosum          |               63 |     0.4408 |    0.4408 |    0.4408 |
+| nn_label             | esm_one         |               22 |     0.1017 |    0.1017 |    0.1017 |
+| nn_label             | protein_mpnn    |               15 |     0.3712 |    0.3712 |    0.3712 |
 
-<!-- validation-progress:start -->
-## Continuation sampling progress
+The generator rows summarize three training seeds at fixed descriptive endpoints (initial SFT, the first matched budget and the largest DPO budget). Min/max describe seed spread, not confidence intervals. Each design-method stratum uses only its own finite KD measurements. These strata reveal whether pooled ranking depends on differences between the source design methods.
 
-21/31 policy checkpoints have completed validation scoring and native sampling. Reference-KL diagnostics and the final freeze follow the complete per-policy pass.
+## Every continuation checkpoint
 
-continued_sft: 9 of 9 sampled checkpoints eligible; dpo: 0 of 5 sampled checkpoints eligible.
+| method        |          seed |   target_minutes |   val_high_nll |   test_ap |   p1000 |   parent_relative_ap |   spr_spearman |   spr_parent_relative_spearman |   kl_parent |   mean_hamming |   unique |   max_frequency |   not_in_train | eligible   |
+|:--------------|--------------:|-----------------:|---------------:|----------:|--------:|---------------------:|---------------:|-------------------------------:|------------:|---------------:|---------:|----------------:|---------------:|:-----------|
+| continued_sft | 20260918.0000 |           3.0000 |         1.4989 |    0.9695 |  1.0000 |               0.5244 |         0.5238 |                         0.1078 |      0.3952 |         7.5825 |   0.9765 |          0.0003 |         0.5967 | True       |
+| continued_sft | 20260918.0000 |           6.0000 |         1.5042 |    0.9691 |  1.0000 |               0.5422 |         0.5308 |                         0.1261 |      0.4720 |         7.5752 |   0.9796 |          0.0004 |         0.5790 | True       |
+| continued_sft | 20260918.0000 |          10.0000 |         1.5269 |    0.9686 |  1.0000 |               0.6208 |         0.5270 |                         0.1744 |      0.6249 |         7.5446 |   0.9776 |          0.0003 |         0.5307 | True       |
+| continued_sft | 20260919.0000 |           3.0000 |         1.4986 |    0.9705 |  1.0000 |               0.6036 |         0.4912 |                         0.0391 |      0.4083 |         7.5522 |   0.9718 |          0.0003 |         0.5728 | True       |
+| continued_sft | 20260919.0000 |           6.0000 |         1.5053 |    0.9705 |  1.0000 |               0.6285 |         0.4781 |                         0.0226 |      0.4691 |         7.5483 |   0.9771 |          0.0003 |         0.5699 | True       |
+| continued_sft | 20260919.0000 |          10.0000 |         1.5252 |    0.9694 |  1.0000 |               0.6702 |         0.4610 |                         0.0502 |      0.6281 |         7.5352 |   0.9790 |          0.0003 |         0.5291 | True       |
+| continued_sft | 20260920.0000 |           3.0000 |         1.4965 |    0.9702 |  1.0000 |               0.6340 |         0.5283 |                         0.0664 |      0.3703 |         7.5338 |   0.9780 |          0.0003 |         0.5984 | True       |
+| continued_sft | 20260920.0000 |           6.0000 |         1.5054 |    0.9698 |  1.0000 |               0.6491 |         0.5256 |                         0.0502 |      0.4913 |         7.5799 |   0.9798 |          0.0005 |         0.5725 | True       |
+| continued_sft | 20260920.0000 |          10.0000 |         1.5264 |    0.9688 |  1.0000 |               0.6762 |         0.5084 |                         0.0337 |      0.6457 |         7.5501 |   0.9739 |          0.0003 |         0.5124 | True       |
+| dpo           | 20260918.0000 |          20.0000 |         4.2023 |    0.9727 |  1.0000 |               0.9559 |         0.2537 |                         0.0246 |      4.7547 |         6.2470 |   0.2367 |          0.0434 |         0.4653 | False      |
+| dpo           | 20260918.0000 |           3.0000 |         3.1999 |    0.9736 |  1.0000 |               0.9509 |         0.3409 |                         0.0705 |      3.8132 |         6.1841 |   0.4203 |          0.0069 |         0.4359 | False      |
+| dpo           | 20260918.0000 |          30.0000 |         4.6240 |    0.9708 |  1.0000 |               0.9545 |         0.2944 |                         0.0219 |      5.7137 |         6.3114 |   0.1892 |          0.1175 |         0.4688 | False      |
+| dpo           | 20260918.0000 |           6.0000 |         3.6233 |    0.9720 |  1.0000 |               0.9519 |         0.2938 |                        -0.0308 |      4.0900 |         6.2870 |   0.3720 |          0.0152 |         0.4409 | False      |
+| dpo           | 20260918.0000 |          10.0000 |         3.8542 |    0.9736 |  1.0000 |               0.9550 |         0.2973 |                         0.0323 |      4.4195 |         6.1959 |   0.3084 |          0.0126 |         0.4515 | False      |
+| dpo           | 20260919.0000 |          20.0000 |         4.3455 |    0.9743 |  1.0000 |               0.9602 |         0.3148 |                         0.0825 |      5.1328 |         6.0490 |   0.2039 |          0.0301 |         0.4420 | False      |
+| dpo           | 20260919.0000 |           3.0000 |         3.1664 |    0.9736 |  1.0000 |               0.9529 |         0.3203 |                         0.0156 |      3.8133 |         6.0288 |   0.4022 |          0.0184 |         0.4317 | False      |
+| dpo           | 20260919.0000 |          30.0000 |         4.5597 |    0.9733 |  1.0000 |               0.9604 |         0.3753 |                         0.1800 |      5.3256 |         6.2276 |   0.1888 |          0.0243 |         0.3903 | False      |
+| dpo           | 20260919.0000 |           6.0000 |         3.5001 |    0.9738 |  1.0000 |               0.9531 |         0.3233 |                        -0.0063 |      4.1474 |         6.0337 |   0.3439 |          0.0104 |         0.4254 | False      |
+| dpo           | 20260919.0000 |          10.0000 |         3.8002 |    0.9723 |  1.0000 |               0.9541 |         0.3607 |                         0.0893 |      4.4051 |         6.2580 |   0.2963 |          0.0151 |         0.4362 | False      |
+| dpo           | 20260920.0000 |          20.0000 |         4.1628 |    0.9730 |  1.0000 |               0.9579 |         0.4124 |                         0.2152 |      5.2525 |         6.5474 |   0.2269 |          0.0410 |         0.4575 | False      |
+| dpo           | 20260920.0000 |           3.0000 |         3.2499 |    0.9715 |  1.0000 |               0.9506 |         0.3840 |                         0.1656 |      3.7394 |         6.0931 |   0.4386 |          0.0130 |         0.4418 | False      |
+| dpo           | 20260920.0000 |          30.0000 |         4.7264 |    0.9735 |  1.0000 |               0.9609 |         0.3507 |                         0.1360 |      6.4770 |         6.5827 |   0.1907 |          0.0742 |         0.4669 | False      |
+| dpo           | 20260920.0000 |           6.0000 |         3.5379 |    0.9725 |  1.0000 |               0.9526 |         0.3774 |                         0.1100 |      4.0337 |         6.2175 |   0.3427 |          0.0155 |         0.4205 | False      |
+| dpo           | 20260920.0000 |          10.0000 |         3.6965 |    0.9714 |  1.0000 |               0.9528 |         0.4008 |                         0.1081 |      4.3804 |         6.3619 |   0.3332 |          0.0126 |         0.4524 | False      |
 
-| method        |     seed |   minutes |   val AP |   entropy |   unique |   largest mode |   not in train | eligible   |
-|:--------------|---------:|----------:|---------:|----------:|---------:|---------------:|---------------:|:-----------|
-| continued_sft | 20260918 |   3.00000 |  0.96863 |  13.72458 |  0.97650 |        0.00030 |        0.59670 | True       |
-| continued_sft | 20260918 |   6.00000 |  0.96857 |  13.72838 |  0.97960 |        0.00040 |        0.57900 | True       |
-| continued_sft | 20260918 |  10.00000 |  0.96793 |  13.46387 |  0.97760 |        0.00030 |        0.53070 | True       |
-| continued_sft | 20260919 |   3.00000 |  0.96924 |  13.63752 |  0.97180 |        0.00030 |        0.57280 | True       |
-| continued_sft | 20260919 |   6.00000 |  0.96908 |  13.68453 |  0.97710 |        0.00030 |        0.56990 | True       |
-| continued_sft | 20260919 |  10.00000 |  0.96782 |  13.45174 |  0.97900 |        0.00030 |        0.52910 | True       |
-| continued_sft | 20260920 |   3.00000 |  0.96918 |  13.71337 |  0.97800 |        0.00030 |        0.59840 | True       |
-| continued_sft | 20260920 |   6.00000 |  0.96874 |  13.67380 |  0.97980 |        0.00050 |        0.57250 | True       |
-| continued_sft | 20260920 |  10.00000 |  0.96810 |  13.37872 |  0.97390 |        0.00030 |        0.51240 | True       |
-| dpo           | 20260918 |   3.00000 |  0.97362 |   8.52300 |  0.42030 |        0.00690 |        0.43590 | False      |
-| dpo           | 20260918 |   6.00000 |  0.97237 |   8.16098 |  0.37200 |        0.01520 |        0.44090 | False      |
-| dpo           | 20260918 |  10.00000 |  0.97348 |   7.72669 |  0.30840 |        0.01260 |        0.45150 | False      |
-| dpo           | 20260918 |  20.00000 |  0.97341 |   6.93898 |  0.23670 |        0.04340 |        0.46530 | False      |
-| dpo           | 20260918 |  30.00000 |  0.97133 |   6.19388 |  0.18920 |        0.11750 |        0.46880 | False      |
+Parent-relative scores are policy log density minus the same SFT parent that DPO used as its reference. They are a declared diagnostic. Checkpoint selection used raw validation density ranking and the fixed diversity criteria.
 
-For DPO seed 20260918, all five budgets fail the diversity requirements. Unique draws fall from 42.03% at 3 minutes to 18.92% at 30 minutes; the largest single sequence accounts for 11.75% of draws at 30 minutes. Joint entropy falls from the SFT parent's 14.28 nats to 8.52 at 3 minutes and 6.19 at 30 minutes. This is direct sampling evidence of mode collapse, despite improved held-out high-versus-low pair ordering. Full validation AP falls from 0.97362 at 3 minutes to 0.97133 at 30 minutes.
+## Matched-budget paired differences
 
-These are validation observations. [Sampling progress evidence](evidence/her2-validation-progress-2026-09-18.json) retains individual diagnostics and draw/checkpoint hashes. Independent SPR and final test evaluation remain pending.
-<!-- validation-progress:end -->
+|           seed |   budget_minutes |   DPO_minus_SFT_AP |   CI_low |   CI_high |
+|---------------:|-----------------:|-------------------:|---------:|----------:|
+| 20260918.00000 |          3.00000 |            0.00412 |  0.00290 |   0.00525 |
+| 20260918.00000 |          6.00000 |            0.00285 |  0.00158 |   0.00406 |
+| 20260918.00000 |         10.00000 |            0.00495 |  0.00369 |   0.00617 |
+| 20260919.00000 |          3.00000 |            0.00306 |  0.00180 |   0.00428 |
+| 20260919.00000 |          6.00000 |            0.00330 |  0.00208 |   0.00458 |
+| 20260919.00000 |         10.00000 |            0.00288 |  0.00160 |   0.00422 |
+| 20260920.00000 |          3.00000 |            0.00137 |  0.00017 |   0.00253 |
+| 20260920.00000 |          6.00000 |            0.00268 |  0.00144 |   0.00392 |
+| 20260920.00000 |         10.00000 |            0.00260 |  0.00133 |   0.00390 |
 
-## Verification and artifacts
+Intervals are 95% paired percentile intervals from 1,000 row resamples of the test population. They describe row-resampling uncertainty, separately from variation between training seeds. They do not account for dependence among nearby sequences or establish generalization to a different target or scaffold.
 
-Validation paused after 21/31 policies because one FP32 sampler/scorer comparison
-exceeded its original tolerance. A read-only FP64 diagnosis supports rounding,
-not a cache-logic discrepancy: full teacher forcing and autoregression agreed to
-8.53e-14 nats on the worst rows. Native math SDPA passed the unchanged FP32
-tolerance, with identical 10,000 draws on the failing checkpoint; the ten remaining
-DPO checkpoints also passed. All 31 policies are being revalidated uniformly
-under this backend before final selection. The original partial tables above
-remain preliminary automatic-SDPA evidence. See the
-[numerical amendment](../specs/her2_hcdr3_benchmark.md#9-numerical-evaluation-amendment--2026-09-18)
-and [audit evidence](evidence/her2-numerical-audit-2026-09-18.json).
+## Frozen checkpoint decisions
 
-The added evaluation driver passed 37 driver/runner checks. It preserves the
-original training identities and binds its own hash and backend separately in
-the final freeze; it does not alter weights or relax the scoring tolerance.
+| run                        |   budget_minutes | selected                             |   validation_ap |
+|:---------------------------|-----------------:|:-------------------------------------|----------------:|
+| continued_sft_seed20260918 |           3.0000 | continued_sft_seed20260918_budget180 |          0.9686 |
+| continued_sft_seed20260918 |           6.0000 | continued_sft_seed20260918_budget180 |          0.9686 |
+| continued_sft_seed20260918 |          10.0000 | continued_sft_seed20260918_budget180 |          0.9686 |
+| continued_sft_seed20260919 |           3.0000 | continued_sft_seed20260919_budget180 |          0.9692 |
+| continued_sft_seed20260919 |           6.0000 | continued_sft_seed20260919_budget180 |          0.9692 |
+| continued_sft_seed20260919 |          10.0000 | continued_sft_seed20260919_budget180 |          0.9692 |
+| continued_sft_seed20260920 |           3.0000 | continued_sft_seed20260920_budget180 |          0.9692 |
+| continued_sft_seed20260920 |           6.0000 | continued_sft_seed20260920_budget180 |          0.9692 |
+| continued_sft_seed20260920 |          10.0000 | continued_sft_seed20260920_budget180 |          0.9692 |
+| dpo_seed20260918           |          20.0000 | none eligible                        |        nan      |
+| dpo_seed20260918           |           3.0000 | none eligible                        |        nan      |
+| dpo_seed20260918           |          30.0000 | none eligible                        |        nan      |
+| dpo_seed20260918           |           6.0000 | none eligible                        |        nan      |
+| dpo_seed20260918           |          10.0000 | none eligible                        |        nan      |
+| dpo_seed20260919           |          20.0000 | none eligible                        |        nan      |
+| dpo_seed20260919           |           3.0000 | none eligible                        |        nan      |
+| dpo_seed20260919           |          30.0000 | none eligible                        |        nan      |
+| dpo_seed20260919           |           6.0000 | none eligible                        |        nan      |
+| dpo_seed20260919           |          10.0000 | none eligible                        |        nan      |
+| dpo_seed20260920           |          20.0000 | none eligible                        |        nan      |
+| dpo_seed20260920           |           3.0000 | none eligible                        |        nan      |
+| dpo_seed20260920           |          30.0000 | none eligible                        |        nan      |
+| dpo_seed20260920           |           6.0000 | none eligible                        |        nan      |
+| dpo_seed20260920           |          10.0000 | none eligible                        |        nan      |
 
-The uniform math-SDPA rerun has completed all 31 policies and the final selection
-is frozen. All 21 policies shared
-with the original partial pass reproduce its uniqueness fractions and eligibility
-decisions exactly; the largest absolute validation AP difference is 3.22e-8. The
-[rerun evidence](evidence/her2-math-validation-2026-09-18.json) retains the numerical
-manifest, complete records, reference-KL diagnostics and final selection. Final
-test and independent SPR evaluation follow this freeze.
+Selections were fixed using validation AP and the declared diversity gates before model-based final test and SPR evaluation. An empty budget stays empty; no parent or failed checkpoint is silently promoted.
 
-All nine continued-SFT checkpoints pass, retaining 97.18-97.98% unique draws.
-All fifteen DPO checkpoints fail the diversity gates. DPO uniqueness is
-40.22-43.86% at three minutes and 18.88-19.07% at thirty minutes across the three
-seeds. Thirty-minute KL from each model's own SFT parent is 5.326-6.477 nats,
-with Monte Carlo standard errors 0.0285-0.0333 nats. The policy moved substantially
-and mode collapse replicated across all seeds.
+## Initial SFT validation
 
-The frozen validation rule selects the three-minute continued-SFT checkpoint
-for every seed and every allowed SFT budget. All DPO budgets are recorded as
-having no eligible checkpoint. Every raw checkpoint remains in the final
-scoring comparison. These decisions preceded model-based final test and SPR
-outcome access.
+| run                  |   epoch |   val_high_nll |   val_ap_diagnostic |
+|:---------------------|--------:|---------------:|--------------------:|
+| scratch_seed20260918 |       1 |         1.6954 |              0.8787 |
+| scratch_seed20260918 |       3 |         1.5826 |              0.9267 |
+| scratch_seed20260918 |       5 |         1.5415 |              0.9457 |
+| scratch_seed20260919 |       1 |         1.7008 |              0.8676 |
+| scratch_seed20260919 |       3 |         1.5790 |              0.9320 |
+| scratch_seed20260919 |       5 |         1.5382 |              0.9482 |
+| scratch_seed20260920 |       1 |         1.7094 |              0.8677 |
+| scratch_seed20260920 |       3 |         1.5847 |              0.9265 |
+| scratch_seed20260920 |       5 |         1.5427 |              0.9463 |
+| sft_seed20260918     |       1 |         1.5653 |              0.9422 |
+| sft_seed20260918     |       3 |         1.4920 |              0.9659 |
+| sft_seed20260918     |       5 |         1.5023 |              0.9693 |
+| sft_seed20260919     |       1 |         1.5640 |              0.9380 |
+| sft_seed20260919     |       3 |         1.4888 |              0.9677 |
+| sft_seed20260919     |       5 |         1.5018 |              0.9698 |
+| sft_seed20260920     |       1 |         1.5582 |              0.9404 |
+| sft_seed20260920     |       3 |         1.4867 |              0.9669 |
+| sft_seed20260920     |       5 |         1.5008 |              0.9701 |
 
-Before fitting: 1,984 repository tests passed, 3 skipped; a native 22M-parameter GPU
-scoring/gradient check passed; and a tiny synthetic run completed both training
-methods, checkpointing, generation, validation and the final evaluation handoff.
+Initial checkpoints were selected by high-bin validation NLL. Their validation AP was diagnostic only. No best seed was selected.
 
-Full local artifacts are in `outputs/her2_posttrain_20260918/`. The initial
-integrity audit read aggregate counts and two example rows from every published
-split, including test; model-based final test and SPR evaluation remain pending.
-p-IgGen's HER2 pretraining exposure remains unresolved.
+## Generated matches to measured held-out sequences
+
+| name                                 |   test_matches |   test_unique_matches |   test_match_high |   heldout_matches |   heldout_high |   not_in_train |   outside_library |
+|:-------------------------------------|---------------:|----------------------:|------------------:|------------------:|---------------:|---------------:|------------------:|
+| continued_sft_seed20260918_budget180 |            467 |                   454 |            0.9872 |               938 |         0.9904 |         0.5967 |            0.5029 |
+| continued_sft_seed20260918_budget360 |            442 |                   429 |            0.9977 |               883 |         0.9977 |         0.5790 |            0.4907 |
+| continued_sft_seed20260918_budget600 |            457 |                   444 |            0.9956 |               918 |         0.9956 |         0.5307 |            0.4389 |
+| continued_sft_seed20260919_budget180 |            463 |                   450 |            0.9978 |               917 |         0.9945 |         0.5728 |            0.4811 |
+| continued_sft_seed20260919_budget360 |            439 |                   435 |            0.9954 |               872 |         0.9931 |         0.5699 |            0.4827 |
+| continued_sft_seed20260919_budget600 |            444 |                   430 |            0.9932 |               880 |         0.9955 |         0.5291 |            0.4411 |
+| continued_sft_seed20260920_budget180 |            470 |                   459 |            0.9936 |               931 |         0.9957 |         0.5984 |            0.5053 |
+| continued_sft_seed20260920_budget360 |            464 |                   457 |            0.9957 |               942 |         0.9968 |         0.5725 |            0.4783 |
+| continued_sft_seed20260920_budget600 |            420 |                   412 |            0.9952 |               830 |         0.9952 |         0.5124 |            0.4294 |
+| dpo_seed20260918_budget1200          |            773 |                   207 |            1.0000 |              1609 |         1.0000 |         0.4653 |            0.3044 |
+| dpo_seed20260918_budget180           |            821 |                   338 |            1.0000 |              1756 |         1.0000 |         0.4359 |            0.2603 |
+| dpo_seed20260918_budget1800          |           1945 |                   160 |            1.0000 |              2875 |         1.0000 |         0.4688 |            0.1813 |
+| dpo_seed20260918_budget360           |            793 |                   319 |            1.0000 |              1769 |         1.0000 |         0.4409 |            0.2640 |
+| dpo_seed20260918_budget600           |            800 |                   275 |            1.0000 |              1795 |         1.0000 |         0.4515 |            0.2720 |
+| dpo_seed20260919_budget1200          |            854 |                   195 |            1.0000 |              1633 |         1.0000 |         0.4420 |            0.2787 |
+| dpo_seed20260919_budget180           |            973 |                   320 |            1.0000 |              1956 |         1.0000 |         0.4317 |            0.2361 |
+| dpo_seed20260919_budget1800          |            871 |                   190 |            1.0000 |              1866 |         1.0000 |         0.3903 |            0.2037 |
+| dpo_seed20260919_budget360           |            909 |                   307 |            1.0000 |              1819 |         1.0000 |         0.4254 |            0.2435 |
+| dpo_seed20260919_budget600           |            886 |                   278 |            1.0000 |              1798 |         1.0000 |         0.4362 |            0.2564 |
+| dpo_seed20260920_budget1200          |            706 |                   189 |            1.0000 |              1726 |         1.0000 |         0.4575 |            0.2849 |
+| dpo_seed20260920_budget180           |            749 |                   370 |            1.0000 |              1674 |         1.0000 |         0.4418 |            0.2744 |
+| dpo_seed20260920_budget1800          |            966 |                   157 |            1.0000 |              1603 |         1.0000 |         0.4669 |            0.3066 |
+| dpo_seed20260920_budget360           |            784 |                   301 |            1.0000 |              1926 |         1.0000 |         0.4205 |            0.2279 |
+| dpo_seed20260920_budget600           |            756 |                   268 |            1.0000 |              1831 |         1.0000 |         0.4524 |            0.2693 |
+| piggen_zeroshot                      |              0 |                     0 |          nan      |                 0 |       nan      |         1.0000 |            1.0000 |
+| policy_scratch_seed20260918          |            382 |                   365 |            0.9921 |               799 |         0.9950 |         0.7817 |            0.7018 |
+| policy_scratch_seed20260919          |            444 |                   424 |            0.9955 |               858 |         0.9965 |         0.7733 |            0.6875 |
+| policy_scratch_seed20260920          |            374 |                   367 |            0.9947 |               784 |         0.9949 |         0.7873 |            0.7089 |
+| policy_sft_seed20260918              |            507 |                   488 |            0.9941 |               991 |         0.9939 |         0.6776 |            0.5785 |
+| policy_sft_seed20260919              |            413 |                   402 |            0.9903 |               884 |         0.9943 |         0.6858 |            0.5974 |
+| policy_sft_seed20260920              |            467 |                   446 |            1.0000 |               918 |         0.9967 |         0.7067 |            0.6149 |
+
+`test_matches` and `test_match_high` use only the test catalogue; `test_unique_matches` counts distinct matching cores. `heldout_matches` counts draws whose exact sequence appears in the published validation or test catalogue. `heldout_high` is the high-bin fraction only within those matches. This conditioning favors measured library members and does not estimate the binding rate of all generated sequences. Duplicate draws count repeatedly here; they are not independent assay replicates. `not_in_train` is exact-sequence novelty, not functional novelty. `outside_library` is the fraction absent from all three published library splits; it does not establish absence from pretraining or other sources.
+
+## Initial-policy sampling
+
+| name                        |   entropy |   unique |   max_frequency |   not_in_train |   mean_hamming |
+|:----------------------------|----------:|---------:|----------------:|---------------:|---------------:|
+| piggen_zeroshot             |   23.7149 |   0.9992 |          0.0003 |         1.0000 |         9.1537 |
+| policy_scratch_seed20260918 |   15.4195 |   0.9784 |          0.0007 |         0.7817 |         7.5549 |
+| policy_scratch_seed20260919 |   15.3922 |   0.9811 |          0.0005 |         0.7733 |         7.5440 |
+| policy_scratch_seed20260920 |   15.4507 |   0.9815 |          0.0004 |         0.7873 |         7.5091 |
+| policy_sft_seed20260918     |   14.2849 |   0.9763 |          0.0004 |         0.6776 |         7.5064 |
+| policy_sft_seed20260919     |   14.4630 |   0.9791 |          0.0006 |         0.6858 |         7.5512 |
+| policy_sft_seed20260920     |   14.5589 |   0.9810 |          0.0004 |         0.7067 |         7.4717 |
+
+## Numerical evaluation amendment
+
+After fitting and before final selection, one automatic-SDPA sampler/scorer comparison failed its FP32 tolerance. An FP64 diagnosis found full teacher forcing and autoregression agreeing to 8.53e-14 nats on the worst rows. All 31 policies were then revalidated uniformly using native math SDPA, retaining FP32, the original tolerances, weights, seeds and selection rules. Final scoring uses the same backend. The original partial results are preserved separately. The [numerical audit](evidence/her2-numerical-audit-2026-09-18.json) and the [dated protocol amendment](../specs/her2_hcdr3_benchmark.md#9-numerical-evaluation-amendment--2026-09-18) document the change. The final freeze binds the added evaluation driver and backend through a separate manifest.
+
+## Interpretation limits
+
+- Library labels are high/mid/low binding bins, not numerical KD. The fixed-scaffold task edits ten HCDR3 positions and has no antigen encoder.
+- The random split is dominated by close training neighbors. Proximity-stratified results and paired bootstrap intervals are retained in the evidence.
+- Independent SPR evaluates other authors' designs, after removing exact library overlaps. It does not measure the binding of our newly generated sequences. Within-method results reduce, but do not remove, author selection bias.
+- Generated catalogue hits are lookups of existing measurements; unmeasured outputs receive no inferred experimental affinity. Repeated draws are not new assay replicates.
+- Diversity thresholds are distributional checks, not proof of functional diversity or absence of overfitting. Three seeds do not resolve every small effect.
+- Equal GPU time is not equal update count or label information: DPO also reads low-bin examples, while continued SFT trains on eligible high-bin examples.
+- One DPO beta and learning-rate schedule were tested. The scaling curves characterize this configuration, not the best attainable performance of DPO after hyperparameter tuning or a different objective.
+- p-IgGen's HER2 pretraining exposure remains unresolved. The scratch control tests random initialization at the same training schedule, not a tuned scratch optimum.
+- Initial source auditing read aggregate counts and two examples from every split, including test. Model-based test and SPR evaluation followed the final selection freeze.
+- The workbook identifies SPR; the upstream README abstract describes BLI. The metadata discrepancy is retained. Absci Corporation (2023) data were used solely for a support-compatibility audit, not these training or evaluation results.
+
+## Reproducibility
+
+The [evidence snapshot](evidence/her2-posttrain-2026-09-18.json) retains every scorer, distance stratum, paired interval, seed result, selection decision, exposure count and source/checkpoint digest. [Scaling data](evidence/her2-posttrain-scaling-2026-09-18.csv) are available separately. Weights, draw files and full logs remain under `outputs/her2_posttrain_20260918/`.
+
+The [final integrity audit](evidence/her2-final-integrity-2026-09-18.json) verified all 35 frozen model/baseline artifacts, all 31 draw files, the evaluation artifacts, unchanged selections and scientific-code hashes, and the separately bound numerical driver. Before fitting, 1,984 repository tests passed (3 skipped), with native scoring/gradient and synthetic-stage checks. The numerical amendment subsequently passed 37 driver/runner checks and all 31 native sampler/scorer checks at the original tolerance.

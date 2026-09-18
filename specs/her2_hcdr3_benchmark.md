@@ -322,8 +322,8 @@ Runs once, on a fresh output directory, and refuses to overwrite a completed run
    clean-exposure claim is made.
 2. Labels were read for aggregate integrity checks, and two example rows per split
    were printed, during the 2026-09-18 audit. That is disclosed; the splits were
-   not sealed from the start. What is checkable is narrower: no outcome-based model
-   selection and no final evaluation have occurred.
+   not sealed from the start. Final model-based test and SPR evaluation subsequently
+   followed the validation selection freeze; those outcomes did not reselect models.
 3. The AbSci release is a **support-mismatch diagnostic only**. In-support means
    jointly: HCDR3 length 13, the `SR`/`Y` anchors, a canonical 10-mer core, and the
    fixed trastuzumab H1/H2. Designs outside that support are not cropped into this
@@ -378,3 +378,22 @@ The [numerical audit](../reference/evidence/her2-numerical-audit-2026-09-18.json
 records the native failures, FP64 diagnosis and math-SDPA checks. Final outcome
 results must disclose this amendment rather than describe evaluation as wholly
 unchanged from the original preregistration.
+
+## 10. Assay availability disclosure after frozen evaluation — 2026-09-18
+
+The independent cohort contains 695 designs after overlap removal. Outcome access
+revealed 152 finite positive KD values, 96 `I.C.` values, 434 literal `N/A` values
+and 13 blank cells. The workbook legend documents `N.B.` as nonbinding, but no
+primary-cohort cell contains that token. Examined upstream documentation did not
+establish that `N/A` means nonbinding; the original parser therefore retains these
+as unsupported instead of inventing negative labels.
+
+The quantitative endpoint is available on 152 designs. The planned binary endpoint
+is unavailable because all 248 recognized binary outcomes are positive. No model,
+score, selection, source data, parser or stored evaluation result was changed to
+resolve this limitation. This is a data-availability disclosure after evaluation,
+not a newly chosen endpoint or a revision of the preregistered outcome rules.
+The [availability audit](../reference/evidence/her2-assay-availability-2026-09-18.json)
+records exact token counts, source coordinates and hashes. The
+[completed report](../reference/her2-posttrain.md) distinguishes quantified-design
+correlation from an unavailable binding/nonbinding evaluation.

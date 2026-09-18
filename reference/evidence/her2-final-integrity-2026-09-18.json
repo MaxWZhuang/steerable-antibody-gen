@@ -1,0 +1,19 @@
+{
+  "binary_SPR_endpoint_available": false,
+  "binary_endpoint_limitation": "434 literal N/A and 13 blank KD cells; zero documented nonbinding outcomes in the primary cohort",
+  "checkpoint_files_verified": 35,
+  "code_hashes_match_original_fits_and_freeze": true,
+  "evaluation_artifact_files_verified": 2,
+  "evaluation_sha256": "b2e05417d5ce4d389fa287ae6c8ecea84a590ca492f4643656306f43eef2b02a",
+  "generation_files_verified": 31,
+  "numerical_driver_hash_verified": true,
+  "numerical_manifest_sha256": "de350543c6955b2e48f2d5b4090267a25fe8ff6bafc17a9dbdfbed88d1e87906",
+  "paired_bootstrap_draws": 1000,
+  "quantitative_SPR_rows": 152,
+  "selection_freeze_sha256": "ab703a919722eca94f185ea02af3360e2743c169e76b1d9fc9d545f654d0df86",
+  "selections_unchanged_since_freeze": true,
+  "status": "passed",
+  "stratifier_sanity_check_passed": true,
+  "test_rows": 78652,
+  "validation_score_files_verified": 31
+}

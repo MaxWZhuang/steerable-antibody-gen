@@ -18,7 +18,7 @@ antigen encoder, no fusion module and no guide in this line of work.
 | continued SFT | more of the *same* objective on the eligible high-bin positives: no pairs, no reference cache |
 | DPO | distance-matched high-vs-low **preference pairs** against a frozen reference cache of the selected parent |
 | matched budgets | measured GPU seconds per seed: 180/360/600 s for both methods, plus 1200/1800 s for DPO |
-| three-class CNN and additive linear model | **auxiliary ranking comparators on measured populations only** — not the generator, not a reward model, not a preference source, not a selection criterion, and never applied to generated draws |
+| three-class CNN and additive linear model | **auxiliary ranking comparators on measured populations only** — not the generator, not a reward model, not a preference source, not a generator selection criterion, and never applied to generated draws |
 | independent SPR workbook | other people's designs, measured by someone else, with every library overlap removed |
 
 **What this benchmark is.** A dense ten-site library, not a few wild-type
@@ -30,12 +30,16 @@ training core (98.4% within 2), where a plain nearest-training-neighbour label
 lookup already reaches 0.981 average precision. Beating that is the bar, and the
 proximity strata are reported rather than fixed.
 
-**Run status (2026-09-18).** All six initial generator fits completed five passes.
-The three pretrained p-IgGen seeds favor pass 3 by validation NLL; the matched
-random-initialization controls favor pass 5. Auxiliary classifier fits and all six
-SFT/DPO continuations also finished. Generation and final evaluation follow the
-completed fits. [Current results and limitations](reference/her2-posttrain.md) distinguish
-validation observations from the pending final test and independent assay evaluation.
+**Results (2026-09-18).** All initial fits, six SFT/DPO continuations, 31 native
+generation checks and the available final endpoints are complete. All nine
+continued-SFT checkpoints pass the diversity gates; all fifteen DPO checkpoints
+fail. SFT retains 97-98% unique draws, while thirty-minute DPO retains about 19%.
+The frozen rule selects three-minute continued SFT in every seed. DPO improves
+aggregate library AP slightly, but has lower observed affinity correlations on
+the 152 quantified independent SPR designs. The planned binary SPR endpoint is
+unavailable: 434 primary-cohort KD cells contain unresolved `N/A`, which is not
+assumed to mean nonbinding. [Full results, uncertainty and limitations](reference/her2-posttrain.md)
+include every budget, proximity stratum, baseline and numerical-evaluation amendment.
 The initial integrity
 audit read aggregate label counts and printed two example rows from **each split,
 including test**; the split was therefore not sealed from the start.

@@ -1,0 +1,32 @@
+{
+  "binary_endpoint_available": false,
+  "evaluation_sha256": "b2e05417d5ce4d389fa287ae6c8ecea84a590ca492f4643656306f43eef2b02a",
+  "known_binary_negatives": 0,
+  "known_binary_positives": 248,
+  "literal_nonquantitative_tokens": {
+    "": 13,
+    "I.C.": 96,
+    "N/A": 434
+  },
+  "original_results_and_selection_unchanged": true,
+  "outcome_classes": {
+    "binding_unquantified": 96,
+    "missing": 13,
+    "quantitative": 152,
+    "unsupported": 434
+  },
+  "primary_designs": 695,
+  "quantitative_KD_rows": 152,
+  "quantitative_endpoint_scope": "152 finite positive KD values only; conditions on successful quantification and does not estimate binding of generated sequences.",
+  "reason": "The workbook documents N.B. as no binding, but the primary cohort has no N.B. entries: 434 KD cells contain literal N/A. No examined upstream documentation defines N/A as nonbinding. These cells are not relabelled as negatives. I.C. indicates binding without a reliable quantitative fit.",
+  "schema": "her2-assay-availability-audit/1",
+  "selection_freeze_sha256": "ab703a919722eca94f185ea02af3360e2743c169e76b1d9fc9d545f654d0df86",
+  "source_legend_locations": {
+    "KD_header": "E16",
+    "inconclusive_binding": "B12",
+    "nonbinding": "B13"
+  },
+  "source_url": "https://github.com/oxpig/Tz_her2_affinity_and_beyond/blob/b774c3b7633a13fb74575cd51c14893ea55ff544/data/spr/spr_results.xlsx",
+  "unresolved_or_missing": 447,
+  "workbook_sha256": "ccf5ef46cf4c3bb67c2bdba33b678e55ea144bb1ca7e2c69188fd99d2648ffe9"
+}
