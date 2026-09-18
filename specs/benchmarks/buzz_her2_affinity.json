@@ -1,0 +1,132 @@
+{
+  "candidate_source_url": "https://doi.org/10.1101/2024.03.26.586756",
+  "candidate_source_url_verified": false,
+  "dataset_name": "buzz_her2_affinity",
+  "files": [
+    {
+      "relative_path": "buzz/LICENSE",
+      "sha256": "1116f69e31e2648f5223c0d62510048f41992995452c4d4f2533ceaa7b7133c9",
+      "size_bytes": 1546
+    },
+    {
+      "relative_path": "buzz/README.md",
+      "sha256": "33ca49193f1ef38d019a40797decf2453fbdc0430ed10aaba6fc1b49bc8716f5",
+      "size_bytes": 3021
+    },
+    {
+      "relative_path": "buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/README.md",
+      "sha256": "d71db857a207915074b0a179085ad2c58f305caa5b2ec75e3b09bc6f6874e34d",
+      "size_bytes": 434
+    },
+    {
+      "relative_path": "buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/test.csv",
+      "sha256": "8c78b21ede36e6f0c88a7b44e3668ea9cab8b79ffcadbd6d0eaa02b75766d8ec",
+      "size_bytes": 1523196
+    },
+    {
+      "relative_path": "buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/train.csv",
+      "sha256": "e7efdd8f2608d777ff0c730966b1792496734ac82e871d5d0a9ae95787cf7ff7",
+      "size_bytes": 7108218
+    },
+    {
+      "relative_path": "buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/val.csv",
+      "sha256": "1db964bf7cd37da7d2009f2ecf20bf6cd1e095fbd81247e87545f809605c7366",
+      "size_bytes": 1523138
+    },
+    {
+      "relative_path": "buzz/data/spr/spr_results.xlsx",
+      "sha256": "ccf5ef46cf4c3bb67c2bdba33b678e55ea144bb1ca7e2c69188fd99d2648ffe9",
+      "size_bytes": 291820
+    },
+    {
+      "relative_path": "buzz/data/spr/spr_submitted.csv",
+      "sha256": "98558f80555cc8511fefd6da4cbe4a8525aa7b1d39491d75b3adfb9a810d78ad",
+      "size_bytes": 725101
+    },
+    {
+      "relative_path": "buzz/src/classifiers/cnn/model.py",
+      "sha256": "ced9ef07c3ff7a6def9889b032f982edc956e72cf30c6f5f9cb9cbf118c5bb67",
+      "size_bytes": 2336
+    },
+    {
+      "relative_path": "buzz/src/classifiers/cnn/train.py",
+      "sha256": "3288af3e080b2344f0dcceee613403f51ef0c81cfc58847f01fc8b335b76b9a4",
+      "size_bytes": 2155
+    },
+    {
+      "relative_path": "buzz/src/classifiers/dataset.py",
+      "sha256": "89c69c680ac59c1e52a8a0c497bfa0d8f8a2ed0734481796139e66b9a8a0a86d",
+      "size_bytes": 859
+    }
+  ],
+  "license": "BSD-3-Clause. Text supplied at buzz/LICENSE, first line 'BSD 3-Clause License', Copyright (c) 2024, Lewis Alexander Chinery & Alissa Hummer, sha256 1116f69e31e2648f5223c0d62510048f41992995452c4d4f2533ceaa7b7133c9.",
+  "notes": "Trastuzumab/HER2 affinity library from oxpig/Tz_her2_affinity_and_beyond at revision b774c3b7633a13fb74575cd51c14893ea55ff544. Per-file retrieval URLs are pinned in the untracked retrieval record data/raw/her2_functional_20260918/source_manifest.json; each is https://raw.githubusercontent.com/oxpig/Tz_her2_affinity_and_beyond/b774c3b7633a13fb74575cd51c14893ea55ff544/<upstream_path>, and the hashes here are the same bytes. WHAT THE LABELS ARE: sorted binding bins (high / mid / low), NOT KD values; label==1 is exactly class=='high', and mid/low are lower bins, not validated nonbinders. No KD is derived from them anywhere in this repository. POPULATION: the published cleaned random_split 0.7/0.15/0.15 holds 367,042 / 78,652 / 78,652 distinct 10-mer HCDR3 cores over one fixed trastuzumab scaffold (VH ...YYC-SR-<core>-Y-WGQGTLVTVSS, fixed VL), 524,346 in total, zero exact cross-split overlap, all 20 canonical residues present at each of the ten positions in the training high bin. Class counts: train 120,504 high / 133,008 mid / 113,530 low; val 25,822 / 28,502 / 24,328; test 25,823 / 28,501 / 24,328. The realized allocation is class-proportional to within one row in every class, so prevalence (0.32831) is comparable across splits. SCOPE BOUNDARY: this is one lineage, one target and ten editable positions - a local fixed-scaffold benchmark, not de novo antibody design, and held-out ranking on random_split is interpolation over a dense local library. INDEPENDENT ASSAY: data/spr/spr_results.xlsx carries 768 measured designs. The workbook metadata declares Carterra CMDP chip SPR while the repository README abstract (line 20) says Biolayer Interferometry; The workbook is recorded as SPR; the discrepant README wording is preserved explicitly. Outcome column E is not read until a frozen selection exists. TEST CUSTODY: test.csv labels are read only through the SelectionUnlock gate in src/smallAntibodyGen/experiments/her2_data.py; the test sequence column alone is read earlier for overlap diagnostics. Aggregate integrity checks and two printed example rows per split were performed during the 2026-09-18 audit; that disclosure stands.",
+  "owner_decisions": [
+    {
+      "key": "assay_direction_and_units",
+      "question": "What quantity, unit, and direction does the released measurement column carry?",
+      "status": "supplied"
+    },
+    {
+      "key": "editable_site_table_source",
+      "question": "Which released artifact defines the editable sites and their allowed residues?",
+      "status": "supplied"
+    },
+    {
+      "key": "file_hashes",
+      "question": "Supply the raw downloads so per-file byte sizes and SHA-256 hashes can be computed and recorded.",
+      "status": "supplied"
+    },
+    {
+      "key": "label_semantics",
+      "question": "Are the released labels quantitative affinities or sorted bins, and what does label==1 mean?",
+      "status": "supplied"
+    },
+    {
+      "key": "license",
+      "question": "What is the license of the retrieved artifacts, and does it permit redistribution of derived splits?",
+      "status": "supplied"
+    },
+    {
+      "key": "release_version",
+      "question": "Which exact release/revision of this source is authoritative for the benchmark?",
+      "status": "supplied"
+    },
+    {
+      "key": "retrieval_date",
+      "question": "On what date were the authoritative files retrieved?",
+      "status": "supplied"
+    },
+    {
+      "key": "source_url",
+      "question": "Which download URL is authoritative?",
+      "status": "supplied"
+    },
+    {
+      "key": "split_provenance",
+      "question": "Which split is authoritative, and was it produced upstream or here?",
+      "status": "supplied"
+    },
+    {
+      "key": "test_custody",
+      "question": "Who holds the reserved test labels, and where does the loader firewall sit?",
+      "status": "supplied"
+    }
+  ],
+  "plan_assertions": [
+    {
+      "claim": "The published split is named random_split and is a row-wise split of one local library; it is not a distant-family or held-out-lineage generalization test.",
+      "source": "outputs/claude_codex_her2_migration_20260918/plan.md",
+      "verified": false
+    },
+    {
+      "claim": "The 700 method designs in the independent assay workbook share the training scaffold, so exact core overlap with any published split must be excluded before the cohort is called independent.",
+      "source": "outputs/claude_codex_her2_migration_20260918/decisions.md",
+      "verified": false
+    }
+  ],
+  "release_version": "b774c3b7633a13fb74575cd51c14893ea55ff544",
+  "retrieval_date": "2026-09-18",
+  "schema_version": "1",
+  "source_url": "https://github.com/oxpig/Tz_her2_affinity_and_beyond/tree/b774c3b7633a13fb74575cd51c14893ea55ff544"
+}

@@ -6,24 +6,37 @@ prepared the same files.
 
 One JSON file per source. The file stem is the `dataset_name`.
 
-| File | Source |
-|---|---|
-| `cr9114_cr6261_landscape.json` | CR9114/CR6261 combinatorial landscapes |
-| `avida_hil6.json` | AVIDa-hIL6 |
-| `open_alphaseq.json` | Open AlphaSeq |
+| File | Source | Status |
+|---|---|---|
+| `cr9114_cr6261_landscape.json` | CR9114/CR6261 combinatorial landscapes | partly audited, unapproved |
+| `avida_hil6.json` | AVIDa-hIL6 | template |
+| `open_alphaseq.json` | Open AlphaSeq | template |
+| `buzz_her2_affinity.json` | Trastuzumab/HER2 affinity library (oxpig) | **approved** |
+| `absci_denovo_her2.json` | AbSci de novo HER2 binders | **approved** |
+| `piggen_backbone.json` | p-IgGen pretrained antibody LM | **approved** |
 
 The schema and every validator live in `src/smallAntibodyGen/benchmarks/provenance.py`.
 Tests live in `src/smallAntibodyGen/tests/test_benchmark_data.py` and never download anything.
 
-## Status: all three manifests are unapproved
+## Status
 
-Every manifest in this directory is a **template**. The owner has not yet supplied release
-versions, source URLs, licenses, retrieval dates, or hashes, and the raw downloads are not
-present locally. Nothing here may be consumed as data.
+The three **HER2 migration** manifests are approved: their files were downloaded, hashed and
+byte-verified locally on 2026-09-18, so every owner field is filled from evidence and
+`validate_source_manifest` returns a `SourceManifest`. The other three retain unresolved
+owner fields. The CR9114 manifest records its partial download and audit; AVIDa-hIL6 and
+Open AlphaSeq remain templates. Strict validation continues to reject these incomplete
+manifests.
 
-That is enforced, not merely stated. Owner-supplied values carry the literal sentinel
-`TODO(owner)`, and `validate_source_manifest` raises `UnsuppliedOwnerDecisionError` if a
-sentinel survives anywhere in the document. There is no path by which an unfilled manifest is
+Read "approved" narrowly. It says the manifest's *owner fields* are filled from verified local
+bytes. It does **not** say every scientific caveat about the source is resolved — p-IgGen's
+pretraining exposure is unresolved and is recorded in that manifest's `notes` and in a
+`plan_assertions` entry with `verified: false`. A question nobody can answer is left off
+`owner_decisions` and written down in `notes`; it is never marked `supplied` to get a document
+past the validator.
+
+The refusal path is enforced, not merely stated. Owner-supplied values carry the literal
+sentinel `TODO(owner)`, and `validate_source_manifest` raises `UnsuppliedOwnerDecisionError` if
+a sentinel survives anywhere in the document. There is no path by which an unfilled manifest is
 mistaken for an approved one.
 
 Two entry points, on purpose:

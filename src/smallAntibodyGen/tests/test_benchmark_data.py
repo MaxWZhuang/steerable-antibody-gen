@@ -68,6 +68,24 @@ CR9114_SUPPLIED_DECISIONS = frozenset(
 #: cannot quietly mark them supplied without evidence.
 CR9114_STILL_PENDING = ("license", "assayed_construct_availability")
 
+#: The HER2 migration manifests are the first APPROVED ones in this directory: the
+#: files are downloaded, hashed and byte-verified locally, so every owner field is
+#: filled from evidence and strict validation must SUCCEED. "Approved" is a
+#: statement about the manifest's owner fields, not a claim that every scientific
+#: caveat is resolved -- the unresolved p-IgGen pretraining exposure, for one, is
+#: carried in `notes` and in a `plan_assertions` entry with `verified: false`.
+HER2_MANIFESTS = ("absci_denovo_her2", "buzz_her2_affinity", "piggen_backbone")
+
+HER2_RELEASE_VERSIONS = {
+    "absci_denovo_her2": "cd2bd4b6932b5301d435555dc22084d407e4b92b",
+    "buzz_her2_affinity": "b774c3b7633a13fb74575cd51c14893ea55ff544",
+    "piggen_backbone": "0e5c4ed4e4c6bed0a0c7e56ad6fa24c63ed56023",
+}
+
+HER2_FILE_COUNTS = {"absci_denovo_her2": 5, "buzz_her2_affinity": 11, "piggen_backbone": 7}
+
+HER2_RETRIEVAL_DATE = "2026-09-18"
+
 
 # --------------------------------------------------------------------------
 # fixtures
@@ -300,22 +318,51 @@ def test_parse_still_rejects_structural_damage(approved_manifest_dict):
 def test_every_committed_manifest_parses_structurally(manifest_dir):
     paths = sorted(manifest_dir.glob("*.json"))
     assert [p.name for p in paths] == [
+        "absci_denovo_her2.json",
         "avida_hil6.json",
+        "buzz_her2_affinity.json",
         "cr9114_cr6261_landscape.json",
         "open_alphaseq.json",
+        "piggen_backbone.json",
     ]
     for path in paths:
         doc = prov.load_manifest_document(path)
         assert doc.dataset_name == path.stem
 
 
-def test_every_committed_manifest_is_unapproved_and_rejected(manifest_dir):
-    for path in sorted(manifest_dir.glob("*.json")):
-        doc = prov.load_manifest_document(path)
-        assert doc.is_approved is False, f"{path.name} looks approved but the owner has not signed off"
-        assert doc.unsupplied_fields, path.name
+def test_unapproved_manifests_are_rejected(manifest_dir):
+    for stem in TEMPLATE_MANIFESTS + (CR9114_MANIFEST,):
+        doc = prov.load_manifest_document(manifest_dir / f"{stem}.json")
+        assert doc.is_approved is False, f"{stem} looks approved but the owner has not signed off"
+        assert doc.unsupplied_fields, stem
         with pytest.raises(prov.UnsuppliedOwnerDecisionError):
             prov.validate_source_manifest(doc.raw)
+
+
+def test_her2_manifests_are_approved_and_validate_strictly(manifest_dir):
+    """The approved path must be exercised too, or only the refusal is ever tested."""
+    for stem in HER2_MANIFESTS:
+        doc = prov.load_manifest_document(manifest_dir / f"{stem}.json")
+        assert doc.unsupplied_fields == (), f"{stem} still carries a TODO(owner) sentinel"
+        assert doc.is_approved is True, stem
+        manifest = doc.validated()
+        assert isinstance(manifest, prov.SourceManifest)
+        assert manifest.dataset_name == stem
+        assert manifest.release_version == HER2_RELEASE_VERSIONS[stem]
+        assert manifest.retrieval_date == HER2_RETRIEVAL_DATE
+        assert len(manifest.files) == HER2_FILE_COUNTS[stem]
+        paths = [entry.relative_path for entry in manifest.files]
+        assert paths == sorted(paths), f"{stem} file entries are not in sorted order"
+
+
+def test_her2_manifests_do_not_overclaim_a_license(manifest_dir):
+    """Two licenses here are qualified, and the qualification must survive editing."""
+    absci = prov.load_manifest_document(manifest_dir / "absci_denovo_her2.json").raw["license"]
+    assert "Clear BSD" in absci
+    assert "attributed to Absci Corporation (2023)" in absci, (
+        "the added attribution clause is not in the SPDX template and must stay recorded")
+    piggen = prov.load_manifest_document(manifest_dir / "piggen_backbone.json").raw["license"]
+    assert "ASSERTED" in piggen and "ships no LICENSE file" in piggen
 
 
 def test_committed_manifests_record_only_verified_hashes(manifest_dir):
@@ -330,6 +377,11 @@ def test_committed_manifests_record_only_verified_hashes(manifest_dir):
             assert doc.raw["files"] == CR9114_VERIFIED_FILES, (
                 f"{path.name} file entries disagree with the 2026-09-14 verification record"
             )
+        elif path.stem in HER2_MANIFESTS:
+            assert len(doc.raw["files"]) == HER2_FILE_COUNTS[path.stem], path.name
+            for entry in doc.raw["files"]:
+                assert len(entry["sha256"]) == 64 and entry["sha256"] == entry["sha256"].lower()
+                assert entry["size_bytes"] > 0, entry
         else:
             pytest.fail(f"{path.name} has no recorded hash expectation; add one deliberately")
 
@@ -350,6 +402,12 @@ def test_committed_manifests_mark_candidate_urls_unverified(manifest_dir):
             assert doc.raw["retrieval_date"] == CR9114_VERIFIED_RETRIEVAL_DATE
             # The authoritative CSV is a different thing from the unverified
             # article landing page, and neither may be promoted into the other.
+            assert doc.raw["source_url"] != doc.raw["candidate_source_url"]
+        elif path.stem in HER2_MANIFESTS:
+            assert doc.raw["release_version"] == HER2_RELEASE_VERSIONS[path.stem]
+            assert doc.raw["retrieval_date"] == HER2_RETRIEVAL_DATE
+            # The revision-pinned download tree is authoritative; the paper is not.
+            assert doc.raw["release_version"] in doc.raw["source_url"], path.name
             assert doc.raw["source_url"] != doc.raw["candidate_source_url"]
         else:
             pytest.fail(f"{path.name} has no recorded source expectation; add one deliberately")
@@ -383,6 +441,13 @@ def test_committed_manifests_list_open_owner_decisions(manifest_dir):
             )
             for key in CR9114_STILL_PENDING:
                 assert key in unsupplied, f"{key} is still pending in the audit record"
+        elif path.stem in HER2_MANIFESTS:
+            # Every listed decision is answered from local evidence; an unanswered
+            # question is left OFF the list and recorded in notes, rather than
+            # marked supplied to get the manifest past the validator.
+            assert unsupplied == set(), f"{path.name} claims approval with an open decision"
+            assert {"file_hashes", "license", "release_version", "retrieval_date",
+                    "source_url"} <= supplied, path.name
         else:
             pytest.fail(f"{path.name} has no recorded decision expectation; add one deliberately")
 
