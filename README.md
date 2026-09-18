@@ -33,7 +33,7 @@ proximity strata are reported rather than fixed.
 **Run status (2026-09-18).** All six initial generator fits completed five passes.
 The three pretrained p-IgGen seeds favor pass 3 by validation NLL; the matched
 random-initialization controls favor pass 5. Auxiliary classifier fits also finished,
-and the initial parent selection is frozen for SFT and DPO continuations. [Current results and limitations](reference/her2-posttrain.md) distinguish
+and SFT/DPO continuations are running from the frozen initial parents. [Current results and limitations](reference/her2-posttrain.md) distinguish
 validation observations from the pending final test and independent assay evaluation.
 The initial integrity
 audit read aggregate label counts and printed two example rows from **each split,
