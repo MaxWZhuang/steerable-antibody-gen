@@ -75,16 +75,29 @@ checkpoint hash and scientific source-code hash was verified before continuation
 <!-- continuation-progress:start -->
 ## Continuation fitting progress
 
-1 of 6 trajectories completed. Only completed trajectories appear below.
+2 of 6 trajectories completed. Only completed trajectories appear below.
 
 | method        |     seed |   GPU minutes |   updates |   validation high NLL |   validation pair accuracy |
 |:--------------|---------:|--------------:|----------:|----------------------:|---------------------------:|
 | continued_sft | 20260918 |       3.00000 |      1335 |               1.49891 |                    0.97154 |
 | continued_sft | 20260918 |       6.00000 |      2663 |               1.50421 |                    0.97123 |
 | continued_sft | 20260918 |      10.00000 |      4431 |               1.52686 |                    0.97104 |
+| dpo           | 20260918 |       3.00000 |       741 |               3.19986 |                    0.99230 |
+| dpo           | 20260918 |       6.00000 |      1941 |               3.62332 |                    0.99452 |
+| dpo           | 20260918 |      10.00000 |      3540 |               3.85419 |                    0.99545 |
+| dpo           | 20260918 |      20.00000 |      7538 |               4.20228 |                    0.99584 |
+| dpo           | 20260918 |      30.00000 |     11535 |               4.62396 |                    0.99635 |
 
 These are validation diagnostics, not final affinity or diversity results. No continuation checkpoint is selected until full validation ranking and generation diagnostics are complete. [Progress evidence](evidence/her2-continuation-progress-2026-09-18.json) retains actual GPU time, unique and repeated exposures, reference costs and checkpoint digests.
 <!-- continuation-progress:end -->
+
+For the first seed, longer DPO fitting improves held-out preference ordering while
+sharply worsening the likelihood of measured high-bin sequences. At 30 GPU minutes,
+pair accuracy is 0.996346 but high-bin NLL is 4.623964 per residue; continued SFT
+at its 10-minute endpoint has pair accuracy 0.971036 and NLL 1.526862. The parent
+NLL was 1.491964. This is a substantial density shift, not evidence that the
+generated antibodies bind better. Full ranking, actual sampling, the remaining
+seeds and independent assay evaluation are still needed.
 
 ## Verification and artifacts
 
