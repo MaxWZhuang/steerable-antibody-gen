@@ -192,6 +192,13 @@ The added evaluation driver passed 37 driver/runner checks. It preserves the
 original training identities and binds its own hash and backend separately in
 the final freeze; it does not alter weights or relax the scoring tolerance.
 
+The first 15 policies in the uniform math-SDPA rerun reproduce the original
+uniqueness fractions and eligibility decisions exactly; the largest absolute
+validation AP difference is 3.22e-8. The
+[rerun evidence](evidence/her2-math-validation-2026-09-18.json) retains the numerical
+manifest and completed records. Validation and final outcome evaluation remain
+in progress.
+
 Before fitting: 1,984 repository tests passed, 3 skipped; a native 22M-parameter GPU
 scoring/gradient check passed; and a tiny synthetic run completed both training
 methods, checkpointing, generation, validation and the final evaluation handoff.
