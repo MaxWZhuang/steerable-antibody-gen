@@ -1,4 +1,4 @@
-# Steerable antibody generation with pretrained antigen-conditioned policies
+# Steerable antibody generation
 
 ## Current direction: HER2 HCDR3 post-training
 
