@@ -192,12 +192,18 @@ The added evaluation driver passed 37 driver/runner checks. It preserves the
 original training identities and binds its own hash and backend separately in
 the final freeze; it does not alter weights or relax the scoring tolerance.
 
-The first 15 policies in the uniform math-SDPA rerun reproduce the original
-uniqueness fractions and eligibility decisions exactly; the largest absolute
-validation AP difference is 3.22e-8. The
+The uniform math-SDPA rerun has completed 26/31 policies. All 21 policies shared
+with the original partial pass reproduce its uniqueness fractions and eligibility
+decisions exactly; the largest absolute validation AP difference is 3.22e-8. The
 [rerun evidence](evidence/her2-math-validation-2026-09-18.json) retains the numerical
 manifest and completed records. Validation and final outcome evaluation remain
 in progress.
+
+All nine continued-SFT checkpoints pass. All ten completed DPO checkpoints from
+the first two seeds fail the diversity gates. For seed 20260919, uniqueness falls
+from 40.22% at three minutes to 18.88% at thirty minutes (first seed: 42.03% to
+18.92%). Mode collapse therefore replicates across the first two DPO seeds; the
+third seed and reference-KL calculations remain pending.
 
 Before fitting: 1,984 repository tests passed, 3 skipped; a native 22M-parameter GPU
 scoring/gradient check passed; and a tiny synthetic run completed both training
