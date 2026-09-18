@@ -146,6 +146,35 @@ code and configuration hashes remained unchanged. The
 [integrity record](evidence/her2-continuation-integrity-2026-09-18.json) also retains
 the separately measured whole-run wall time and update counts.
 
+<!-- validation-progress:start -->
+## Continuation sampling progress
+
+21/31 policy checkpoints have completed validation scoring and native sampling. Reference-KL diagnostics and the final freeze follow the complete per-policy pass.
+
+continued_sft: 9 of 9 sampled checkpoints eligible; dpo: 0 of 5 sampled checkpoints eligible.
+
+| method        |     seed |   minutes |   val AP |   entropy |   unique |   largest mode |   not in train | eligible   |
+|:--------------|---------:|----------:|---------:|----------:|---------:|---------------:|---------------:|:-----------|
+| continued_sft | 20260918 |   3.00000 |  0.96863 |  13.72458 |  0.97650 |        0.00030 |        0.59670 | True       |
+| continued_sft | 20260918 |   6.00000 |  0.96857 |  13.72838 |  0.97960 |        0.00040 |        0.57900 | True       |
+| continued_sft | 20260918 |  10.00000 |  0.96793 |  13.46387 |  0.97760 |        0.00030 |        0.53070 | True       |
+| continued_sft | 20260919 |   3.00000 |  0.96924 |  13.63752 |  0.97180 |        0.00030 |        0.57280 | True       |
+| continued_sft | 20260919 |   6.00000 |  0.96908 |  13.68453 |  0.97710 |        0.00030 |        0.56990 | True       |
+| continued_sft | 20260919 |  10.00000 |  0.96782 |  13.45174 |  0.97900 |        0.00030 |        0.52910 | True       |
+| continued_sft | 20260920 |   3.00000 |  0.96918 |  13.71337 |  0.97800 |        0.00030 |        0.59840 | True       |
+| continued_sft | 20260920 |   6.00000 |  0.96874 |  13.67380 |  0.97980 |        0.00050 |        0.57250 | True       |
+| continued_sft | 20260920 |  10.00000 |  0.96810 |  13.37872 |  0.97390 |        0.00030 |        0.51240 | True       |
+| dpo           | 20260918 |   3.00000 |  0.97362 |   8.52300 |  0.42030 |        0.00690 |        0.43590 | False      |
+| dpo           | 20260918 |   6.00000 |  0.97237 |   8.16098 |  0.37200 |        0.01520 |        0.44090 | False      |
+| dpo           | 20260918 |  10.00000 |  0.97348 |   7.72669 |  0.30840 |        0.01260 |        0.45150 | False      |
+| dpo           | 20260918 |  20.00000 |  0.97341 |   6.93898 |  0.23670 |        0.04340 |        0.46530 | False      |
+| dpo           | 20260918 |  30.00000 |  0.97133 |   6.19388 |  0.18920 |        0.11750 |        0.46880 | False      |
+
+For DPO seed 20260918, all five budgets fail the diversity requirements. Unique draws fall from 42.03% at 3 minutes to 18.92% at 30 minutes; the largest single sequence accounts for 11.75% of draws at 30 minutes. Joint entropy falls from the SFT parent's 14.28 nats to 8.52 at 3 minutes and 6.19 at 30 minutes. This is direct sampling evidence of mode collapse, despite improved held-out high-versus-low pair ordering. Full validation AP falls from 0.97362 at 3 minutes to 0.97133 at 30 minutes.
+
+These are validation observations. [Sampling progress evidence](evidence/her2-validation-progress-2026-09-18.json) retains individual diagnostics and draw/checkpoint hashes. Independent SPR and final test evaluation remain pending.
+<!-- validation-progress:end -->
+
 ## Verification and artifacts
 
 Before fitting: 1,984 repository tests passed, 3 skipped; a native 22M-parameter GPU
