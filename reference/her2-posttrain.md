@@ -75,7 +75,7 @@ checkpoint hash and scientific source-code hash was verified before continuation
 <!-- continuation-progress:start -->
 ## Continuation fitting progress
 
-4 of 6 trajectories completed. Only completed trajectories appear below.
+5 of 6 trajectories completed. Only completed trajectories appear below.
 
 | method        |     seed |   GPU minutes |   updates |   validation high NLL |   validation pair accuracy |
 |:--------------|---------:|--------------:|----------:|----------------------:|---------------------------:|
@@ -95,9 +95,16 @@ checkpoint hash and scientific source-code hash was verified before continuation
 | dpo           | 20260919 |      10.00000 |      3540 |               3.80018 |                    0.99557 |
 | dpo           | 20260919 |      20.00000 |      7539 |               4.34547 |                    0.99580 |
 | dpo           | 20260919 |      30.00000 |     11539 |               4.55968 |                    0.99654 |
+| continued_sft | 20260920 |       3.00000 |      1326 |               1.49653 |                    0.97368 |
+| continued_sft | 20260920 |       6.00000 |      2652 |               1.50536 |                    0.97255 |
+| continued_sft | 20260920 |      10.00000 |      4420 |               1.52640 |                    0.97185 |
 
 These are validation diagnostics, not final affinity or diversity results. No continuation checkpoint is selected until full validation ranking and generation diagnostics are complete. [Progress evidence](evidence/her2-continuation-progress-2026-09-18.json) retains actual GPU time, unique and repeated exposures, reference costs and checkpoint digests.
 <!-- continuation-progress:end -->
+
+All three continued-SFT trajectories are complete. Their 10-minute high-bin NLL
+is 1.525151-1.526862, with held-out preference accuracy 0.970764-0.971853. The
+increase in validation NLL relative to the selected parents repeats across seeds.
 
 The first two seeds agree: longer DPO fitting improves held-out preference ordering
 while sharply worsening the likelihood of measured high-bin sequences. At 30 GPU
