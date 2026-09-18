@@ -1,7 +1,7 @@
 # HER2 p-IgGen post-training: run in progress
 
-Snapshot: 2026-09-18, after the complete initial fitting stage. Implementation
-commit `08d57ae`; continuation fitting is in progress and final evaluation remains pending.
+Snapshot: 2026-09-18, after all initial and continuation fits. Implementation
+commit `08d57ae`; full validation, generation and final evaluation remain pending.
 
 p-IgGen is the generator. The CNN is an auxiliary classifier added by Codex to
 compare ranking of measured sequences. It does not generate sequences, supply
@@ -39,8 +39,8 @@ at pass 5 does not change the selection rule. These three pass-3 parents are now
 frozen for both continuation methods.
 
 The [initial SFT evidence](evidence/her2-initial-sft-2026-09-18.json) retains the
-pretrained per-seed training reports and checkpoint hashes. Continuations,
-generation and final evaluation remain pending. These are
+pretrained per-seed training reports and checkpoint hashes. Generation and final
+evaluation remain pending. These are
 provisional validation observations, not a final benchmark result.
 The validation nearest-neighbor baseline already reaches approximately 0.981 AP,
 and 90.2% of validation cores are one mutation from a training core. Independent
@@ -75,7 +75,7 @@ checkpoint hash and scientific source-code hash was verified before continuation
 <!-- continuation-progress:start -->
 ## Continuation fitting progress
 
-5 of 6 trajectories completed. Only completed trajectories appear below.
+6 of 6 trajectories completed. Only completed trajectories appear below.
 
 | method        |     seed |   GPU minutes |   updates |   validation high NLL |   validation pair accuracy |
 |:--------------|---------:|--------------:|----------:|----------------------:|---------------------------:|
@@ -98,6 +98,11 @@ checkpoint hash and scientific source-code hash was verified before continuation
 | continued_sft | 20260920 |       3.00000 |      1326 |               1.49653 |                    0.97368 |
 | continued_sft | 20260920 |       6.00000 |      2652 |               1.50536 |                    0.97255 |
 | continued_sft | 20260920 |      10.00000 |      4420 |               1.52640 |                    0.97185 |
+| dpo           | 20260920 |       3.00000 |       741 |               3.24992 |                    0.99226 |
+| dpo           | 20260920 |       6.00000 |      1940 |               3.53793 |                    0.99522 |
+| dpo           | 20260920 |      10.00000 |      3539 |               3.69654 |                    0.99561 |
+| dpo           | 20260920 |      20.00000 |      7537 |               4.16278 |                    0.99627 |
+| dpo           | 20260920 |      30.00000 |     11535 |               4.72645 |                    0.99627 |
 
 These are validation diagnostics, not final affinity or diversity results. No continuation checkpoint is selected until full validation ranking and generation diagnostics are complete. [Progress evidence](evidence/her2-continuation-progress-2026-09-18.json) retains actual GPU time, unique and repeated exposures, reference costs and checkpoint digests.
 <!-- continuation-progress:end -->
@@ -106,17 +111,22 @@ All three continued-SFT trajectories are complete. Their 10-minute high-bin NLL
 is 1.525151-1.526862, with held-out preference accuracy 0.970764-0.971853. The
 increase in validation NLL relative to the selected parents repeats across seeds.
 
-The first two seeds agree: longer DPO fitting improves held-out preference ordering
-while sharply worsening the likelihood of measured high-bin sequences. At 30 GPU
-minutes, pair accuracy is 0.996346/0.996540 and high-bin NLL is 4.623964/4.559677
-per residue. Continued SFT at its 10-minute endpoint has pair accuracy
-0.971036/0.970764 and NLL 1.526862/1.525151. Initial parent NLL was
-1.491964/1.488833. DPO's preference-accuracy gains from 10 to 30 minutes are
-approximately 0.09-0.10 percentage points in these seeds; the density shift keeps
-growing. This is not evidence that generated antibodies bind better, and the
-likelihood change alone does not establish collapse or DPO overfitting.
-Full ranking, actual sampling, the third seed and independent assay evaluation
-are still needed.
+All three DPO seeds improve held-out preference ordering while sharply worsening
+the likelihood of measured high-bin sequences. At 30 GPU minutes, pair accuracy
+is 0.996268-0.996540 and high-bin NLL is 4.559677-4.726449 per residue, compared
+with initial parent NLL 1.486741-1.491964. Preference-accuracy gains from 10 to
+30 minutes are 0.066-0.097 percentage points; the third seed has no further pair
+accuracy gain from 20 to 30 minutes while its high-bin NLL keeps increasing.
+This is not evidence that generated antibodies bind better, and likelihood
+change alone does not establish collapse or DPO overfitting. Full ranking,
+actual sampling and independent assay evaluation are still needed.
+
+All 24 budget checkpoint hashes and six parent states verified against their
+recorded identities. Every budget exceeded its nominal target by less than one
+update; total charged training/reference time was 7,200.399 GPU seconds. Source
+code and configuration hashes remained unchanged. The
+[integrity record](evidence/her2-continuation-integrity-2026-09-18.json) also retains
+the separately measured whole-run wall time and update counts.
 
 ## Verification and artifacts
 

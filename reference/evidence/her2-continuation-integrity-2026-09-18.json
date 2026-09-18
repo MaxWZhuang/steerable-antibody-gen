@@ -1,0 +1,46 @@
+{
+  "runs": [
+    {
+      "run": "continued_sft_seed20260918",
+      "gpu_seconds": 600.0566883926401,
+      "updates": 4431,
+      "whole_run_wall_seconds": 693.8574353999575
+    },
+    {
+      "run": "continued_sft_seed20260919",
+      "gpu_seconds": 600.0657532577524,
+      "updates": 4423,
+      "whole_run_wall_seconds": 689.573865399987
+    },
+    {
+      "run": "continued_sft_seed20260920",
+      "gpu_seconds": 600.0911142768849,
+      "updates": 4420,
+      "whole_run_wall_seconds": 689.8619116999907
+    },
+    {
+      "run": "dpo_seed20260918",
+      "gpu_seconds": 1800.0386564788844,
+      "updates": 11535,
+      "whole_run_wall_seconds": 1948.3109346000128
+    },
+    {
+      "run": "dpo_seed20260919",
+      "gpu_seconds": 1800.1161318969712,
+      "updates": 11539,
+      "whole_run_wall_seconds": 1948.3537875000038
+    },
+    {
+      "run": "dpo_seed20260920",
+      "gpu_seconds": 1800.0303909149181,
+      "updates": 11535,
+      "whole_run_wall_seconds": 1948.3142956999945
+    }
+  ],
+  "raw_checkpoints_verified": 24,
+  "all_parent_states_match_initial_selection": true,
+  "all_checkpoint_bytes_match_recorded_hashes": true,
+  "all_budgets_within_one_update": true,
+  "scientific_code_and_config_unchanged": true,
+  "gpu_seconds_total": 7200.398735218051
+}
