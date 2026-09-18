@@ -106,7 +106,8 @@ def render():
     evidence.mkdir(exist_ok=True)
     frame.to_csv(evidence / 'her2-posttrain-scaling-2026-09-18.csv', index=False)
 
-    plt.rcParams.update({'font.size': 10, 'svg.fonttype': 'none'})
+    plt.rcParams.update({'font.size': 10, 'svg.fonttype': 'none',
+                         'svg.hashsalt': 'her2-posttrain-2026-09-18'})
     fig, axes = plt.subplots(2, 3, figsize=(13, 8), constrained_layout=True)
     panels = [('test_ap', 'Test average precision'),
               ('spr_spearman', 'SPR Spearman (152 quantified designs)'),
@@ -142,7 +143,10 @@ def render():
     axes[1, 2].axhline(0.5, color='grey', linewidth=0.8, linestyle='--')
     fig.suptitle('HER2 post-training: compute, measured-population ranking and generation',
                  fontsize=14)
-    fig.savefig(figures / 'her2-posttrain-scaling.svg')
+    svg_path = figures / 'her2-posttrain-scaling.svg'
+    fig.savefig(svg_path, metadata={'Date': None})
+    svg_path.write_text('\n'.join(line.rstrip() for line in
+        svg_path.read_text(encoding='utf-8').splitlines()) + '\n', encoding='utf-8')
     fig.savefig(RUN / 'evaluation_math/her2-posttrain-scaling.png', dpi=170)
     plt.close(fig)
 
