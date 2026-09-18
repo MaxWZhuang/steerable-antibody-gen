@@ -2,13 +2,19 @@
 
 **Date:** 2026-09-09
 
-**Status:** direction accepted; ESM-IF1 selected for integration; implementation and checkpoint promotion pending.
+**Status, 2026-09-18:** historical architecture decision. ESM-IF1 integration and
+CR9114 pilots are complete; the subsequent p-IgGen/HER2 campaign is complete.
+The active scope is [mechanistic interpretation](../../reference/research-design.md).
+The optional conditioned-policy extension remains separate. The dated decisions
+below record earlier choices and impose no performance or approval prerequisite
+on current interpretation work.
 
 ## Scope clarification — 2026-09-14
 
-The first experiment follows the narrower [offline preference scope](../../docs/OFFLINE-DPO-SCOPE.md)
-and the user's stated priority: establish a measured fixed-target task with an
-existing pretrained generator, then study post-training and interpretation.
+The first experiment followed the narrower offline preference scope (its working
+plan is now retired) and the user's stated priority: establish a measured
+fixed-target task with an existing pretrained generator, then study post-training
+and interpretation.
 The user selected **ESM-IF1** (`esm_if1_gvp4_t16_142M_UR50`) after considering
 future antigen conditioning. The first experiment uses one declared fixed
 structural context. Cross-antigen response is a later extension. The original
@@ -25,10 +31,12 @@ light chain fixed. The previously evaluated p-IgGen candidate is retained as an
 alternative; its release and exposure checks do not audit ESM-IF1.
 
 The [research recommendation](../../reference/fixed-target-posttraining-recommendation.md)
-specifies CR9114/H1 and records validation gates and limits of the intended claim.
+records the CR9114/H1 rationale and limits of the intended claim.
 The [local readiness audit](../../reference/evidence/esm-if1-readiness-2026-09-14.json)
-records that model loading, device/gradient checks, and compute measurement remain
-pending. This clarification does not certify a checkpoint, training run, or biological result.
+recorded that model loading, device/gradient checks, and compute measurement were
+pending on that date. Those checks and the pilots subsequently completed; see
+the [integration record](../esmif1_policy.md#integration-status). The dated
+clarification itself is not evidence of a training or biological result.
 
 ## Original broader decision — later program
 
@@ -82,7 +90,7 @@ results are not evidence of antibody generation quality.
 ## Authority
 
 [The migration specification](../pretrained_conditioned_policy.md) defines the
-work order, implementation boundaries, and acceptance evidence. This decision
+optional conditioning work and its implementation boundaries. This decision
 supersedes earlier roadmap priorities and the requirement to finish J11/J24 or
 train the custom v5 chain before pursuing the main experiment. Historical results
 and data-integrity contracts remain in force.

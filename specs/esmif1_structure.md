@@ -2,20 +2,18 @@
 
 **Date:** 2026-09-15
 
-**Status:** implemented as `smallAntibodyGen.structure`, with the CLI
+**Status, 2026-09-18:** implemented as `smallAntibodyGen.structure`, with the CLI
 `scripts/prepare_esmif1_structure.py`, pinned by
 `src/smallAntibodyGen/tests/test_esmif1_structure.py`. This is **input
 preparation only**. **Update, 2026-09-16:** the user selected
 [5CJQ as the CR9114/H1 working template](../reference/5cjq-structural-template.md).
 Its source files are hash-pinned, and the
 [benchmark mapping audit](../reference/cr9114-5cjq-mapping.md) verifies all 16
-sites and all 121 VH residues. No model input has been prepared. No weights have
-been loaded or training run by this structural-input work. It implements the
-*machinery* for the first pending
-gate in [the policy specification](esmif1_policy.md#pending-gates) — declared
-structural input — for the cases enumerated below. **The gate itself remains
-open:** it asks for a real structure selected for a real target, and this closes
-none of that.
+sites and all 121 VH residues. The
+[model input is prepared](../reference/cr9114-5cjq-context.md), and subsequent
+[released-weight scoring and training](../reference/cr9114-5cjq-pilot.md) completed.
+This document retains the structural-input contract; completed integration work
+is summarized in [the policy specification](esmif1_policy.md#integration-status).
 
 `specs/esmif1_policy.md` owns the probability contract. This document owns the
 schema, the exact supported and rejected cases, and the limitations.
@@ -192,7 +190,7 @@ sequence, where the difference is declared per residue; non-backbone atoms
 | any alternate-location identifier on a selected chain | choosing one conformation silently changes the structure |
 | a `HETATM` record on a selected chain | see the note below |
 | a residue name outside the canonical 20 on a selected chain (`UNK`, `MSE`, ligands) | a modified residue is not a residue with a known identity |
-| a mapped residue missing `N`, `CA` or `C` | the missing-coordinate convention is still an open gate in `esmif1_policy.md`; picking one here would close it silently |
+| a mapped residue missing `N`, `CA` or `C` | the supported input contract requires complete mapped backbone atoms; missing context regions are represented as declared fragment breaks |
 | two atoms with the same backbone name in one residue | ambiguous |
 | a non-finite coordinate in a selected chain | `NaN` already means inter-chain padding in this packing |
 | missing, non-finite, zero, negative, or greater-than-one atom occupancy on a selected chain | a coordinate row must not turn an unobserved atom into usable geometry; occupancy must be in `(0, 1]` |
@@ -433,46 +431,34 @@ alone do not establish binding measurements. The v1 rejections below still apply
 
 ## Limitations
 
-- **No real structure has been prepared.** Every test input is generated. The
-  adapter has never been run against a deposited PDB entry, so the rejection
-  rules above have not met a real file's edge cases — a real entry routinely
-  carries alternate locations, `MSE`, and solvent sharing a chain id, all of
-  which v1 refuses.
+- **Unit fixtures are synthetic.** The later
+  [5CJQ preparation](../reference/cr9114-5cjq-context.md) supplies real-structure
+  evidence for that declared context. It does not broaden the supported parser
+  cases to arbitrary alternate locations, modified residues, or solvent chains.
 - **No correspondence is derived.** The table is declared, never inferred. There
   is deliberately no alignment or scaffold-matching helper, because deriving a
   residue mapping is exactly the guessed mapping this layer exists to prevent.
-- **Missing coordinates are refused, not represented.** The choice between
-  upstream's two `NaN` branches (a `NaN` N becomes padding; a `NaN` CA only clears
-  `coord_mask`) stays an open gate in `esmif1_policy.md`.
+- **Missing mapped coordinates are refused.** Upstream's two `NaN` branches
+  (a `NaN` N becomes padding; a `NaN` CA only clears `coord_mask`) are outside
+  this contract. Declared fragment breaks handle missing context regions.
 - **One conformation only.** Alternate locations are refused, so a structure that
   carries any altloc on a selected chain cannot be prepared at all.
 - **Canonical residues only** in a selected chain, which excludes selenomethionine
   and every modified residue.
 - **Author numbering only.** `label` numbering is rejected rather than supported.
-- **No released checkpoint was tested.** The optional tests do run a real
+- **Unit tests do not load the released checkpoint.** The optional tests run a real
   `GVPTransformerModel` — a ~32-dimension one built from scratch with **random
-  weights** — so they verify wiring and nothing else. Nothing here has been
-  exercised against the released `esm_if1_gvp4_t16_142M_UR50` checkpoint, and no
-  number produced on random weights is a biological result.
+  weights** — so they verify wiring. Released-checkpoint evidence is supplied by
+  the subsequent pilot, not by these unit tests; random-weight outputs are not
+  biological results.
 - **`verify_against_source` is not automatic on load.** An ordinary
   `load_prepared_structure` validates embedded content only, and says so.
   `build_report` does run it, which is why a report costs a second parse.
 
-## Pending gates
+## Integration status
 
-Of the five gates in [the policy specification](esmif1_policy.md#pending-gates),
-this builds the machinery gate 1 needs, **only for a declared, supported local
-file**. The gate is not closed. Still open:
-
-1. complete the declaration for the selected 5CJQ working template: incorporate
-   the verified VH mapping and fixed mismatches, choose assembly/chain/domain
-   extent and missing-region handling, and establish a
-   justified relationship between the engineered structural antigen and the
-   measured H1 construct;
-2. exact source and weight hashes for `esm_if1_gvp4_t16_142M_UR50`, plus upstream
-   score parity against the released checkpoint;
-3. measured memory and throughput for a backward pass at the real sequence length;
-4. a frozen reference policy, the DPO/SFT losses, and the four-arm training plan;
-5. the development-side headroom gate.
-
-Preparing an input is not checkpoint promotion.
+Structure preparation, released-weight checks, device measurements, and SFT/DPO
+integration are complete for the recorded CR9114 pilots; see the
+[integration evidence](esmif1_policy.md#integration-status). The template's
+relationship to the assay remains a stated proxy-context limitation. The
+standalone p-IgGen/HER2 study has no structural-input dependency.

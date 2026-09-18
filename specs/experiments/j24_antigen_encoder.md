@@ -1,6 +1,7 @@
 # J24 — antigen-encoder selection
 
-**Status:** scoped, **not run**. Execution is blocked; see §7.
+**Status:** optional comparison, **not run**; configs, mechanisms, tests, and the
+comparison command are implemented. Section 7 lists the inputs needed to run it.
 **Predeclared:** 2026-08-28, before any arm has been trained.
 
 **Current role (2026-09-09):** optional custom-model reference comparison, outside
@@ -122,17 +123,20 @@ The report also records the margins it was judged under, the two config paths, a
 that differed between them — so a later reader can check the comparison was one-axis without
 re-deriving it.
 
-## 7. What blocks execution
+## 7. Inputs for a future J24 run
 
 1. **A promoted v5 stage-2 checkpoint.** `checkpoints/mlm_paired_refine_v5/best.pt` does not
    exist; the v5 chain has not been trained.
-2. **Approved inner-development evaluation assets** — the AVIDa inner development-mutant split
+2. **Inner-development evaluation assets** — the AVIDa inner development-mutant split
    is J05c, `not_started`. Gate 1's noise band and the AVIDa ranking criterion both depend on
    it.
 
 The configs, mechanisms, tests, comparison command, and this document exist now so that when
 those land, the experiment is a run rather than a design exercise — and so the design was fixed
 before any number was visible.
+
+These are dependencies of this optional comparison only. They impose no approval
+checkpoint or performance requirement on the standalone HER2 interpretation work.
 
 ## 8. Artifacts
 

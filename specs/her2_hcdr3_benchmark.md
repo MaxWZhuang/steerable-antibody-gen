@@ -7,6 +7,12 @@ aggregate labels and printed two example rows from each split, including test
 (§7.2). Execution status and results are recorded in the
 [run report](../reference/her2-posttrain.md).
 
+**Current role:** retained protocol for the completed campaign. Its diversity and
+checkpoint-selection rules describe that experiment; they do not exclude any
+checkpoint from subsequent mechanistic analysis. See the
+[current research scope](../reference/research-design.md). Numerical/data-integrity
+checks retain their implementation meaning.
+
 "Fixed in advance" means fixed here, in this repository, before any fit — it is not
 a claim of external preregistration.
 
@@ -37,8 +43,9 @@ The library is dense over ten sites and mostly far from trastuzumab: 76.5% of
 training cores sit 7 or more mutations from the wild-type core and only 442 of
 367,042 sit at 1 or 2. But 90.2% of validation rows are within Hamming **1** of a
 training core and 98.4% within 2, so a nearest-training-neighbour label lookup
-reaches 0.981 average precision on validation with no model at all. That number is
-the bar; the proximity strata in the audit are the disclosure rather than a fix.
+reaches 0.981 average precision on validation with no model at all. This is a
+predictive comparator, not an eligibility threshold for mechanistic analysis;
+the proximity strata in the audit describe the observed overlap.
 
 (Measured on validation only, before any fit:
 `outputs/claude_codex_her2_migration_20260918/extra_probes_round2.json`.)

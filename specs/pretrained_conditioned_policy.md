@@ -2,18 +2,21 @@
 
 **Date:** 2026-09-09
 
-**Status:** direction accepted in [Decision 0003](decisions/0003-pretrained-conditioned-policy.md).
-The broader migration below is not implemented.
+**Status, 2026-09-18:** optional antigen-conditioned extension of
+[Decision 0003](decisions/0003-pretrained-conditioned-policy.md). The broader
+fusion/diffusion migration below remains unimplemented. It is not a prerequisite
+for interpreting the standalone p-IgGen policy.
 
-## Current first experiment — 2026-09-14
+## Completed fixed-target work and current scope
 
-The user selected ESM-IF1 for a fixed-target CR9114/H1 post-training experiment.
-Use its existing structural encoder and autoregressive decoder with a declared
-fixed structural context. The [Decision 0003 clarification](decisions/0003-pretrained-conditioned-policy.md#scope-clarification--2026-09-14)
-and [current recommendation](../reference/fixed-target-posttraining-recommendation.md)
-govern that first milestone. Exact artifact/structure pinning and compute checks
-remain pending. The custom antigen-fusion, cross-antigen, and diffusion milestones
-below describe the broader program and are not the current implementation queue.
+ESM-IF1 integration, structure preparation, and the CR9114 training pilots are
+implemented and recorded in the [pilot report](../reference/cr9114-5cjq-pilot.md).
+The subsequent standalone p-IgGen/HER2 campaign is also
+[complete](../reference/her2-posttrain.md). Current work concerns its native
+causal mechanisms; see the [research scope](../reference/research-design.md).
+The sections below define a possible future conditioning experiment, not the
+current build queue. Their measurements bound conditioning claims, not permission
+to build or interpret other systems.
 
 ## Research question and first milestone
 
@@ -265,8 +268,9 @@ not completed migration deliverables.
 | M08: run the interaction study | A/B/C/D matrix, crossed antigen inputs, repeat causal interventions | Reproducible report distinguishing policy change, guidance effect, interaction and biological claim limits |
 
 M01's data preparation and M02's mechanical integration can progress independently.
-M05/M06 follow an eligible M03 policy; M07 needs the generative contract and causal
-baseline. Guide-derived training arms also need M05, while independently measured
+M05/M06 use an M03 policy whose conditioning behavior has been measured, including
+null results; M07 needs the generative contract and causal baseline.
+Guide-derived training arms also need M05, while independently measured
 preference training need not wait for a guide. M08 requires both branches. No task
 requires training the old v5 chain first.
 
@@ -277,7 +281,11 @@ pilot configuration is measured. M02 can establish interfaces and coordinate
 fixtures before that, but cannot claim a selected training package. M03 requires
 both M01's verified conditional data/splits and M02's integration evidence.
 
-### M01 readiness record, 2026-09-09
+### Historical M01 readiness record, 2026-09-09
+
+This dated inventory is retained for context. It is not a statement of current
+asset availability: subsequent fixed-target implementations and runs are linked
+above. Re-inventory the inputs for any new conditional experiment.
 
 | Workstream | Observed state | Next evidence required |
 |---|---|---|
@@ -302,8 +310,9 @@ make activation memory or grouped sampling free.
 
 The [README](../README.md) states the research direction and current capabilities;
 [Decision 0003](decisions/0003-pretrained-conditioned-policy.md) records the decision;
-this file owns migration priorities. Older scratch-model experiment specs are
-historical/reference experiments and do not gate this path.
+this file describes the optional conditioning migration. The current research
+scope owns active priorities. Older scratch-model experiment specs are historical
+references rather than prerequisites.
 
 Keep existing commands/config meanings and checkpoint loaders working for the
 custom-model baseline. Add an explicitly named pretrained path with a versioned

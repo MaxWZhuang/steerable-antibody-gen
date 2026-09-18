@@ -134,18 +134,15 @@ Shipped as J22c on 2026-08-27 against commit `2dde1af`.
 | Per-epoch census and guards | `train_one_epoch`; reported without a guard in `evaluate` |
 | Tests | `src/smallAntibodyGen/tests/test_conditional_denoising_eligibility.py` (37) |
 
-### Deferred, with the reason
+### Resume compatibility — implemented
 
-**Resume does not yet reject a policy change.** The Fingerprint section requires
-that a fingerprint check reject a policy change against a populated output
-directory. No fingerprinting mechanism exists in the repository yet; `main`
-resumes from `last.pt` without reading its `train_config` at all, so a policy
-change against a populated directory is silently reinterpreted and
-`best_val_loss` is carried across the discontinuity. That work is **J03** in
-`docs/PLAN-steering-prerequisites.md` (untracked local plan). Until it lands, a
-Stage-3 run whose policy changed requires a fresh output directory or
-`--no-resume-from-last`; the per-epoch census keys are what make the switch
-visible after the fact.
+`experiment.check_resume_fingerprint` checks architecture, effective config,
+tokenizer, and data before `scripts/mlm_train.py` restores state. The effective
+config includes `conditional_denoising_eligibility`, so changing that policy
+refuses a compatible resume instead of carrying `best_val_loss` across objectives.
+`test_experiment_fingerprints.py` covers the field and compatibility checks.
+Source/contract revisions remain recorded provenance and may warn without
+rejecting an otherwise compatible resume. The old J03 build task is complete.
 
 ### Two findings from implementation, recorded because they are not obvious
 

@@ -332,9 +332,9 @@ generative formulations and supports property guidance with fixed generator
 weights. This implementation enumerates candidate residues using the local scoring
 rule below. It does not establish that an existing MLM checkpoint/sampler is a
 trained diffusion model or that the guide is biologically calibrated. See
-[Steering and interpretation](research-design.md#steering-and-interpretation) and
-[Post-training requirements](research-design.md#post-training-requirements) for the distinction
-between sampling changes and weight updates.
+[sampling and traces](../specs/pretrained_conditioned_policy.md#sampling-and-traces)
+and [diffusion/post-training boundaries](../specs/pretrained_conditioned_policy.md#diffusion-and-post-training-boundaries)
+for the distinction between sampling changes and weight updates.
 
 Guided generation fills HCDR3 iteratively, one position per step:
 

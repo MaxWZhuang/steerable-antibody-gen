@@ -1,190 +1,100 @@
-# Research design and implementation plan
+# Research scope and implementation status
 
 [Project overview](../README.md)
 
-This project studies how antigen information changes antibody generation, how
-post-training changes that behavior, and how an external property guide interacts
-with the resulting policy. The initial task is **fixed-length HCDR3 editing with
-the heavy-chain framework and light-chain context held fixed**.
+**Updated, 2026-09-18:** the active research studies the causal computations of
+the standalone p-IgGen policy before and after HER2 post-training. The training
+and evaluation campaign is [complete](her2-posttrain.md). This document replaces
+the older implementation roadmap, which described completed work as pending and
+made antigen conditioning a prerequisite for interpretation.
 
-**Plan (2026-09-09):** start with a pretrained protein model, adapt VH/VL behavior
-where needed, and add antigen information to residue prediction. Pretrained
-initialization lets the project focus on antibody adaptation, antigen conditioning,
-and steering. VH/VL understanding and antigen-specific design still require
-explicit data and held-out tests. Antibody pretraining from scratch is an optional
-research control.
+The detailed local build queue is
+`docs/BUILD-PLAN-her2-mechanistic-interpretability.md`, kept under the existing
+local-only documentation policy. It specifies work packages, artifacts, and tests.
 
-**First milestone:** with antibody context fixed, changing the antigen changes
-HCDR3 predictions in agreement with held-out measurements. This evidence is needed
-before making post-training or interpretability claims. A joint embedding or a
-better compatibility classifier alone does not show that the policy uses the
-antigen. A response to an unmeasured antigen swap is also insufficient for this
-milestone.
+## What is already built
 
-The pretrained antibody policy is not yet integrated.
-[Decision 0003](../specs/decisions/0003-pretrained-conditioned-policy.md) records the
-accepted plan; the [migration specification](../specs/pretrained_conditioned_policy.md)
-defines code boundaries, work order, and completion criteria.
+| Capability | Implementation and evidence |
+|---|---|
+| Native p-IgGen policy | `experiments/her2_policy.py`: pinned GPTNeoX load, native vocabulary, canonical-residue normalization, full/cached scoring, sampling, checkpoint loading |
+| HER2 data and comparators | `experiments/her2_data.py`, `her2_baselines.py`: provenance, scaffold coordinates, labels, proximity analysis, additive model and CNN |
+| Supervised training | `scripts/train_her2.py`: pretrained and scratch-initialized arms, validation selection, parity checks |
+| Preference and continued supervised training | `scripts/posttrain_her2.py`: frozen reference scoring, DPO, continued SFT, measured GPU budgets, generation diagnostics |
+| Evaluation | `scripts/evaluate_her2.py`, `evaluate_her2_math.py`, `experiments/her2_eval.py`: ranking, uncertainty, native probability checks, diversity, independent assay reporting |
+| Completed HER2 evidence | [Campaign report](her2-posttrain.md) and [final integrity record](evidence/her2-final-integrity-2026-09-18.json) |
+| Earlier ESM-IF1 integration | [Policy specification](../specs/esmif1_policy.md), [prepared context](cr9114-5cjq-context.md), [SFT pilot](cr9114-5cjq-pilot.md), [DPO pilot](cr9114-dpo-pilot.md) |
+| Shared infrastructure | Provenance, run fingerprints/resume compatibility, split audits, target identity, frozen evaluation inputs |
+| Custom-model research | MLM/fusion/guide interfaces and a synthetic antigen-pathway probe; distinct from the HER2 policy |
 
-## Current implementation
+Python package paths in the table are relative to `src/smallAntibodyGen/`.
+Recorded training results do not imply that checkpoint bytes are present in every
+checkout. Analysis should inventory actual artifact locations and reuse them.
 
-| Capability | Implemented | Planned |
-|---|---|---|
-| Data and evaluation | OAS/ASD preparation, target identity and leakage audits, frozen inputs and HCDR3 contrast scoring | A verified antigen-variant pilot with measurements and sealed evaluation labels |
-| Antibody policy | Custom antibody MLM and VH/VL refinement | Pretrained antibody backbone, native tokenizer/head, loading and provenance |
-| Antigen fusion | Cross-attention into antibody residue logits; optional frozen/LoRA ESM antigen encoder | Adaptation and measurement-based conditioning criteria for the pretrained policy |
-| Sampling and guidance | Single-pass and iterative HCDR3 infill; optional external guide | Same sampler with guidance off/on, independent antigen inputs, replayable traces |
-| Generative objective | MLM, partial-state masking and mask-rate schedules | Specified masked-diffusion objective and compatible sampler |
-| Post-training | No preference trainer | Supervised baseline, then a tested diffusion preference estimator |
-| Interpretability | Synthetic antigen-pathway probe | Fixed-state activation capture and causal fusion interventions; SAEs later |
+## Mechanistic work remaining
 
-The existing ESM option replaces only the antigen encoder; the antibody backbone
-remains custom. Implemented capabilities do not establish that a trained checkpoint
-meets the scientific criteria.
+Build replayable matched-prefix cases and a native GPTNeoX observation/patching
+adapter. Its graph must reflect causal masking, token offsets, rotary positions,
+normalization, head output projections, and the loaded residual-block ordering.
+The current HER2 policy has four layers and eight heads per layer, and consumes
+only a fixed VH prefix plus previously chosen core residues. It sees no antigen,
+light chain, or FR4 context.
 
-**Current readiness:** this checkout has no antibody-antigen corpus. The three
-benchmark manifests contain owner placeholders and empty file lists, and the
-training GPU/VRAM has not been recorded. Current M01 work includes acquiring and
-documenting data, measuring training hardware, and preparing interfaces. Run
-`nvidia-smi --query-gpu=name,memory.total --format=csv` on the training machine.
-Neither the local CPU Mac nor the earlier 4 GB planning assumption is sufficient
-to select a backbone. M03 conditional training requires M01's verified data and
-hardware evidence; a working adapter alone is insufficient.
+Measure complete local single/double-mutant effects across backgrounds, with
+directed conditional residue contrasts. An additive classifier's fixed class-logit
+contrast supplies a zero-interaction control; transformed probabilities need not
+be additive. Model-score interactions and experimentally measured epistasis are
+reported separately.
 
-## Research roadmap
+Test repeat completion, position preferences, amino-acid bias, and biochemical
+grouping as candidate explanations. Establish both attention routing and the
+information transmitted through values/output projections. Synthetic repeats
+diagnose capacity; original-model interventions on native antibody cases establish
+whether those components mediate the behavior under study.
 
-1. **Finalize one conditional pilot and integrate one pretrained backbone.** Fix the
-   weights/revision, tokenizer, objective, usage terms, biological cases, and actual
-   compute budget. DPLM and ESM-family models, including VESM, are candidates; none
-   has been selected. Preserve upstream residue predictions before adding fusion.
-2. **Adapt pairing and antigen conditioning.** Train the model to use antigen
-   information in residue prediction and address measured VH/VL deficits while
-   preserving earlier capabilities. With guidance off, evaluate the correct
-   antigen, matched substitutions, and measured antigen variants, including a
-   fully masked HCDR3.
-3. **Specify the generative process.** Continue a conditioned MLM under a specified
-   masked-diffusion objective, or adapt a diffusion checkpoint under its native
-   objective. Masked diffusion supports completion of an editable region from
-   varying amounts of observed context, with a specified stochastic process.
-   Evaluate it against a matched partial-state control and recheck conditioning.
-   Diffusion is not required for all valid post-training methods.
-4. **Establish guidance and causal baselines.** Validate a separate guide on the
-   partial states it will encounter. Capture fixed-state activations before
-   post-training and intervene on the antigen-to-residue pathway.
-5. **Compare post-training and guidance.** Start with supervised continuation,
-   then evaluate a specified preference method on trustworthy pairs. Compare the
-   policy before and after post-training with guidance off/on, and repeat the
-   causal probes.
+Include head pairs, MLPs, functional groups, conditional ablations, and restoration
+from the start. Recompute descendants when measuring compensation. Report
+fidelity against component count and collateral effects across contexts rather
+than assuming a small, unique circuit exists.
 
-For a pretrained diffusion backbone, specify the generative process before
-conditional training. A second round of general-protein pretraining is not
-required. SAEs, variable-length design, structure co-design, and broad optimizer
-sweeps follow evidence from the initial experiment.
+Compare per-layer and cross-layer transcoders as sparse MLP replacements. Separate
+original-to-replacement error, pruning error, and agreement between predicted and
+actual interventions in the original model. Record frozen-attention and recursive
+replacement modes separately. Validate proposed intermediate steps, since accurate
+replacement outputs alone do not establish faithful computation.
 
-The longer-term aim is interpretable antibody design: understand what the model
-has learned, validate antigen conditioning against independent measurements, use
-validated signals to steer generation through sampling and weight updates, and
-test whether sparse internal features add useful diagnostics. Architecture,
-supervision, splits, and representations may change as data and experiments develop.
+Apply the same cases and interventions across base, SFT, continued SFT, DPO, and
+scratch-trained checkpoints. Include all available budgets and seeds in the
+inventory, preserving historical selection outcomes as metadata. Structure and
+measured mutation effects support biological comparison where their mapping and
+coverage are known; they do not substitute for model interventions.
 
-## Planned architecture
+## How results govern claims
 
-The current custom model provides reusable fusion and infilling components. The
-pretrained antibody path and experiment runner still need implementation.
+Predictive superiority, a DPO gain, preserved diversity, successful antigen
+conditioning, and a particular sparse-recovery percentage are not entry conditions
+for this research. Additive behavior, copying, collapse, null effects, and broad
+causal dependence are legitimate subjects. State what an intervention supports
+without requiring the optimizer or explanatory method to succeed.
 
-```mermaid
-flowchart TD
-    AB[Fixed framework and VL; masked HCDR3] --> P[Pretrained antibody backbone]
-    AG[Antigen construct] --> E[Pretrained antigen encoder]
-    P --> F[Trainable fusion into residue predictions]
-    E --> F
-    F --> L[Policy residue logits]
-    AB --> G[Separate frozen partial-state guide]
-    AG --> G
-    L --> S[Controlled sampler: guide off or on]
-    G --> S
-    S --> C[Candidate HCDR3s]
-    C --> V[Independent evaluation]
-    T[Measured preferences or supervised examples] --> U[Post-training updates policy and fusion]
-    U --> P
-    U --> F
-    F --> I[Fixed-state observations and causal interventions]
-```
+Keep checkpoint/probability integrity, explicit donor choices, appropriate
+controls, and held-out analysis cases. A failure of those checks limits the
+affected result; it does not suspend unrelated implementation or analysis. The
+completed benchmark's test results have already been inspected. A new analysis
+partition is not a newly blinded biological evaluation.
 
-The guide supplies predictions to the sampler; its hidden representations do not
-enter the policy. Post-training and causal interventions are separate experiments
-on the policy. SAE discovery is a later diagnostic option.
+The [HER2 protocol](../specs/her2_hcdr3_benchmark.md) retains the original run's
+selection rules and measured-GPU-time budgets. Those rules do not exclude failed
+or unselected checkpoints from interpretation. New exposure-matched training,
+additional measurements, or prospective antibody validation are separate studies.
 
-## Steering and interpretation
+## Optional extensions and retained documentation
 
-| Intervention | What changes | Evidence needed |
-|---|---|---|
-| Antigen conditioning | The policy's predictions at a fixed antibody state | Measured antigen response beyond identity and study shortcuts |
-| Inference-time guidance | The sampling distribution using a separate predictor | Improvement under a controlled sampler and independent evaluation |
-| Post-training | Policy parameters, including any trainable fusion | Gains with guidance off, preserving conditioning and earlier capabilities |
-| Causal interpretation | Selected activations or antigen access during a diagnostic | Controlled transfer or ablation of a reproducible policy response |
+The [antigen-conditioned policy specification](../specs/pretrained_conditioned_policy.md)
+describes a separate extension involving fusion, external guidance, and a possible
+diffusion objective. Those components remain available research directions, with
+their own data requirements; they are not the active HER2 build sequence.
 
-Guidance reweights candidate probabilities. Finite multiplicative weights leave
-zero probabilities at zero, but can amplify small nonzero probabilities if the
-guide favors them enough. The reachability probe measures these limits for a
-specified state, guide, and scoring rule. Its results do not apply to every
-possible generation path.
-
-With fixed inputs and deterministic evaluation, an external guide leaves a frozen
-policy's forward activations unchanged. It changes sampled residues and therefore
-later inputs and activations. Fixed-state interventions examine what the policy
-computes at a given input; trajectory analysis examines which inputs the sampler
-visits. Free-running trajectories alone cannot show that the policy learned the
-guide's representation.
-
-## Main experiment
-
-Use one conditioned parent policy, a separately trained frozen guide, and the same
-sampling protocol in all four arms:
-
-| Policy | Guide off | Guide on |
-|---|---|---|
-| Before post-training | A: conditioning baseline | B: guidance effect |
-| After post-training | C: learned policy change | D: combined intervention |
-
-Measure `C - A`, `B - A`, and `D - C` on withheld experimental outcomes. Vary and
-cross the policy's and guide's antigen inputs independently to identify which
-component supplies specificity. Include sampling-plus-reranking and
-supervised-continuation controls with declared budgets. Generated candidates
-require measurements before they can be called experimentally validated
-improvements.
-
-For mechanistic analysis, fix corrupted antibody states, masks, positions, and time
-levels. Compare antigen contexts and intervene on aligned fusion activations within
-each checkpoint, before and after post-training. Probe accuracy, attention maps,
-and better guide scores alone cannot establish causal antigen use or improved
-binding.
-
-## Post-training requirements
-
-**Status: planned, not implemented.** The policy, external guide, frozen preference
-reference, and final evaluator have distinct roles. Preferred and dispreferred
-examples must share antigen, framework, light-chain context, and edit length, with
-comparable assay conditions. Uncertainty and censoring must permit an ordering.
-
-Before implementing diffusion-DPO training, `specs/masked_diffusion.md` and
-`specs/diffusion_dpo.md` must define the process, estimator, policy/reference
-corruption reuse, winner/loser coupling, weighting/reduction, sampling budget,
-reference behavior, and enumerable toy tests. Neither document exists yet, and the
-migration specification does not replace them. The post-training objective and
-probability estimator must be consistent with the generative process;
-`specs/diffusion_dpo.md` will be the authority for the planned estimator.
-
-MLM pseudo-likelihood, fully masked marginal scores, trajectory log probabilities,
-and the evaluation-time order-mixture `E-hat` are distinct quantities. Using them
-in DPO does not make them exact diffusion sequence log probabilities. `E-hat` is an
-evaluation score, not an approved preference objective. Distinguish the
-variational-surrogate gap from the bias caused by noisy estimates inside a
-nonlinear preference loss. See
-[diffusion and post-training boundaries](../specs/pretrained_conditioned_policy.md#diffusion-and-post-training-boundaries).
-
-Supervised continuation on measured desirable examples is the first weight-update
-baseline. DPO/VRPO is a candidate when trustworthy pairs exist. GRPO and iterative
-preference loops also require reliable evaluation of new candidates and estimators
-compatible with the sampler. The guide's scores cannot both define success and
-demonstrate biological improvement from optimizing against that guide.
+The [custom-model workflow](custom-model-workflow.md) documents working commands.
+Earlier experiment specifications and reports remain implementation contracts and
+historical evidence. Completed build instructions have been retired from the local
+planning queue; numerical checks and historical outcomes remain intact.

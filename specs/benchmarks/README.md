@@ -60,7 +60,7 @@ Two entry points, on purpose:
 | `files` | One entry per prepared file: `relative_path` (relative to the raw root, forward slashes, no `..`), `size_bytes`, `sha256` (64 lowercase hex). An approved manifest needs at least one entry. |
 | `candidate_source_url` | A URL taken from the plan's reference list and **not verified by anyone in this repository**. It is a lead, never a source. |
 | `candidate_source_url_verified` | Must be `false`. An owner who verifies a URL promotes it to `source_url` rather than flipping this flag. |
-| `plan_assertions` | Claims copied from `docs/PLAN-steering-prerequisites.md`, each with `verified: false`. They record what the plan says so a later reader can check it, and they are not treated as fact. |
+| `plan_assertions` | Historical claims copied from the retired steering-prerequisites plan, each with `verified: false`. The manifest retains the original assertions for auditing; they are not facts or active implementation requirements. |
 | `owner_decisions` | The open questions blocking approval. Each has `key`, `question`, `status`. Any `unsupplied` entry blocks strict validation. |
 | `notes` | Free text. |
 

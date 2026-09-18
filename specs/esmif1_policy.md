@@ -2,11 +2,11 @@
 
 **Date:** 2026-09-15
 
-**Status:** implemented as `smallAntibodyGen.models.esmif1_policy`, pinned by
-`src/smallAntibodyGen/tests/test_esmif1_policy.py`. This is decoder mechanics
-only. No weights have been loaded, no structure has been declared, no benchmark
-site has been mapped onto a residue index, and nothing has been trained. The
-milestone it implements is the one named in
+**Status, 2026-09-18:** implemented as `smallAntibodyGen.models.esmif1_policy`,
+pinned by `src/smallAntibodyGen/tests/test_esmif1_policy.py`. This module supplies
+decoder mechanics. Subsequent structure preparation, released-weight checks,
+SFT, and DPO pilots are complete; see [integration status](#integration-status).
+The probability contract is the one named in
 [the recommendation](../reference/fixed-target-posttraining-recommendation.md)
 §"Exact probability contract for the finite benchmark", under the
 [Decision 0003 clarification](decisions/0003-pretrained-conditioned-policy.md#scope-clarification--2026-09-14).
@@ -158,34 +158,19 @@ named as a policy error rather than surfacing from inside `index_select`.
   ([training-box evidence](../reference/evidence/esm-if1-training-box-2026-09-14.json));
   nothing in this milestone re-ran it.
 
-## Pending gates
+## Integration status
 
-These remain open and none of them is addressed here:
+The former pending build tasks are complete for the recorded CR9114 pilots:
 
-1. **Declared structural input:** pin the structure, chain selection, residue
-   mapping, missing-coordinate convention, and the relation between the
-   structural antigen and the measured H1 target.
-   *Partly addressed, 2026-09-15:* `smallAntibodyGen.structure`
-   ([specification](esmif1_structure.md)) implements the declaration, the
-   correspondence and the packing for a hash-pinned local file, and refuses
-   missing/alternate coordinates rather than choosing a convention.
-   *Selection update, 2026-09-16:* the user selected
-   [5CJQ as the working template](../reference/5cjq-structural-template.md);
-   source files are hash-pinned. The
-   [mapping audit](../reference/cr9114-5cjq-mapping.md) verifies the 16 benchmark
-   sites across a complete 121-residue VH and records two fixed template
-   mismatches. Assembly/chain/domain selection, missing-region handling, and
-   exact assay-construct correspondence remain open. No model input has been prepared, so this
-   gate stays open.
-2. **Artifact pinning:** exact source/weight hashes for
-   `esm_if1_gvp4_t16_142M_UR50`, plus upstream score parity against the released
-   checkpoint rather than a randomly initialized model.
-3. **Device and throughput:** measured memory and throughput for a backward pass
-   at the real sequence length on the chosen training device.
-4. **Reference policy and objective:** a frozen reference copy, the DPO/SFT
-   losses themselves, and the four-arm training plan. This module supplies
-   `log q` for both sides of `beta * log(q / q_reference)` and nothing else.
-5. **Development-side headroom gate** before committing to the training budget.
+| Task | Evidence |
+|---|---|
+| Structure, chains, site mapping, fixed mismatches and missing regions | [Prepared 5CJQ context](../reference/cr9114-5cjq-context.md) |
+| Released weights, score parity, real-context training | [SFT pilot](../reference/cr9114-5cjq-pilot.md) |
+| Device, memory and throughput | [Training-box record](../reference/evidence/esm-if1-training-box-2026-09-14.json) and the SFT pilot |
+| Preference data, frozen references, direct DPO and SFT-to-DPO | [DPO pilot](../reference/cr9114-dpo-pilot.md) and [objective specification](cr9114_dpo.md) |
 
-Promotion requires all of the above. Implementing the probability contract is not
-checkpoint promotion.
+The engineered H1-derived structural template remains proxy context, not proof of
+an exact match to the assayed construct. That limits biological interpretation;
+it is not an unfinished implementation step. Numerical/data checks remain part of
+the APIs. Development headroom and checkpoint promotion do not determine whether
+a model's behavior can be studied mechanistically.

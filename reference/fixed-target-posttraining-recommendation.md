@@ -1,16 +1,23 @@
 # Fixed-target post-training and interpretability: research recommendation
 
 **Date:** 2026-09-14  
-**Status:** ESM-IF1 selected by the user for integration; no training run or checkpoint promotion.  
+**Status, updated 2026-09-18:** historical CR9114 rationale; integration and pilot runs are complete.
+
 **Objective:** use established antibody modeling machinery and a learnable measured task, concentrating research novelty in post-training and causal interpretation.
 
-**Follow-up audit:** the data corrections remain applicable. ESM-IF1 is now the selected backbone; its [readiness record](evidence/esm-if1-readiness-2026-09-14.json) is separate from the retained [p-IgGen model/exposure audit](evidence/piggen-release-audit-2026-09-14.json). See also the [data audit](evidence/fixed-target-data-audit-2026-09-14.json).
+**Historical follow-up audit:** the data corrections remain applicable. ESM-IF1 was selected for the CR9114 pilot; its initial [readiness record](evidence/esm-if1-readiness-2026-09-14.json) is separate from the retained [p-IgGen model/exposure audit](evidence/piggen-release-audit-2026-09-14.json). See also the [data audit](evidence/fixed-target-data-audit-2026-09-14.json).
 
-## Recommendation
+The active project is now standalone p-IgGen/HER2 mechanistic interpretation;
+see the [current research scope](research-design.md). This document retains data
+analyses and the rationale for the earlier CR9114 experiment. Its completed build
+sequence has been removed. Performance thresholds do not govern whether a model
+can be interpreted.
+
+## Historical recommendation
 
 Start with **CR9114 binding to H1**, allowing its **16 published variable heavy-chain sites**, and the **pretrained ESM-IF1 backbone**. Use one declared fixed structural context, with the antigen target, light chain, and all other residues fixed. Establish supervised baselines, run the existing four-arm preference experiment, and investigate the learned changes with controlled interventions.
 
-This is a recommendation about reducing experimental and engineering risk. There is no published comparison establishing this exact task/checkpoint combination as the best affinity optimizer. The model must pass a bounded development pilot before promotion. A useful supervised-adaptation result can support the interpretability project even if DPO adds no benefit.
+This is a recommendation about reducing experimental and engineering risk. There is no published comparison establishing this exact task/checkpoint combination as the best affinity optimizer. The bounded development pilots have since completed. Their outcomes can be interpreted whether supervised adaptation or DPO improves the chosen endpoint.
 
 The most consequential scope change is permitting the measured variable sites outside HCDR3. The previous HCDR3-only restriction discards useful data and is unnecessary for the user's current research question. This remains local sequence optimization of one antibody lineage against one target.
 
@@ -96,11 +103,11 @@ The proposed H1/TIGIT reliability table does not yet supply that model. H1's app
 
 Under the classical model `Y = F + E` with uncorrelated signal and error, `R = 1 - Var(E)/Var(Y)` and `sqrt(R)` describes an oracle's Pearson correlation with noisy labels. It is not a general ceiling for rank correlation or preference accuracy. Treat the suggested **0.94/0.49 reliabilities and 0.97/0.70 correlations as conditional sensitivity calculations**, not measured task ceilings. Likewise, the approximately **0.37** hidden-construction-noise threshold assumes reallocating a fixed observed H1 variance between signal and noise; it is not an empirical bound on construction variance. H1 remains the better-supported first task from its quantitative coverage and replication, without relying on these ceiling claims.
 
-## Backbone: ESM-IF1 selected for integration
+## Historical backbone selection: ESM-IF1
 
 **User decision, 2026-09-14:** use **ESM-IF1** for the first experiment, keeping the target fixed.  
 **Official loader:** `esm_if1_gvp4_t16_142M_UR50`.  
-**Implementation status:** not integrated; exact source/weight hashes, structural input, and measured training device remain unpinned. Model-family selection is not checkpoint promotion.
+**Implementation status, updated 2026-09-18:** integrated, with prepared structural input and completed released-weight SFT/DPO pilots. See the [integration record](../specs/esmif1_policy.md#integration-status).
 
 The [official implementation](https://github.com/facebookresearch/esm/tree/main/examples/inverse_folding) provides an autoregressive sequence decoder conditioned on backbone geometry, with multichain scoring and sampling. It provides an existing route to structural antigen context without developing a new antigen encoder. The first experiment measures post-training on one fixed context; changing antigen context and testing specificity remain later work.
 
@@ -115,13 +122,14 @@ The [official implementation](https://github.com/facebookresearch/esm/tree/main/
 
 The initial pilot should freeze the structure encoder and adapt the decoder in both supervised and preference arms. With fixed geometry and deterministic encoder evaluation, its representation can be cached after validating parity with the full forward pass. This is a proposed compute simplification and limits the first mechanistic claims to decoder adaptation; whole-model adaptation is not assumed.
 
-### Readiness and promotion
+### Completed integration
 
-The [local readiness record](evidence/esm-if1-readiness-2026-09-14.json) records package metadata and an actual failure of the existing Python environment to import PyTorch: duplicate OpenMP runtimes, exit 134. This occurred before any ESM-IF1 installation/import and is not a demonstrated ESM-IF1 failure. No weights have been loaded, model gradients tested, or training throughput measured. An isolated environment is the next engineering step.
-
-Promotion requires pinned model/alphabet/code, a declared structural input, upstream score parity, padding and missing-coordinate checks, a successful backward pass, and measured memory/throughput on the chosen training device. Preserve the enumerable toy probability/gradient check and development-side SFT headroom gate. No custom antigen-fusion or diffusion implementation is required for this first experiment.
-
-Use conventional supervised predictors and an AbLang2 frozen-embedding predictor as comparisons. Keep p-IgGen as an evaluated alternative; do not silently switch back if environment work is needed.
+The [training-box record](evidence/esm-if1-training-box-2026-09-14.json),
+[prepared context](cr9114-5cjq-context.md), [SFT pilot](cr9114-5cjq-pilot.md), and
+[DPO pilot](cr9114-dpo-pilot.md) supersede the initial environment-readiness
+checklist. Native probability, gradient, and input-integrity checks remain part
+of the implementation. Development headroom is a measured property, not a stop
+condition for training-method comparison or interpretation.
 
 ### Exact probability contract for the finite benchmark
 
@@ -136,50 +144,43 @@ All earlier forced and chosen tokens appear in the prefix. Forced residues contr
 
 Use identical supports, direction, temperature 1, and dropout-off scoring for policy and reference. Disable nucleus sampling and post-generation rejection for the initial probability contract. Verify normalization, enumerated versus teacher-forced probabilities, and preference gradients on a tiny enumerable example. Restrict retrospective biological evaluation to measured candidates and report missing-label coverage; never assign oracle rewards to unmeasured sequences.
 
-## Experiment order and success criteria
+## Completed experiment and interpretation scope
 
-1. **Choose the endpoint and allowed sites; construct biological records.** Dataset work and hardware/backbone feasibility can run concurrently. The current [offline scope](../docs/OFFLINE-DPO-SCOPE.md) explicitly permits records independent of tokenization.
-2. **Establish learnability on development data.** Compare mutation count, additive mutation regression, a regularized interaction model, and frozen-embedding regression. Include a conventional supervised predictor as the practical selection baseline. Evaluate pair ordering and measured top-K selection on the intended split. High measurement reliability does not guarantee a low-order interaction model generalizes, and a strong supervised fitness predictor does not establish that positive-example generative SFT is saturated. A weak zero-shot likelihood correlation alone is not a reason to reject an adaptable generator.
-3. **Complete the model and toy checks, then test development-side headroom.** Run a bounded SFT pilot to establish stable learning and feasible compute. Measure the actual generative SFT baseline, its remaining pair-accuracy headroom, and uncertainty accounting for shared sequences/blocks before committing to the four-arm training budget. A +5-point gain cannot occur above 95% baseline accuracy, and sufficient numerical headroom alone does not establish statistical power. Avoid a broad backbone tournament. If ESM-IF1 fails this gate, distinguish environment/device failures from model or objective failures before reconsidering the backbone.
-4. **Run the four checkpoints required by the current scope:**
+The former build sequence is implemented. Preference records, frozen reference
+caches, supervised training, direct DPO, SFT-to-DPO, diversity diagnostics, and
+subsequent controls are documented in the [SFT report](cr9114-5cjq-pilot.md),
+[preference evaluation](cr9114-preferences-development.md),
+[DPO report](cr9114-dpo-pilot.md), and [follow-up diagnostics](cr9114-dpo-diagnostics.md).
+Their experiment-specific protocols and recorded selection outcomes remain intact.
+They are not a current implementation backlog.
 
-   | Arm | Initialization | Frozen preference reference |
-   |---|---|---|
-   | Parent | P0 | — |
-   | SFT | P0 | — |
-   | Direct DPO | P0 | P0 |
-   | SFT then DPO | SFT | SFT |
+Mechanistic analysis can examine altered residue dependencies, unchanged behavior,
+shortcuts, loss of diversity, or failed adaptation. There is no minimum pair-accuracy
+gain, predictor-superiority requirement, or checkpoint-promotion requirement before
+starting that analysis. A claim specifically about improvement still needs evidence
+of improvement; a causal account of model behavior does not require that claim.
 
-   Select SFT examples and weights using training data. Count each sequence independently of how often it occurs in pairs. Compare each DPO branch with its immediate parent, report total compute, and retain the supervised ranker/reranker as a practical baseline. Reward-weighted SFT is a useful later control if a claimed DPO advantage needs stronger testing.
-5. **Freeze a confirmatory protocol before final evaluation.** Suggested primary contrast: SFT-then-DPO minus SFT on reliable held-out pair accuracy, with sequence weighting fixed in advance. Use `log q` for primary policy ordering; report the DPO implicit reward `beta * log(q / q_reference)` separately. Top-K measured affinity/enrichment within the final held-out measured candidate pool, at a fixed selection budget, is the practical secondary endpoint. Also report held-out rank correlation, absolute candidate probabilities, diversity, and probability mass on measured support. Any full-library summary that includes training sequences is descriptive only.
-6. **Interpret changes at matched inputs**, then test targeted interventions on held-out examples.
+Use matched inputs, explicitly defined ablation/patch donors, joint-component and
+restoration tests, and held-out analysis cases. Measure unrelated outputs to
+separate selective effects from general damage. Failed transfer into a parent
+model does not invalidate a within-model intervention, and a sparse replacement's
+reconstruction error is not evidence that the original model lacks a mechanism.
 
-A candidate engineering minimum useful effect is **+5 percentage points of pair accuracy**, with a paired uncertainty interval required to clear that floor for a confirmatory improvement claim. This is a proposal, not a literature-derived biological threshold or a preregistration already in force. Use development-side power and headroom checks to determine whether it is feasible; finalize the numerical rule before final-test inspection. If it is infeasible, record that finding and revise or stop the performance experiment before confirmatory training; do not lower the floor after inspecting final results. Strong conventional predictors make limited DPO headroom a credible risk, not an established expectation of a null result. Report training-seed variability separately and use at least three training seeds.
+The current [HER2 research scope](research-design.md) develops native causal
+interventions and sparse replacements together. The retired offline-DPO and
+steering working plans are no longer prerequisites. Antigen fusion, diffusion,
+and cross-target studies remain separate extensions.
 
-Split sequences before constructing pairs. For CR9114, ordinary whole-sequence identity clustering is ill-suited to a single-lineage combinatorial landscape; connecting all distance-one neighbors makes the full hypercube one component. Use a declared genotype-combination holdout, with explicit proximity and mutation-count audits. For example, reserve combinations at a sequence-only selected subset of loci, with enough held-out blocks to estimate uncertainty. This tests compositional generalization and can still have close training neighbors; do not describe it as distance-separated scaffold transfer. Account for shared variants and blocks in intervals instead of treating all preference pairs as independent.
+## Retained measurement and split considerations
 
-The public dataset is already extensively studied. A sealed local split reduces adaptive model selection; it cannot make published biological knowledge unseen. A second campaign/lineage is needed for stronger replication.
-
-## Where to put the novelty
-
-Engage directly with the [current p-IgGen SAE study](https://arxiv.org/html/2512.05794v3). Its near-perfect multivariate probes are not the individually steered latents. TopK steering failures are plotted for selected features; the broader cross-layer/gene claim is partly unshown. Ordered features have positive dose-response evidence, and v3 adds IgLM/ProGen2-OAS experiments. Training budgets and dictionary sizes differ, so ordering alone is not isolated. Repeating the probe-versus-steering dissociation would not establish a new contribution.
-
-Begin with a more specific question: **does successful post-training change the model's use of mutation combinations, and which model components selectively contribute to that improvement?** This is a candidate research contribution, not an asserted first in the literature. Compare against germline distance, mutation count, additive mutation effects, and parent-model likelihood. Separate two intervention claims before running them:
-
-1. **Primary: selective necessity under a specified ablation.** Within an adapted checkpoint, targeted ablation should remove a predeclared portion of an independently established task improvement while preserving sequence-modeling performance within a separate noninferiority margin. Compare with no-op/self-patch, matched random components and intervention magnitudes, generic-damage controls, and corresponding interventions in P0. Measure retention using native per-residue conditional likelihood on both independent antibody sequence/structure pairs and held-out local genotypes under their declared structural context; forced immutable residues in the constrained policy are not evidence of retained modeling ability. Specify the task-effect floor, retention margin, and baseline for both before final testing. Require uncertainty bounds for both effects: a nonsignificant retention loss does not establish preservation. Even with these controls, necessity is conditional on the tested behavior and intervention, not proof of biological specificity.
-2. **Secondary: sufficiency under injection into the parent.** Test whether inserting the proposed change into P0 reproduces the gain while meeting its own retention criterion. This is a stronger, higher-risk claim. A null injection does not erase a valid selective-ablation result; ablation alone cannot support sufficiency. Establish activation compatibility before transferring components across checkpoints.
-
-- Compare model probability changes with additive and interaction baselines on held-out genotypes.
-- Match mutation burden and inspect where the effect of one substitution changes across backgrounds.
-- Compare activations at identical sequences and decision positions before and after adaptation.
-- Within each checkpoint, ablate or patch candidate components with no-op, matched-donor, random-component, and collateral-damage controls.
-- Use a development set to select interventions and a separate test set to confirm selective behavioral effects.
-
-This can establish a causal contribution to the model's predictions. It does not by itself establish a physical mechanism of binding. SAEs become useful if simpler analyses cannot isolate the change; shared feature indices or cross-checkpoint patches require demonstrated representational correspondence.
-
-A strong final result could be a repeatable supervised adaptation plus a causal account of its learned interaction behavior, with DPO characterized honestly as beneficial, equivalent within a declared margin, harmful, or inconclusive. Failure to detect a gain alone does not establish equivalence. Predeclare a development-only checkpoint-selection rule: if SFT improves over P0 but DPO adds no reliable gain, the primary mechanism study may examine SFT versus P0. Keep that claim distinct from a mechanism of DPO improvement. If no adaptation improves, do not claim to explain an improvement. Confirm the selected adaptation and intervention on untouched test data. That keeps the research objective productive without assuming an optimizer must win.
-
-Antigen retrieval, fusion comparisons, diffusion continuation, and online reward optimization contribute little to this first fixed-target milestone. The cheapest relevant next computation is **single-target learnability with ordinary predictors**, alongside the small backbone correctness/compute pilot.
+Split sequences before constructing preference pairs. Account for shared variants
+and neighborhoods when estimating uncertainty, and report training-seed variation
+separately. In a combinatorial single-lineage landscape, a distance-one connected
+component can span the entire space; a combination holdout is not automatically a
+distance-separated holdout. Report actual proximity and measurement coverage.
+Publicly studied datasets and previously inspected local results cannot be made
+unseen by relabelling a later analysis split. Model interventions establish claims
+about predictions; independent measurements support claims about biological effects.
 
 ## Reproducing the fresh TIGIT counts
 

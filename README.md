@@ -1,6 +1,14 @@
 # Steerable antibody generation
 
-## Current direction: HER2 HCDR3 post-training
+## Current direction: interpreting HER2 HCDR3 post-training
+
+The HER2 training and evaluation campaign is complete. The next build studies
+how its checkpoints use residue context: native activation patching, repeat
+completion, joint component ablations, and sparse circuit reconstruction checked
+against interventions in the original model. All arms, including collapsed DPO
+checkpoints, are eligible. Predictive improvement and a compact circuit are
+research outcomes rather than prerequisites. See the
+[current research scope and implementation inventory](reference/research-design.md).
 
 The active experiment is a **fixed-scaffold HCDR3 benchmark on the
 trastuzumab/HER2 affinity library**: one lineage, one target, ten editable HCDR3
@@ -27,8 +35,9 @@ trastuzumab core and only 442 of 367,042 carry one or two. What makes held-out
 ranking here interpolation is proximity to the **training set**, not to wild
 type — a validation-only probe found 90.2% of held-out rows within Hamming 1 of a
 training core (98.4% within 2), where a plain nearest-training-neighbour label
-lookup already reaches 0.981 average precision. Beating that is the bar, and the
-proximity strata are reported rather than fixed.
+lookup already reaches 0.981 average precision. This contextualizes predictive
+performance; it does not determine whether a checkpoint can be interpreted.
+The proximity strata are reported rather than fixed.
 
 **Results (2026-09-18).** All initial fits, six SFT/DPO continuations, 31 native
 generation checks and the available final endpoints are complete. All nine
@@ -157,13 +166,13 @@ guided sampler visits. Sparse internal features are a later diagnostic option.
 
 ## Documentation
 
-- [Research design and implementation plan](reference/research-design.md):
-  experimental controls, post-training requirements, and the research roadmap.
+- [Current research scope](reference/research-design.md):
+  implemented capabilities and the mechanistic interpretation work remaining.
 - [Custom-model workflow](reference/custom-model-workflow.md):
   data preparation, training settings, checkpoint compatibility, and infill commands.
 - [Decision 0003](specs/decisions/0003-pretrained-conditioned-policy.md) and the
-  [migration specification](specs/pretrained_conditioned_policy.md):
-  the accepted architecture and implementation boundaries.
+  [conditioning specification](specs/pretrained_conditioned_policy.md):
+  historical decisions and the optional antigen-conditioned extension.
 
 ## Current capabilities
 
@@ -178,7 +187,7 @@ and supporting tools:
 | Antigen fusion | Cross-attention into antibody residue logits; optional frozen/LoRA ESM antigen encoder |
 | Sampling and guidance | Single-pass and iterative HCDR3 infill; optional external guide |
 | Generative objective | MLM, partial-state masking and mask-rate schedules |
-| Interpretability | Synthetic antigen-pathway probe |
+| Interpretability | Synthetic antigen-pathway probe for the custom model; native p-IgGen patching, joint ablations, and transcoder circuit tracing are planned |
 | ESM-IF1 dependency layer | `smallAntibodyGen.esmif1_compat` makes the archived `fair-esm` inverse-folding stack importable on this repo's torch/numpy versions |
 | ESM-IF1 editing policy | `smallAntibodyGen.models.esmif1_policy` scores and samples a fixed-geometry, two-alleles-per-site constrained edit space through the native decoder |
 | ESM-IF1 structural input | `smallAntibodyGen.structure` turns a hash-pinned local PDB/mmCIF file plus an explicit residue correspondence into the policy's encoder inputs, failing closed on anything unsupported or ambiguous |
@@ -212,7 +221,7 @@ with it exactly, and a cached frozen-encoder geometry. It loads no weights,
 declares no structure, maps no benchmark site onto a residue index, and trains
 nothing; its tests run on a toy backbone plus an optional randomly initialized
 upstream model that downloads nothing. Exact semantics, limitations, and the
-pending gates are in [the policy specification](specs/esmif1_policy.md).
+completed integration evidence are in [the policy specification](specs/esmif1_policy.md).
 
 The ESM-IF1 structural input layer is the declaration between a local structure
 file and those coordinates. It pins the file by SHA-256, makes every choice the
