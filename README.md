@@ -187,10 +187,14 @@ affinity training constant while comparing reference KL, entropy, and embedding
 diversity. No regularizer retained or improved both ordinary affinity budgets
 against its direct matched control in every seed; no checkpoint was promoted.
 
-A [larger-budget affinity-only diagnostic](specs/cr9114_budget_pressure.md) continues
-that same seed-20260925 control to 16,384 updates and 65,536 labelled exposures with
-the reference and diversity penalties disabled (AdamW weight decay is retained),
-measuring exact distributional movement over all 65,536 legal identities at the two
-endpoints and conditional measured affinity on training labels
-and the 8,704 already-evaluated development identities only. Its protocol, code and
-independent audit were committed before fitting; results are not yet recorded.
+The [completed larger-budget affinity-only diagnostic](reference/cr9114-budget-pressure.md)
+extended that same seed-20260925 control to 16,384 updates and 65,536 labelled
+exposures (64 times the earlier budget), with reference and diversity penalties
+disabled and AdamW weight decay retained. Under the
+[predeclared protocol](specs/cr9114_budget_pressure.md), exact total variation from
+SFT reached 0.4678. There were still 979 unique variants in 1,024 final draws, but
+development-block probability fell from 19.18% to 0.0421% and ordinary top-16
+affinity fell from 9.572 to 9.498. The higher conditional development mean applies
+to only 0.0313% of the final probability mass. The independent audit passed; all
+reserved test measurements and the 3,046 unused eligible development measurements
+remain untouched. No checkpoint was promoted.
