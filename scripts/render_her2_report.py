@@ -69,6 +69,9 @@ def render():
         seen = entry.get('distinct_exposures') or {}
         novelty = generation['exact_train_novelty']['fraction_not_in_training_cores']
         heldout = generation['labelled_hits']['heldout']
+        test_hits = generation['labelled_hits']['by_split']['test']
+        outside_library = 1 - sum(s['draws_in_catalog']
+            for s in generation['catalog_overlap'].values()) / generation['draws']
         rows.append(dict(name=name, method=entry.get('method'), seed=entry.get('seed'),
             role=entry['role'], target_minutes=entry.get('budget_seconds', 0) / 60,
             actual_minutes=(entry.get('actual_gpu_seconds') or 0) / 60,
@@ -88,6 +91,10 @@ def render():
             unique=generation['unique_fraction'], max_frequency=generation['max_single_core_frequency'],
             not_in_train=novelty, heldout_matches=heldout['draws_matching'],
             heldout_high=heldout['conditional_high']['rate'],
+            test_matches=test_hits['draws_matching'],
+            test_unique_matches=test_hits['unique_cores_matching'],
+            test_match_high=test_hits['conditional_high']['rate'],
+            outside_library=outside_library,
             kl_parent=generation.get('kl_to_sft_parent', {}).get('kl_nats', 0.0),
             eligible=val['diversity']['eligible'], selected=name in selected_names))
     frame = pd.DataFrame(rows)
@@ -253,14 +260,19 @@ def render():
         'Initial checkpoints were selected by high-bin validation NLL. Their validation AP '
         'was diagnostic only. No best seed was selected.', '',
         '## Generated matches to measured held-out sequences', '',
-        frame[['name', 'heldout_matches', 'heldout_high', 'not_in_train']].to_markdown(
+        frame[['name', 'test_matches', 'test_unique_matches', 'test_match_high',
+            'heldout_matches', 'heldout_high', 'not_in_train', 'outside_library']].to_markdown(
             index=False, floatfmt='.4f'), '',
+        '`test_matches` and `test_match_high` use only the test catalogue; '
+        '`test_unique_matches` counts distinct matching cores. '
         '`heldout_matches` counts draws whose exact sequence appears in the published '
         'validation or test catalogue. `heldout_high` is the high-bin fraction only '
         'within those matches. This conditioning favors measured library members and '
         'does not estimate the binding rate of all generated sequences. Duplicate '
         'draws count repeatedly here; they are not independent assay replicates. '
-        '`not_in_train` is exact-sequence novelty, not functional novelty.', '',
+        '`not_in_train` is exact-sequence novelty, not functional novelty. '
+        '`outside_library` is the fraction absent from all three published library '
+        'splits; it does not establish absence from pretraining or other sources.', '',
         '## Initial-policy sampling', '',
         frame[frame.role == 'initial'][['name', 'entropy', 'unique', 'max_frequency',
             'not_in_train', 'mean_hamming']].to_markdown(index=False, floatfmt='.4f'), '',
