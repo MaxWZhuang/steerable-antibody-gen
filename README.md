@@ -1,6 +1,6 @@
 # Steerable antibody generation with pretrained antigen-conditioned policies
 
-## Current direction: HER2 HCDR3 post-training (nothing fitted yet)
+## Current direction: HER2 HCDR3 post-training
 
 The active experiment is a **fixed-scaffold HCDR3 benchmark on the
 trastuzumab/HER2 affinity library**: one lineage, one target, ten editable HCDR3
@@ -30,9 +30,11 @@ training core (98.4% within 2), where a plain nearest-training-neighbour label
 lookup already reaches 0.981 average precision. Beating that is the bar, and the
 proximity strata are reported rather than fixed.
 
-**Status before fitting (2026-09-18).** The protocol and implementation are prepared
-for the GPU campaign. No HER2 model fitting, checkpoint selection, model-based test
-evaluation or assay-outcome evaluation has been performed. The initial integrity
+**Run status (2026-09-18).** The GPU campaign has started. The first p-IgGen SFT
+seed completed all five passes; the remaining initial runs and continuations are
+in progress. [Current results and limitations](reference/her2-posttrain.md) distinguish
+validation observations from the pending final test and independent assay evaluation.
+The initial integrity
 audit read aggregate label counts and printed two example rows from **each split,
 including test**; the split was therefore not sealed from the start.
 p-IgGen's HER2 pretraining exposure is unscanned and unresolved.
