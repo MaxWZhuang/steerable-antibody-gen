@@ -82,6 +82,8 @@ def render():
             test_auc=test['auroc'], p1000=test['precision_at_k']['1000'],
             parent_relative_ap=parent_score.get('average_precision'),
             spr_spearman=assay['quantitative']['spearman'],
+            spr_ci_low=assay['quantitative'].get('ci_low'),
+            spr_ci_high=assay['quantitative'].get('ci_high'),
             spr_binding_auc=assay['binary']['auroc'],
             spr_quantitative_n=assay['quantitative']['n'],
             spr_parent_relative_spearman=parent_assay.get('quantitative', {}).get('spearman'),
@@ -107,7 +109,7 @@ def render():
     plt.rcParams.update({'font.size': 10, 'svg.fonttype': 'none'})
     fig, axes = plt.subplots(2, 3, figsize=(13, 8), constrained_layout=True)
     panels = [('test_ap', 'Test average precision'),
-              ('spr_spearman', 'Independent SPR Spearman'),
+              ('spr_spearman', 'SPR Spearman (152 quantified designs)'),
               ('entropy', 'Generated sequence entropy (nats)'),
               ('unique', 'Unique fraction of 10,000 draws'),
               ('kl_parent', 'KL to own SFT parent (nats)'),
@@ -146,6 +148,8 @@ def render():
 
     snapshot = dict(evaluation=result, validation=validation, selection_freeze=freeze,
         numerical_evaluation=load(numerical_path),
+        assay_availability=load(evidence / 'her2-assay-availability-2026-09-18.json'),
+        final_integrity=load(evidence / 'her2-final-integrity-2026-09-18.json'),
         training=training, continuation_without_update_history=compact_runs(continuation),
         provenance={'evaluation_sha256': sha(result_path),
                     'validation_sha256': sha(validation_path),
@@ -162,7 +166,7 @@ def render():
         spr_spearman=('spr_spearman', 'mean'), spr_binding_auc=('spr_binding_auc', 'mean'),
         entropy=('entropy', 'mean'),
         unique=('unique', 'mean'), eligible_seeds=('eligible', 'sum')).reset_index()
-    diagnostics = raw[['method', 'seed', 'target_minutes', 'val_high_nll', 'test_ap', 'parent_relative_ap',
+    diagnostics = raw[['method', 'seed', 'target_minutes', 'val_high_nll', 'test_ap', 'p1000', 'parent_relative_ap',
                        'spr_spearman', 'spr_parent_relative_spearman', 'kl_parent',
                        'mean_hamming', 'unique', 'max_frequency', 'not_in_train', 'eligible']]
     decisions = []
@@ -210,6 +214,25 @@ def render():
     method_table = pd.DataFrame(method_rows).groupby(['scorer', 'design_method']).agg(
         finite_KD_rows=('finite_KD_rows', 'first'), mean_rho=('rho', 'mean'),
         min_rho=('rho', 'min'), max_rho=('rho', 'max')).reset_index()
+    proximity_rows = []
+    for name, strata in result['test_metrics_by_train_distance'].items():
+        group = None
+        if name.startswith('continued_sft_seed') and name.endswith('_budget180'):
+            group = 'Continued SFT, 3 min'
+        elif name.startswith('dpo_seed') and name.endswith('_budget180'):
+            group = 'DPO, 3 min'
+        elif name in ('cnn_3class_ensemble', 'nn_label'):
+            group = name
+        if group is not None:
+            for distance, metric in strata.items():
+                if metric['n']:
+                    proximity_rows.append({'scorer': group, 'train_distance': distance,
+                        'rows': metric['n'], 'high_fraction': metric['prevalence'],
+                        'AP': metric['average_precision'], 'AUROC': metric['auroc']})
+    proximity_table = pd.DataFrame(proximity_rows).groupby(['scorer', 'train_distance']).agg(
+        rows=('rows', 'first'), high_fraction=('high_fraction', 'first'),
+        mean_AP=('AP', 'mean'), min_AP=('AP', 'min'), max_AP=('AP', 'max'),
+        mean_AUROC=('AUROC', 'mean')).reset_index()
     initial = []
     for name, entry in training['policies'].items():
         for epoch, values in entry['epochs'].items():
@@ -217,10 +240,66 @@ def render():
                 initial.append({'run': name, 'epoch': int(epoch),
                     'val_high_nll': values['val_positive_nll_per_residue'],
                     'val_ap_diagnostic': values['val_ranking_diagnostic']['average_precision']})
+    sft_raw = raw[raw.method == 'continued_sft']
+    dpo_raw = raw[raw.method == 'dpo']
+    sft_first = sft_raw[sft_raw.target_minutes == 3]
+    dpo_first = dpo_raw[dpo_raw.target_minutes == 3]
+    dpo_last = dpo_raw[dpo_raw.target_minutes == 30]
+    sft_parents = frame[frame.name.str.startswith('policy_sft_seed')]
+    scratch = frame[frame.name.str.startswith('policy_scratch_seed')]
+    positive_intervals = sum(row['CI_low'] > 0 for row in paired)
+    main_findings = [
+        f"The fixed diversity criteria accept {int(sft_raw.eligible.sum())}/{len(sft_raw)} "
+        f"continued-SFT checkpoints and {int(dpo_raw.eligible.sum())}/{len(dpo_raw)} DPO "
+        "checkpoints. Selection remains the validation-frozen decision; the test and SPR "
+        "outcomes below do not reselect a checkpoint.", '',
+        f"At three additional GPU minutes, mean test AP is {sft_first.test_ap.mean():.4f} "
+        f"for continued SFT and {dpo_first.test_ap.mean():.4f} for DPO. "
+        f"{positive_intervals}/{len(paired)} matched-budget paired AP intervals have a "
+        "positive lower bound. These row-resampling intervals do not account for "
+        "dependence among neighboring sequences.", '',
+        f"Continued SFT retains {sft_raw.unique.min():.2%}-{sft_raw.unique.max():.2%} "
+        f"unique draws. DPO falls from {dpo_first.unique.min():.2%}-"
+        f"{dpo_first.unique.max():.2%} at three minutes to {dpo_last.unique.min():.2%}-"
+        f"{dpo_last.unique.max():.2%} at thirty minutes. Its thirty-minute KL from its "
+        f"own SFT parent is {dpo_last.kl_parent.min():.3f}-{dpo_last.kl_parent.max():.3f} "
+        "nats: substantial distribution movement accompanies replicated mode collapse.", '',
+        "At the first matched budget, both methods rank 1,000/1,000 high-bin sequences "
+        "at the top in every seed. That endpoint is saturated. DPO's mean AP is lower "
+        "inside every reported training-distance stratum despite its higher aggregate "
+        "AP. The aggregate bin-ranking gain alone therefore does not establish better within-stratum "
+        "ranking or a measurable top-candidate affinity gain.", '',
+        f"On 152 independent designs with a finite KD, continued-SFT correlations at "
+        f"three minutes are {sft_first.spr_spearman.min():.3f}-"
+        f"{sft_first.spr_spearman.max():.3f}, versus {dpo_first.spr_spearman.min():.3f}-"
+        f"{dpo_first.spr_spearman.max():.3f} for DPO. Thirty-minute DPO correlations "
+        f"are {dpo_last.spr_spearman.min():.3f}-{dpo_last.spr_spearman.max():.3f}. "
+        "These are observed correlations on the same cohort, not three independent "
+        "assay cohorts; no paired SPR difference interval was prespecified or computed.", '',
+        f"Initial pretrained SFT parents have SPR correlations of "
+        f"{sft_parents.spr_spearman.min():.3f}-{sft_parents.spr_spearman.max():.3f}; "
+        f"scratch controls have {scratch.spr_spearman.min():.3f}-"
+        f"{scratch.spr_spearman.max():.3f}. Pretraining improves library-ranking point "
+        "estimates under this schedule, but these results do not establish an "
+        "affinity-transfer advantage over scratch or an improvement from additional "
+        "post-training. This diagnostic comparison does not alter the frozen choices.", '',
+        "The planned binary SPR endpoint is **unavailable**. Of 695 independent "
+        "designs, 152 have a finite KD, 96 have an I.C. binding observation without "
+        "a reliable KD, 434 contain literal N/A, and 13 are blank. The workbook "
+        "defines N.B. as no binding but contains no N.B. primary-cohort entries. "
+        "N/A is not silently recoded as nonbinding. Consequently all 248 recognized "
+        "binary outcomes are positive and AUROC is undefined. See the "
+        "[assay availability audit](evidence/her2-assay-availability-2026-09-18.json).", '',
+    ]
+    assert (sft_first.p1000 == 1).all() and (dpo_first.p1000 == 1).all()
+    for distance in proximity_table.train_distance.unique():
+        local = proximity_table[proximity_table.train_distance == distance].set_index('scorer')
+        assert local.loc['DPO, 3 min', 'mean_AP'] < local.loc['Continued SFT, 3 min', 'mean_AP']
     lines = ['# HER2 p-IgGen SFT and DPO benchmark', '',
         'Completed campaign, 2026-09-18. See the [fixed protocol](../specs/her2_hcdr3_benchmark.md).', '',
         'p-IgGen is the generator. The CNN and additive model are auxiliary ranking comparators '
-        'on measured populations; neither supplies rewards, preferences, or checkpoint selection.', '',
+        'on measured populations; neither supplies rewards, preferences, or generator checkpoint selection.', '',
+        *main_findings,
         '![Scaling curves](figures/her2-posttrain-scaling.svg)', '',
         'Lines show seed means, bands show the range across three seeds, and faint lines show '
         'individual trajectories. Crosses mark raw checkpoints that fail diversity eligibility. '
@@ -229,9 +308,31 @@ def render():
         '## Compute comparison', '', aggregate.to_markdown(index=False, floatfmt='.4f'), '',
         '## Ranking baselines and initial policies', '',
         pd.DataFrame(baseline_rows).to_markdown(index=False, floatfmt='.4f'), '',
-        'SPR Spearman uses only finite positive KD measurements; the binary SPR AUROC '
-        'uses measured binding versus nonbinding, including unquantified binders as positive. '
-        'No numerical KD is assigned to nonbinding or unquantified records.', '',
+        'SPR Spearman uses only 152 finite positive KD measurements. Binary SPR AUROC '
+        'is undefined in this release under the documented outcome rules; blank/NaN '
+        'entries are unavailable metrics, not zero scores. No numerical KD is assigned '
+        'to N/A, missing or unquantified records.', '',
+        'Precision-at-K uses the fixed lexicographic sequence tie-break. Its value '
+        'for the constant prior therefore reflects that ordering and is not an '
+        'estimate of the precision of random selection.', '',
+        '## Quantitative SPR uncertainty at fixed endpoints', '',
+        frame[(frame.name.str.startswith('policy_sft_seed')) |
+            ((frame.method.isin(['continued_sft', 'dpo'])) & (frame.target_minutes == 3)) |
+            ((frame.method == 'dpo') & (frame.target_minutes == 30))][
+            ['name', 'spr_quantitative_n', 'spr_spearman', 'spr_ci_low', 'spr_ci_high']].to_markdown(
+                index=False, floatfmt='.4f'), '',
+        'Each interval is a 95% percentile interval from 2,000 paired-row resamples '
+        'of that scorer and the finite KD measurements. It is an interval for one '
+        'correlation, not for the difference between two scorers. Quantification '
+        'success can introduce selection bias relative to all 695 designs.', '',
+        '## Test ranking by distance to training sequences', '',
+        proximity_table.to_markdown(index=False, floatfmt='.4f'), '',
+        'Generator rows summarize the three seeds at the first matched budget. '
+        'Min/max describe seed spread. The nearest-neighbor comparator searches '
+        'through Hamming distance two and returns the training prior beyond that; '
+        'its distance >=3 row is therefore a constant-score fallback. Differences '
+        'in overall ranking can reflect ordering between strata as well as within '
+        'them, so the aggregate AP should not stand in for every stratum.', '',
         '## Independent SPR within each source design method', '',
         method_table.to_markdown(index=False, floatfmt='.4f'), '',
         'The generator rows summarize three training seeds at fixed descriptive endpoints '
@@ -316,7 +417,14 @@ def render():
         'distance stratum, paired interval, seed result, selection decision, exposure count '
         'and source/checkpoint digest. [Scaling data](evidence/her2-posttrain-scaling-2026-09-18.csv) '
         'are available separately. Weights, draw files and full logs remain under '
-        '`outputs/her2_posttrain_20260918/`.', '']
+        '`outputs/her2_posttrain_20260918/`.', '',
+        'The [final integrity audit](evidence/her2-final-integrity-2026-09-18.json) '
+        'verified all 35 frozen model/baseline artifacts, all 31 draw files, the '
+        'evaluation artifacts, unchanged selections and scientific-code hashes, '
+        'and the separately bound numerical driver. Before fitting, 1,984 repository '
+        'tests passed (3 skipped), with native scoring/gradient and synthetic-stage '
+        'checks. The numerical amendment subsequently passed 37 driver/runner checks '
+        'and all 31 native sampler/scorer checks at the original tolerance.', '']
     (REFERENCE / 'her2-posttrain.md').write_text('\n'.join(lines), encoding='utf-8')
     print(aggregate.to_string(index=False))
     print('Report rendered without fitting or selection.')
