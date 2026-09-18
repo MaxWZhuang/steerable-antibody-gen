@@ -1,0 +1,92 @@
+{
+  "candidate_source_url": "https://academic.oup.com/bioinformatics/article/40/11/btae659/7888884",
+  "candidate_source_url_verified": false,
+  "dataset_name": "piggen_backbone",
+  "files": [
+    {
+      "relative_path": "piggen/README.md",
+      "sha256": "afe85c6da56f0a73254b796b2bce0b77160edc730ba649ff9498833ef1eb8383",
+      "size_bytes": 639
+    },
+    {
+      "relative_path": "piggen/config.json",
+      "sha256": "4c5a54545ae1d8773d0793b7c9fee0c8bfaf4c2e384d16552278bcaa523b0a74",
+      "size_bytes": 719
+    },
+    {
+      "relative_path": "piggen/generation_config.json",
+      "sha256": "d922c8de8235185b68ab3e1ed29de9276d4d36566056279c0372ee2ace6fe2bb",
+      "size_bytes": 111
+    },
+    {
+      "relative_path": "piggen/model.safetensors",
+      "sha256": "4fac8e89ae5abb432e29c3af2ca5176da6b6bbeef64ea6847bd51393180918bd",
+      "size_bytes": 88395416
+    },
+    {
+      "relative_path": "piggen/special_tokens_map.json",
+      "sha256": "8ac045b33e2e3858cff599eb4083fe16f30aa4f424e3ef4ff92d6b29eaa8ab57",
+      "size_bytes": 141
+    },
+    {
+      "relative_path": "piggen/tokenizer.json",
+      "sha256": "66f2015ce989903c1319fcd89e751b805f9aacb83e898c3f8a221af6de195a73",
+      "size_bytes": 1294
+    },
+    {
+      "relative_path": "piggen/tokenizer_config.json",
+      "sha256": "b210d89151085258a2d6f65127604615a3a36ef0617cf154f3c974ffd05320c0",
+      "size_bytes": 341
+    }
+  ],
+  "license": "BSD-3-Clause, ASSERTED in the model card only. The pinned revision ships no LICENSE file - the seven files above are the complete file list - so the license is the model-card line 'License: BSD-3-Clause license' at piggen/README.md, sha256 afe85c6da56f0a73254b796b2bce0b77160edc730ba649ff9498833ef1eb8383. That is a hashed claim, not a license file.",
+  "notes": "p-IgGen, an autoregressive paired-antibody language model, at Hugging Face revision 0e5c4ed4e4c6bed0a0c7e56ad6fa24c63ed56023 (ollieturnbull/p-IgGen). Per-file URLs are pinned in the untracked retrieval record data/raw/her2_functional_20260918/piggen/manifest.json; each is https://huggingface.co/ollieturnbull/p-IgGen/resolve/0e5c4ed4e4c6bed0a0c7e56ad6fa24c63ed56023/<file>, and model.safetensors additionally matches its upstream LFS sha256. ARCHITECTURE, verified by strict load: GPTNeoXForCausalLM, 4 layers, 8 heads, hidden 768, intermediate 2048, vocab 26, 22,097,408 parameters, hidden_dropout 0.0 and attention_dropout 0.0 (classifier_dropout 0.1 is inert for this head and must not be 'fixed'). TOKENIZER DEFECT, load-bearing: the tokenizer is a ByteLevel BPE with an EMPTY merge table, so it is character-level in fact and this repository maps characters to ids directly rather than going through the ByteLevel encoder. The real biological sentinels are '1' -> 23 and '2' -> 24 with <PAD> 0, but config.json ships bos_token_id 0 and eos_token_id 2 - and 2 is the residue R. Generation therefore never consults those ids: it runs exactly ten steps, and an internal arginine cannot terminate it. PRETRAINING EXPOSURE IS UNRESOLVED. The model card states pretraining on unpaired heavy and light OAS followed by paired finetuning. An earlier paired-corpus scan (reference/piggen-backbone-candidate.md) queried CR9114, not HER2. Neither paired nor unpaired corpus exposure has been scanned for HER2. The 3.276 GB unpaired-heavy archive remains unscanned, and archive-to-shipped-checkpoint lineage is unreconciled (54,110 pairs, 3.01%). No claim of clean exposure is made anywhere, conditional on nothing. The matched random-initialization arm is exposure-free by construction and is carried for that reason as well as for budget matching. RETRIEVAL DATE: the piggen retrieval record carries no date of its own; the date recorded here is the retrieval date of the HER2 data root it sits inside. The same revision was first audited on 2026-09-14 (reference/evidence/piggen-release-audit-2026-09-14.json).",
+  "owner_decisions": [
+    {
+      "key": "file_hashes",
+      "question": "Supply the retrieved weights so per-file byte sizes and SHA-256 hashes can be computed and recorded.",
+      "status": "supplied"
+    },
+    {
+      "key": "license",
+      "question": "What license do the retrieved artifacts carry, and is it a license file or an assertion?",
+      "status": "supplied"
+    },
+    {
+      "key": "release_version",
+      "question": "Which exact revision of this model is authoritative?",
+      "status": "supplied"
+    },
+    {
+      "key": "retrieval_date",
+      "question": "On what date were the authoritative files retrieved?",
+      "status": "supplied"
+    },
+    {
+      "key": "source_url",
+      "question": "Which download URL is authoritative?",
+      "status": "supplied"
+    },
+    {
+      "key": "tokenizer_sentinels",
+      "question": "Which token ids are the real sequence sentinels, and does the shipped generation config agree?",
+      "status": "supplied"
+    }
+  ],
+  "plan_assertions": [
+    {
+      "claim": "Whether any benchmark sequence appeared in p-IgGen pretraining is unresolved and cannot be settled without scanning the unpaired heavy OAS archive; no clean-exposure claim may be made.",
+      "source": "outputs/claude_codex_her2_migration_20260918/decisions.md",
+      "verified": false
+    },
+    {
+      "claim": "The matched random-initialization arm is exposure-free only in its initialization; it does not make any downstream result independent of supervised leakage.",
+      "source": "outputs/claude_codex_her2_migration_20260918/decisions.md",
+      "verified": false
+    }
+  ],
+  "release_version": "0e5c4ed4e4c6bed0a0c7e56ad6fa24c63ed56023",
+  "retrieval_date": "2026-09-18",
+  "schema_version": "1",
+  "source_url": "https://huggingface.co/ollieturnbull/p-IgGen/tree/0e5c4ed4e4c6bed0a0c7e56ad6fa24c63ed56023"
+}

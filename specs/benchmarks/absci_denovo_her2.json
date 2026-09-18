@@ -1,0 +1,77 @@
+{
+  "candidate_source_url": "https://www.nature.com/articles/s41587-024-02395-w",
+  "candidate_source_url_verified": false,
+  "dataset_name": "absci_denovo_her2",
+  "files": [
+    {
+      "relative_path": "absci/LICENSE",
+      "sha256": "12e4c580339a117464d1ca9417c7c06026d7f535ea5cb55ef0aa482e6c7bb769",
+      "size_bytes": 1789
+    },
+    {
+      "relative_path": "absci/README.md",
+      "sha256": "698f39c41a8e5a9e27fe0ad869cf59ada8c5daf1b0bea6e94c54ccdd6abe0b0d",
+      "size_bytes": 8312
+    },
+    {
+      "relative_path": "absci/functionality-developability-cross_reactivity-data.csv",
+      "sha256": "f67f8284ce21f86b56b17f75493b05217d8f603565487692372083f626fa08b5",
+      "size_bytes": 5272
+    },
+    {
+      "relative_path": "absci/spr-controls.csv",
+      "sha256": "33939f99b489b36e9f893641f3b4013ae4898093875067db31569801b15b2489",
+      "size_bytes": 74896
+    },
+    {
+      "relative_path": "absci/zero-shot-binders.csv",
+      "sha256": "c12742bd36ae8881a38cd41e50fd3922cbd885b184531d1151889f5fa610b639",
+      "size_bytes": 13841
+    }
+  ],
+  "license": "The Clear BSD License as supplied at absci/LICENSE (first line 'The Clear BSD License', Copyright (c) 2023, Absci Corporation, sha256 12e4c580339a117464d1ca9417c7c06026d7f535ea5cb55ef0aa482e6c7bb769). NOT an unqualified SPDX BSD-3-Clause-Clear: the supplied text reads 'Redistribution, reference, and use in source and binary forms' where the standard text reads 'Redistribution and use', and it adds a fourth clause absent from the SPDX template - 'Reference or publication of data contained herein must be attributed to Absci Corporation (2023).' Any reference to or publication of these data must carry that attribution.",
+  "notes": "AbSci de novo HER2 binder release at revision cd2bd4b6932b5301d435555dc22084d407e4b92b. Per-file retrieval URLs are pinned in the untracked retrieval record data/raw/her2_functional_20260918/source_manifest.json; each is https://raw.githubusercontent.com/AbSciBio/unlocking-de-novo-antibody-design/cd2bd4b6932b5301d435555dc22084d407e4b92b/<upstream_path>. ROLE IN THIS STUDY: diagnostic only, never a primary endpoint. The 2026-09-18 audit measured why: zero-shot-binders.csv holds 422 unique HCDR3s of length 11-15 (201 of length 13) of which only 4 meet the SR + 10-mer + Y core constraints; this is an upper bound on full compatibility because that file has no HCDR1/HCDR2 columns; spr-controls.csv holds 1,855 rows / 1,829 unique HCDR3s (758 true, 1,097 false) of which 38 match the fixed H1/H2 plus the Buzz length and anchors, and 1 of those overlaps Buzz training. Cropping an 11-15mer design down to a 10-mer core would not make it the same task, and this repository does not do it. A binders-only file has no negative examples: AUROC is undefined and average precision is 1 for any complete ranking, so it cannot establish binding discrimination. The 37 non-overlapping in-support control rows are retained only in the compatibility audit; no classifier benchmark or performance estimate is derived from them.",
+  "owner_decisions": [
+    {
+      "key": "file_hashes",
+      "question": "Supply the raw downloads so per-file byte sizes and SHA-256 hashes can be computed and recorded.",
+      "status": "supplied"
+    },
+    {
+      "key": "license",
+      "question": "What is the license of the retrieved artifacts, and does it carry obligations beyond the SPDX template?",
+      "status": "supplied"
+    },
+    {
+      "key": "release_version",
+      "question": "Which exact release/revision of this source is authoritative?",
+      "status": "supplied"
+    },
+    {
+      "key": "retrieval_date",
+      "question": "On what date were the authoritative files retrieved?",
+      "status": "supplied"
+    },
+    {
+      "key": "source_url",
+      "question": "Which download URL is authoritative?",
+      "status": "supplied"
+    },
+    {
+      "key": "support_compatibility",
+      "question": "How many released designs are inside this benchmark's fixed-scaffold 10-mer support, and what role may the rest play?",
+      "status": "supplied"
+    }
+  ],
+  "plan_assertions": [
+    {
+      "claim": "Absci designs are variable-length HCDR3s on a different context and cannot be cropped into this benchmark's fixed 10-mer support and still be called the same task.",
+      "source": "outputs/claude_codex_her2_migration_20260918/plan.md",
+      "verified": false
+    }
+  ],
+  "release_version": "cd2bd4b6932b5301d435555dc22084d407e4b92b",
+  "retrieval_date": "2026-09-18",
+  "schema_version": "1",
+  "source_url": "https://github.com/AbSciBio/unlocking-de-novo-antibody-design/tree/cd2bd4b6932b5301d435555dc22084d407e4b92b"
+}
