@@ -1,7 +1,7 @@
 # HER2 p-IgGen post-training: run in progress
 
 Snapshot: 2026-09-18, after the complete initial fitting stage. Implementation
-commit `08d57ae`; continuations and final evaluation remain pending.
+commit `08d57ae`; continuation fitting is in progress and final evaluation remains pending.
 
 p-IgGen is the generator. The CNN is an auxiliary classifier added by Codex to
 compare ranking of measured sequences. It does not generate sequences, supply
@@ -71,6 +71,20 @@ model achieved 0.666580. These classification losses are not directly comparable
 with generator sequence NLL. The [complete initial-stage evidence](evidence/her2-initial-fits-2026-09-18.json)
 includes all fits and the intermediate selection record. Every selected
 checkpoint hash and scientific source-code hash was verified before continuation.
+
+<!-- continuation-progress:start -->
+## Continuation fitting progress
+
+1 of 6 trajectories completed. Only completed trajectories appear below.
+
+| method        |     seed |   GPU minutes |   updates |   validation high NLL |   validation pair accuracy |
+|:--------------|---------:|--------------:|----------:|----------------------:|---------------------------:|
+| continued_sft | 20260918 |       3.00000 |      1335 |               1.49891 |                    0.97154 |
+| continued_sft | 20260918 |       6.00000 |      2663 |               1.50421 |                    0.97123 |
+| continued_sft | 20260918 |      10.00000 |      4431 |               1.52686 |                    0.97104 |
+
+These are validation diagnostics, not final affinity or diversity results. No continuation checkpoint is selected until full validation ranking and generation diagnostics are complete. [Progress evidence](evidence/her2-continuation-progress-2026-09-18.json) retains actual GPU time, unique and repeated exposures, reference costs and checkpoint digests.
+<!-- continuation-progress:end -->
 
 ## Verification and artifacts
 
