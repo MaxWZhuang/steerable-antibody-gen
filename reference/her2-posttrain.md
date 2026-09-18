@@ -75,7 +75,7 @@ checkpoint hash and scientific source-code hash was verified before continuation
 <!-- continuation-progress:start -->
 ## Continuation fitting progress
 
-3 of 6 trajectories completed. Only completed trajectories appear below.
+4 of 6 trajectories completed. Only completed trajectories appear below.
 
 | method        |     seed |   GPU minutes |   updates |   validation high NLL |   validation pair accuracy |
 |:--------------|---------:|--------------:|----------:|----------------------:|---------------------------:|
@@ -90,17 +90,26 @@ checkpoint hash and scientific source-code hash was verified before continuation
 | continued_sft | 20260919 |       3.00000 |      1327 |               1.49859 |                    0.97220 |
 | continued_sft | 20260919 |       6.00000 |      2654 |               1.50530 |                    0.97228 |
 | continued_sft | 20260919 |      10.00000 |      4423 |               1.52515 |                    0.97076 |
+| dpo           | 20260919 |       3.00000 |       742 |               3.16644 |                    0.99347 |
+| dpo           | 20260919 |       6.00000 |      1941 |               3.50013 |                    0.99549 |
+| dpo           | 20260919 |      10.00000 |      3540 |               3.80018 |                    0.99557 |
+| dpo           | 20260919 |      20.00000 |      7539 |               4.34547 |                    0.99580 |
+| dpo           | 20260919 |      30.00000 |     11539 |               4.55968 |                    0.99654 |
 
 These are validation diagnostics, not final affinity or diversity results. No continuation checkpoint is selected until full validation ranking and generation diagnostics are complete. [Progress evidence](evidence/her2-continuation-progress-2026-09-18.json) retains actual GPU time, unique and repeated exposures, reference costs and checkpoint digests.
 <!-- continuation-progress:end -->
 
-For the first seed, longer DPO fitting improves held-out preference ordering while
-sharply worsening the likelihood of measured high-bin sequences. At 30 GPU minutes,
-pair accuracy is 0.996346 but high-bin NLL is 4.623964 per residue; continued SFT
-at its 10-minute endpoint has pair accuracy 0.971036 and NLL 1.526862. The parent
-NLL was 1.491964. This is a substantial density shift, not evidence that the
-generated antibodies bind better. Full ranking, actual sampling, the remaining
-seeds and independent assay evaluation are still needed.
+The first two seeds agree: longer DPO fitting improves held-out preference ordering
+while sharply worsening the likelihood of measured high-bin sequences. At 30 GPU
+minutes, pair accuracy is 0.996346/0.996540 and high-bin NLL is 4.623964/4.559677
+per residue. Continued SFT at its 10-minute endpoint has pair accuracy
+0.971036/0.970764 and NLL 1.526862/1.525151. Initial parent NLL was
+1.491964/1.488833. DPO's preference-accuracy gains from 10 to 30 minutes are
+approximately 0.09-0.10 percentage points in these seeds; the density shift keeps
+growing. This is not evidence that generated antibodies bind better, and the
+likelihood change alone does not establish collapse or DPO overfitting.
+Full ranking, actual sampling, the third seed and independent assay evaluation
+are still needed.
 
 ## Verification and artifacts
 
