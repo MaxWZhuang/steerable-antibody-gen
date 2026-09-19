@@ -1,0 +1,6 @@
+# Preserve the bytes of the published, hash-identified HER2 evidence across platforms.
+reference/evidence/her2-guarded-build-2026-09-18.json text eol=lf
+reference/evidence/her2-guarded-results-2026-09-19/** text eol=lf
+reference/her2-guarded-results.md text eol=lf
+reference/figures/her2-guarded-*.svg text eol=lf
+reference/figures/her2-original-*.svg text eol=lf

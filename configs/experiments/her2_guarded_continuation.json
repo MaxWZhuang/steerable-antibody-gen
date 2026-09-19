@@ -1,0 +1,151 @@
+{
+  "schema_version": "her2-guarded-continuation/1",
+  "protocol": "specs/her2_guarded_continuation.md",
+  "raw_root": "data/raw/her2_functional_20260918",
+  "source_manifests": [
+    "specs/benchmarks/buzz_her2_affinity.json",
+    "specs/benchmarks/absci_denovo_her2.json",
+    "specs/benchmarks/piggen_backbone.json"
+  ],
+  "inherited": {
+    "original_config": "configs/experiments/her2_posttrain.json",
+    "base_selection": "outputs/her2_posttrain_20260918/base_selection.json",
+    "original_continuation_root": "outputs/her2_posttrain_20260918/continuation",
+    "note": "the parents, their optimizer settings and their pairing come from the completed 2026-09-18 campaign. This revision reads those artifacts and does not rewrite them."
+  },
+  "seeds": [20260918, 20260919, 20260920],
+  "budgets_gpu_seconds": [180, 360, 600],
+  "budget_definition": "measured device-elapsed seconds of training updates plus charged training reference scoring; monitoring, validation and I/O are measured separately and are not part of this number",
+  "batch_sequences": 128,
+  "fallback_batch_sequences": 64,
+  "gate": {
+    "threshold_nats_per_sequence": 1.0,
+    "threshold_nats_per_residue": 0.1,
+    "statistic": "D = mean(parent_chosen - current_chosen) over the fixed validation pairs",
+    "first_update": 1,
+    "update_interval": 25,
+    "gpu_second_interval": 5.0,
+    "also_checked": ["every nominal-budget crossing", "the final state"],
+    "population": "every fixed validation pair, chosen and rejected, on every check",
+    "applies_to": "every arm, continued_sft included",
+    "stop_rule": "strict D > threshold (exact equality passes), or any nonfinite score"
+  },
+  "optimization": {
+    "learning_rate": 0.00001,
+    "betas": [0.9, 0.999],
+    "weight_decay": 0.01,
+    "gradient_clip": 1.0,
+    "warmup_updates": 100,
+    "schedule": "linear_warmup_then_constant"
+  },
+  "pairing": {
+    "seed_base": 20260924,
+    "validation_seed": 20260925,
+    "validation_pairs": null
+  },
+  "reference": {
+    "score_batch_size": 256,
+    "parity_probe_rows": 64,
+    "parity_probe_seed": 20260926,
+    "reuse_original_cache": true,
+    "reuse_note": "the original frozen reference cache is reused read-only under full identity verification; its original creation seconds are charged as this trajectory's cold-start cost and the warm reuse wall time is reported separately"
+  },
+  "expected_counts": {
+    "train_chosen": 120477,
+    "train_rejected": 113530,
+    "reference_rows": 234007,
+    "val_chosen": 25722,
+    "excluded_train_chosen": 27,
+    "excluded_val_chosen": 100
+  },
+  "stages": [
+    {
+      "stage": 1,
+      "name": "standard DPO beta grid plus the matched continued-SFT control",
+      "arms": [
+        {"objective": "continued_sft", "coefficients": {}},
+        {"objective": "dpo", "coefficients": {"beta": 0.1}},
+        {"objective": "dpo", "coefficients": {"beta": 0.5}},
+        {"objective": "dpo", "coefficients": {"beta": 1.0}},
+        {"objective": "dpo", "coefficients": {"beta": 5.0}}
+      ]
+    },
+    {
+      "stage": 2,
+      "name": "chosen-drop penalties: inside-sigmoid (dpop) and additive (dpo_hinge)",
+      "arms": [
+        {"objective": "continued_sft", "coefficients": {}, "reused_from_stage": 1},
+        {"objective": "dpop", "coefficients": {"beta": 0.1, "lambda": 0.1}},
+        {"objective": "dpop", "coefficients": {"beta": 0.1, "lambda": 1.0}},
+        {"objective": "dpop", "coefficients": {"beta": 0.1, "lambda": 10.0}},
+        {"objective": "dpo_hinge", "coefficients": {"beta": 0.1, "lambda": 0.01}},
+        {"objective": "dpo_hinge", "coefficients": {"beta": 0.1, "lambda": 0.1}},
+        {"objective": "dpo_hinge", "coefficients": {"beta": 0.1, "lambda": 1.0}}
+      ]
+    },
+    {
+      "stage": 3,
+      "name": "squared target margin (ipo) and DPO plus the site NLL term",
+      "arms": [
+        {"objective": "continued_sft", "coefficients": {}, "reused_from_stage": 1},
+        {"objective": "ipo", "coefficients": {"tau": 0.1}},
+        {"objective": "ipo", "coefficients": {"tau": 0.5}},
+        {"objective": "ipo", "coefficients": {"tau": 1.0}},
+        {"objective": "ipo", "coefficients": {"tau": 5.0}},
+        {"objective": "dpo_nll", "coefficients": {"beta": 0.1, "lambda_site": 0.1}},
+        {"objective": "dpo_nll", "coefficients": {"beta": 0.1, "lambda_site": 1.0}},
+        {"objective": "dpo_nll", "coefficients": {"beta": 0.1, "lambda_site": 10.0}}
+      ]
+    }
+  ],
+  "allocation": {
+    "total_gpu_seconds": 32400,
+    "stage_gpu_seconds": {"1": 9000, "2": 10800, "3": 12600},
+    "basis": "18 fitted configurations x 3 seeds x the 600 s maximum budget. One continuous trajectory drops a checkpoint at 180, 360 and 600 s, so a trajectory is charged once at 600 s and NOT 180 + 360 + 600.",
+    "excluded": [
+      "one update of overshoot per budget crossing",
+      "monitor GPU and wall seconds on the full fixed validation pair set",
+      "validation, 10,000-draw generation, checkpoint I/O and whole-run elapsed time"
+    ]
+  },
+  "selection": {
+    "primary_statistic": "mean across all three seeds of the macro-average validation AP over the training-distance strata [1, 2, >=3]",
+    "strata": ["1", "2", ">=3"],
+    "reported_strata": ["0", "1", "2", ">=3"],
+    "eligibility": "a reached endpoint at the exact nominal budget, with the likelihood gate and the diversity gates both passed, for every seed",
+    "tie_break": ["mean worst-stratum average precision", "lexicographic arm id"],
+    "inputs": ["validation"],
+    "note": "no reserved test label and no assay outcome enters any selection here"
+  },
+  "diversity_gates": {
+    "relative_floor": 0.9,
+    "min_unique_fraction": 0.9,
+    "max_single_core_frequency": 0.01,
+    "min_fraction_not_in_training": 0.5
+  },
+  "inference": {
+    "score_batch_size": 256,
+    "sample_batch_size": 256,
+    "monitor_batch_size": 256
+  },
+  "generation": {
+    "draws": 10000,
+    "temperature": 1.0,
+    "seed_base": 20260921,
+    "retain_duplicates": true,
+    "restrict_to_catalog": false
+  },
+  "evaluation": {
+    "k_values": [32, 100, 1000],
+    "train_distance_strata": ["0", "1", "2", ">=3"],
+    "max_train_distance": 2
+  },
+  "runtime": {
+    "cpu_threads": 4,
+    "cpu_threads_note": "the measured step-time and parity probes were taken at 4 intra-op threads"
+  },
+  "tolerances": {
+    "sum_log_probability_atol": 0.00005,
+    "sum_log_probability_rtol": 0.000002
+  }
+}

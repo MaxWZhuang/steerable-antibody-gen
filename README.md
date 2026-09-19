@@ -54,6 +54,20 @@ audit read aggregate label counts and printed two example rows from **each split
 including test**; the split was therefore not sealed from the start.
 p-IgGen's HER2 pretraining exposure is unscanned and unresolved.
 
+**Guarded revision (2026-09-19).** All 54 trajectories and three validation-selection
+stages are complete: 24 trajectories reached 600 training GPU seconds and 30
+stopped on the prospective one-nat-per-sequence likelihood-drop gate. Standard
+DPO stopped before 180 seconds at every tested beta. IPO with tau=0.1 had the
+highest prespecified validation macro-AP at each matched budget; at 600 seconds
+it reached 0.8772 versus 0.8531 for continued SFT (+2.414 percentage points), with
+all three seeds passing likelihood and diversity eligibility. DPOP, additive
+hinge, and DPO+NLL also supplied eligible ranking improvements at their strongest
+tested likelihood coefficients. These results establish stabilization and
+validation-ranking gains under the declared criteria; affinity improvement has
+not been established. [Completed results, figures, and evidence](reference/her2-guarded-results.md),
+[prospective protocol](specs/her2_guarded_continuation.md), and
+[local dashboard instructions](scripts/her2_dashboard/README.md) are retained.
+
 **Sources**, hash-pinned and tracked: the affinity library and SPR workbook
 ([`specs/benchmarks/buzz_her2_affinity.json`](specs/benchmarks/buzz_her2_affinity.json),
 oxpig/`Tz_her2_affinity_and_beyond`, BSD-3-Clause), the AbSci de novo HER2

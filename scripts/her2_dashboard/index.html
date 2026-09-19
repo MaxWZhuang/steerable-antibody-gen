@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HER2 · Live experiment</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="mark" aria-hidden="true">∿</span> smallAntibodyGen <span class="divider">/</span> <span class="muted">Experiment monitor</span></div>
+    <div class="connection"><span id="connection-dot" class="dot"></span><span id="connection">Connecting…</span><button id="refresh" class="quiet">Refresh</button></div>
+  </header>
+  <main>
+    <div class="heading"><div><p class="eyebrow">HER2 · GUARDED CONTINUATION</p><h1>Learning, under observation.</h1><p class="subtitle">Preference ranking and parent-likelihood preservation, across three staged comparisons.</p></div><div class="status-area"><span id="campaign-status" class="badge">Loading</span><p id="phase" class="muted">Reading campaign…</p></div></div>
+    <div id="notice" role="status" class="notice" hidden></div>
+    <section class="metrics" aria-label="Campaign overview">
+      <div><span class="label">Elapsed wall time</span><strong id="elapsed">—</strong><small>Includes training, checks, evaluation &amp; I/O</small></div>
+      <div><span class="label">Training GPU budget used</span><strong id="training">—</strong><small id="allocation">Recorded updates + required reference scoring</small></div>
+      <div><span class="label">Monitoring GPU time</span><strong id="monitoring">—</strong><small>Checks + parent scoring; additional cost</small></div>
+      <div><span class="label">Trajectories finished</span><strong id="finished">—</strong><small id="counts">Waiting for run records</small></div>
+      <div><span class="label">GPU utilization</span><strong id="gpu">—</strong><small id="gpu-memory">Waiting for device</small></div>
+    </section>
+    <section id="stages" class="stages" aria-label="Stage progress"></section>
+    <section class="focus" aria-label="Selected trajectory">
+      <div class="section-heading"><div><p class="eyebrow">TRAJECTORY INSPECTOR</p><h2 id="run-title">Waiting for a trajectory</h2></div><div class="controls"><label class="sr-only" for="run-select">Select trajectory</label><select id="run-select"></select><button id="follow" aria-pressed="true">Follow active run</button></div></div>
+      <div id="run-meta" class="run-meta"></div>
+      <div id="run-note" class="note"></div>
+      <div class="plots">
+        <article class="plot-panel"><div class="plot-heading"><div><h3>Chosen-likelihood drop</h3><p>Fixed validation pairs · nats per sequence</p></div><div class="plot-value"><strong id="drop">—</strong><span id="gate-label">No check yet</span></div></div><div id="likelihood-chart" class="chart"></div><p class="chart-note">Positive = lower likelihood than the SFT parent. The red line is the stopping threshold.</p></article>
+        <article class="plot-panel"><div class="plot-heading"><div><h3>Optimization trace</h3><p id="trace-description">Recorded training batches · loss</p></div><label class="sr-only" for="metric">Training metric</label><select id="metric"><option value="loss">Loss</option><option value="gradient_norm">Gradient norm</option><option value="margin">Mean relative margin</option><option value="coefficient">Mean DPO coefficient</option><option value="modified_coefficient">Mean modified coefficient</option><option value="sign_accuracy">Implicit-reward accuracy</option><option value="hinge_active_fraction">Active hinge fraction</option><option value="chosen_nll_per_residue">Chosen NLL / residue</option><option value="rejected_nll_per_residue">Rejected NLL / residue</option><option value="learning_rate_used">Learning rate</option></select></div><div id="training-chart" class="chart"></div><p id="trace-note" class="chart-note">Updates appear as they are saved.</p></article>
+      </div>
+      <div class="detail-strip"><div><span class="label">Chosen-drop distribution · latest check</span><div id="quantiles" class="quantiles">No check recorded</div></div><div><span class="label">Validation chosen NLL / residue</span><strong id="chosen-nll">—</strong></div><div><span class="label">Validation pair-ranking accuracy</span><strong id="ranking">—</strong></div></div>
+      <p class="interpretation">A passing likelihood check alone does not establish diversity or affinity improvement. Stage validation applies the declared diversity and ranking criteria.</p>
+    </section>
+    <section class="runs-section" aria-label="All trajectories">
+      <div class="section-heading"><div><p class="eyebrow">CAMPAIGN</p><h2>Run ledger</h2></div><div class="controls"><label for="stage-filter">Stage</label><select id="stage-filter"><option value="all">All stages</option><option value="1">1 · SFT + DPO</option><option value="2">2 · Hinge objectives</option><option value="3">3 · IPO + NLL</option></select><label class="checkbox"><input id="show-queued" type="checkbox"> Show queued</label></div></div>
+      <div class="table-scroll"><table><thead><tr><th>Objective / coefficients</th><th>Seed</th><th>Status</th><th>Updates</th><th>Training GPU s</th><th>Latest drop</th><th>Reached budgets (s)</th></tr></thead><tbody id="runs"></tbody></table></div>
+      <p class="note">Only saved, reached endpoints are listed. An early stop does not complete later budgets. The three SFT controls are reused in later stages.</p>
+    </section>
+    <section class="logs-section"><div class="section-heading"><div><p class="eyebrow">FROM THE RUNNER</p><h2>Recent activity</h2></div><span id="log-label" class="muted"></span></div><pre id="logs" aria-label="Recent training log">Waiting for logs…</pre></section>
+    <footer><span>Local, read-only view · refreshes every 5 seconds</span><span id="updated">No snapshot yet</span><a href="/api/status" target="_blank" rel="noopener">Snapshot JSON ↗</a></footer>
+  </main>
+</body>
+</html>
