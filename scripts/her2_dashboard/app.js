@@ -206,6 +206,7 @@ async function refreshAudit() {
 
 function showView(view) {
   auditView = view === "audit";
+  $("campaign-heading").hidden = auditView;
   $("view-campaign").hidden = auditView;
   $("view-audit").hidden = !auditView;
   $("tab-campaign").setAttribute("aria-pressed", String(!auditView));

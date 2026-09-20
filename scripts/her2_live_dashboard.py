@@ -539,6 +539,13 @@ class AuditRun:
         for name in self.STAGES:
             relative = f"progress/{name}.json"
             record = self.document(relative)
+            if name == "freeze" and record is None:
+                marker = self.document(self.DOCUMENTS["freeze"])
+                if marker and marker.get("record_kind") == "audit_spec_frozen" \
+                        and (marker.get("git") or {}).get("commit"):
+                    record = {"status": "completed", "completed": 1, "total": 1,
+                              "current": None, "error": None,
+                              "started_at": marker.get("frozen_at")}
             if record is None:
                 rows.append({"stage": name, "status": "not_started", "completed": None,
                              "total": None, "fraction": None, "current": None, "error": None,
@@ -605,7 +612,10 @@ class AuditRun:
                     "states_expected": (coverage.get("expected") or {}).get("total"),
                     "distinct_computations":
                         (inventory.get("deduplication") or {}).get("distinct_computations"),
-                    "scored": coverage_document.get("scored_count"),
+                    "scored": (coverage_document.get("scored_count")
+                               if coverage_document.get("scored_count") is not None else
+                               next((row.get("completed") for row in stages
+                                     if row["stage"] == "score"), None)),
                     "parent_banks": len(inventory.get("parent_banks") or {}),
                     "ches_parent_blocks": len(ches.get("parent") or {}),
                     "ches_endpoint_blocks": len(ches.get("endpoints") or {}),

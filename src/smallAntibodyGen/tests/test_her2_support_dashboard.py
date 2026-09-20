@@ -61,6 +61,14 @@ def test_a_known_total_reports_a_real_fraction(run):
     progress(run, "score", status="running", total=50, completed=10)
     row = next(s for s in dashboard.AuditRun(run).snapshot()["stages"] if s["stage"] == "score")
     assert row["fraction"] == pytest.approx(0.2)
+    assert dashboard.AuditRun(run).snapshot()["counts"]["scored"] == 10
+
+
+def test_freeze_stage_reads_its_actual_marker_without_a_progress_sidecar(run):
+    write(run / "audit_spec_frozen.json", {"record_kind": "audit_spec_frozen",
+                                          "git": {"commit": "a" * 40}})
+    row = next(s for s in dashboard.AuditRun(run).snapshot()["stages"] if s["stage"] == "freeze")
+    assert row["status"] == "completed" and row["fraction"] == 1.
 
 
 def test_a_stage_that_stopped_writing_is_not_still_running(run):
