@@ -68,6 +68,10 @@ not been established. [Completed results, figures, and evidence](reference/her2-
 [prospective protocol](specs/her2_guarded_continuation.md), and
 [local dashboard instructions](scripts/her2_dashboard/README.md) are retained.
 
+The [support-preservation audit and conditional replay plan](specs/her2_support_preservation_plan.md)
+specifies the next inference-only checks, including failed checkpoints, before
+any new replay experiment. It includes the Git/Windows artifact handoff.
+
 **Sources**, hash-pinned and tracked: the affinity library and SPR workbook
 ([`specs/benchmarks/buzz_her2_affinity.json`](specs/benchmarks/buzz_her2_affinity.json),
 oxpig/`Tz_her2_affinity_and_beyond`, BSD-3-Clause), the AbSci de novo HER2

@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta, timezone
 import importlib.util
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -97,3 +98,111 @@ def test_detail_rejects_paths_outside_declared_runs(campaign):
 def test_nonfinite_metric_is_missing_not_invalid_json():
     assert dashboard.clean({"D": float("nan"), "nested": [float("inf"), 1]}) == {
         "D": None, "nested": [None, 1]}
+
+
+def age(path, seconds):
+    """Backdate every artifact in a run directory by ``seconds``."""
+    stamp = datetime.now(timezone.utc).timestamp() - seconds
+    for item in Path(path).iterdir():
+        os.utime(item, (stamp, stamp))
+
+
+def test_journal_discards_history_when_the_file_is_replaced_not_appended(tmp_path):
+    """A replaced journal must not serve the previous run's lines as this run's.
+
+    Size-only invalidation misses both of these: an in-place rewrite of the same
+    length keeps the offset, and a longer replacement keeps the old rows AND
+    resumes mid-record.
+    """
+    path = tmp_path / "monitor.jsonl"
+    path.write_bytes(b'{"update":1}\n')
+    journal = dashboard.Journal(path, lambda r: r)
+    assert journal.read() == [{"update": 1}]
+
+    path.write_bytes(b'{"update":7}\n')                    # same size, rewritten in place
+    assert journal.read() == [{"update": 7}]
+    assert journal.resets == 1
+
+    path.write_bytes(b'{"update":8}\n{"update":9}\n')      # longer than the old offset
+    assert journal.read() == [{"update": 8}, {"update": 9}]
+    assert journal.resets == 2
+
+
+def test_journal_discards_history_when_the_path_gets_a_different_file(tmp_path):
+    path = tmp_path / "monitor.jsonl"
+    path.write_bytes(b'{"update":1}\n{"update":2}\n')
+    journal = dashboard.Journal(path, lambda r: r)
+    assert journal.read() == [{"update": 1}, {"update": 2}]
+    replacement = tmp_path / "other.jsonl"
+    replacement.write_bytes(b'{"update":5}\n{"update":6}\n')
+    os.replace(replacement, path)                          # new inode, same size
+    assert journal.read() == [{"update": 5}, {"update": 6}]
+
+
+def test_hung_trajectory_is_not_running_under_a_live_supervisor(campaign):
+    """A fresh campaign heartbeat says the supervisor is alive, nothing more."""
+    directory = campaign.output / "stage1/dpo_beta0p1_seed1"
+    write(directory / "trajectory_progress.json", {"updates": 25, "training_gpu_seconds": 179})
+    (directory / "updates.jsonl").write_bytes(b'{"update":26,"cumulative_gpu_seconds":181}\n')
+    age(directory, 3600)
+    snapshot = campaign.snapshot()
+    run = snapshot["runs"][0]
+    assert snapshot["status"] == "running"                 # the supervisor IS current
+    assert run["status"] == "stalled"                      # the trajectory is not
+    assert run["idle_seconds"] > 3000
+    assert snapshot["active_run"] is None
+    assert any("written nothing" in w for w in snapshot["warnings"])
+
+
+def test_a_gate_check_still_reads_as_running_within_the_stall_bound(campaign):
+    """A check costs ~14 GPU s and writes nothing meanwhile; that is not a stall."""
+    directory = campaign.output / "stage1/dpo_beta0p1_seed1"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "updates.jsonl").write_bytes(b'{"update":26,"cumulative_gpu_seconds":181}\n')
+    age(directory, 60)
+    assert campaign.snapshot()["runs"][0]["status"] == "running"
+
+
+def test_artifact_failure_is_visible_and_distinct_from_a_gate_stop(campaign):
+    """A save that failed is not a likelihood breach and must not read as one."""
+    directory = campaign.output / "stage1/dpo_beta0p1_seed1"
+    write(directory / "trajectory.json", {
+        "status": "failed", "updates": 900, "cost": {"training_gpu_seconds": 240.0},
+        "artifact_failure": {"type": "OSError", "message": "disk full",
+                             "where": "save_last_passing", "update": 900},
+        "snapshot_errors": [{"check": 12, "save_failed": "OSError: disk full"}]})
+    (directory / "monitor.jsonl").write_text(
+        json.dumps({"record_kind": "gate_verdict", "D": 0.4, "passed": True,
+                    "monitor_gpu_seconds": 14.3, "update": 900}) + "\n" +
+        json.dumps({"record_kind": "snapshot", "check": 12, "update": 900, "passed": True,
+                    "D": 0.4, "save_failed": "OSError: disk full",
+                    "consequence": "no rolling last-passing bytes were written"}) + "\n")
+    run = campaign.snapshot()["runs"][0]
+    assert run["status"] == "failed"
+    assert run["failure"]["type"] == "OSError"
+    assert run["artifact_errors"][0]["save_failed"] == "OSError: disk full"
+    assert run["artifact_errors"][0]["consequence"]
+    assert run["checks"] == 1                              # the snapshot is not a second check
+    assert run["monitor_gpu_seconds"] == 14.3
+    detail = campaign.detail("stage1/dpo_beta0p1_seed1")
+    assert [row["record_kind"] for row in detail["gates"]] == ["gate_verdict"]
+    assert [row["record_kind"] for row in detail["snapshots"]] == ["snapshot"]
+
+
+def test_rolling_checkpoint_cost_is_reported(campaign):
+    """Every passing check serializes and hashes the whole model. Show it."""
+    directory = campaign.output / "stage1/dpo_beta0p1_seed1"
+    directory.mkdir(parents=True, exist_ok=True)
+    lines = []
+    for check in range(3):
+        lines.append(json.dumps({"record_kind": "gate_verdict", "D": 0.2, "passed": True,
+                                 "monitor_gpu_seconds": 14.0, "update": 25 * check}))
+        lines.append(json.dumps({"record_kind": "snapshot", "check": check, "passed": True,
+                                 "last_passing": {"path": "last_passing.pt", "sha256": "ab",
+                                                  "update": 25 * check, "wall_seconds": 1.5}}))
+    (directory / "monitor.jsonl").write_text("\n".join(lines) + "\n")
+    state = campaign.snapshot()
+    assert state["runs"][0]["rolling_checkpoint_saves"] == 3
+    assert state["runs"][0]["rolling_checkpoint_wall_seconds"] == 4.5
+    assert state["recorded_checkpoint_saves"] == 3
+    assert state["recorded_checkpoint_wall_seconds"] == 4.5

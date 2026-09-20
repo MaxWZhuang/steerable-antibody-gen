@@ -1417,6 +1417,24 @@ def test_validation_recomputes_the_gate_binds_the_payload_and_keeps_the_parent_d
         f"parent_draws::seed{seed}" for seed in SEEDS]
 
 
+def test_revalidating_a_frozen_stage_is_refused_before_it_rewrites_the_endpoints(
+        validated_campaign, guarded, monkeypatch):
+    """The freeze hashes the endpoint document, and re-validation rewrites its timings.
+
+    That document carries the validation's own wall clock, so a second, entirely
+    identical validation still changes the file's sha256 and every later stage would
+    then reject a freeze that nothing scientific had touched. The refusal has to land
+    before the rewrite: afterwards the frozen evidence has already been overwritten.
+    """
+    built, small, _ = validated_campaign
+    guarded.run_freeze(small, built.output, built.identity, stage=1)
+    path, _ = endpoints_document(built)
+    before = sha256(path)
+    with pytest.raises(ValueError, match="already frozen"):
+        drive_validation(guarded, built, small, monkeypatch)
+    assert sha256(path) == before
+
+
 def test_a_checkpoint_from_another_arm_or_budget_is_not_validated(validated_campaign, guarded,
                                                                    monkeypatch):
     """CX-26: the byte hash says the file did not change, not which run wrote it."""
@@ -1550,11 +1568,38 @@ def test_stage_three_reverifies_original_control_evidence(tmp_path, guarded, con
                                              root=tmp_path)
 
 
+def stepping_clock(step_seconds):
+    """t, t, t+dt, t+dt, ...: one deterministic reading per segment enter and exit."""
+    state = {"now": 0.0, "open": False}
+
+    def clock():
+        if not state["open"]:
+            state["open"] = True
+            return state["now"]
+        state["open"] = False
+        state["now"] += step_seconds
+        return state["now"]
+    return clock
+
+
+def cpu_budget_clock(step_seconds=1.0):
+    """A budget clock a CPU test can actually construct, usable directly as a factory.
+
+    ``GpuBudgetClock`` refuses to exist without CUDA unless a clock is injected, and
+    that refusal is correct: a budget defined as measured GPU seconds must never be
+    satisfied by a wall clock. Handing the bare class to ``clock_factory`` therefore
+    raises inside the runner on any CPU box, before the test reaches an assertion,
+    so these tests asserted nothing here rather than failing on their subject. The
+    deterministic counter is what the class documents for exactly this case.
+    """
+    from smallAntibodyGen.experiments.her2_runtime import GpuBudgetClock
+    return GpuBudgetClock(clock=stepping_clock(step_seconds))
+
+
 @pytest.mark.parametrize("outcome", ["failed", "exception", "stopped"])
 def test_outer_runner_preserves_controller_status_and_work(tmp_path, guarded, config,
                                                          monkeypatch, outcome):
     """The real summary/ledger boundary, with only controller work injected."""
-    from smallAntibodyGen.experiments.her2_runtime import GpuBudgetClock
     monkeypatch.setattr(guarded, "ROOT", tmp_path)
     policy = SimpleNamespace(model=torch.nn.Linear(1, 1))
     reference = SimpleNamespace(gpu_seconds=3.0, wall_seconds=4.0, reused=False,
@@ -1581,7 +1626,7 @@ def test_outer_runner_preserves_controller_status_and_work(tmp_path, guarded, co
     kwargs = dict(stage=1, device="cpu", batch_sequences=128,
                   parents={1: {"checkpoint": "parent.pt", "sha256": "a" * 64}},
                   identity={"revision": {}}, raw_root=tmp_path,
-                  clock_factory=GpuBudgetClock, monitor_clock_factory=GpuBudgetClock,
+                  clock_factory=cpu_budget_clock, monitor_clock_factory=cpu_budget_clock,
                   allow_dirty=True)
     if outcome == "exception":
         with pytest.raises(RuntimeError, match="synthetic controller failure"):

@@ -4,3 +4,5 @@ reference/evidence/her2-guarded-results-2026-09-19/** text eol=lf
 reference/her2-guarded-results.md text eol=lf
 reference/figures/her2-guarded-*.svg text eol=lf
 reference/figures/her2-original-*.svg text eol=lf
+# Keep the cross-platform implementation handoff stable on Windows checkouts.
+specs/her2_support_preservation_plan.md text eol=lf

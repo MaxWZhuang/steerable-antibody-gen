@@ -1097,7 +1097,7 @@ def validate_checkpoint(name, path, arm, seed, config, context, strata, output, 
     samples.to_csv(draw_path, index=False)
     diversity = evaluation.diversity_eligibility(
         diagnostics, training_reference=context["training_diversity_reference"],
-        parent_reference=parent_draws["reference"])
+        parent_reference=parent_draws["reference"], gates=config["diversity_gates"])
     record = {
         "schema_version": ENDPOINT_SCHEMA, "name": name, "arm_id": arm["arm_id"],
         "objective": arm["objective"], "coefficients": arm["coefficients"], "seed": int(seed),
@@ -1160,6 +1160,32 @@ def parent_kl_pass(records, parents, config, context, raw_root, device):
     return records
 
 
+def require_stage_not_frozen(output, stage):
+    """Validation refuses to rewrite an endpoint document that a freeze already hashed.
+
+    The stage freeze records the sha256 of ``stageN_endpoints.json`` under
+    ``validation::endpoints``, and every later stage re-hashes it before it will
+    start. That document carries the validation's own wall clock -- the whole-run
+    seconds, the parent-draw seconds and a per-endpoint ``wall_seconds`` -- so
+    writing it a second time changes its hash even when every measured result is
+    identical. The later stages would then refuse the freeze and say the artifact
+    changed underneath them, which reads like tampering and is really a stopwatch.
+
+    So this is refused here, at the top, rather than discovered afterwards: the
+    expensive half of validation (the parent draws and the Monte Carlo KL) has not
+    run yet, and the existing frozen evidence is still on disk. Deleting the marker
+    is the deliberate way to redo a frozen stage.
+    """
+    marker = Path(output) / selection_lib.stage_marker_name(int(stage))
+    endpoints = Path(output) / "validation" / f"stage{int(stage)}_endpoints.json"
+    require(not marker.is_file(),
+            f"Stage {stage} is already frozen by {marker}, and that freeze records the sha256 of "
+            f"{endpoints}. Re-validating would rewrite that file with fresh timings, changing its "
+            "hash without changing a single measured result, and every later stage would then "
+            f"reject the freeze. Delete {marker} first if you really mean to re-validate this "
+            "stage.")
+
+
 def run_validate(config, context, output, identity, parents, *, stage, device, raw_root):
     """Every reached budget checkpoint, measured once, with its evidence persisted.
 
@@ -1176,6 +1202,7 @@ def run_validate(config, context, output, identity, parents, *, stage, device, r
     discarded, and the endpoint set is checked to be exactly the reached one.
     """
     require_inspection(output, identity)
+    require_stage_not_frozen(output, stage)
     started = time.perf_counter()
     expected = selection_lib.expected_trajectories(config, stage)
     trajectories, endpoints = reached_checkpoints(output, stage=stage, identity=identity,

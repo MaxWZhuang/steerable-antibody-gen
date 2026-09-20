@@ -43,11 +43,11 @@ import hashlib
 import math
 import time
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import numpy as np
 
-from .her2_data import CORE_LENGTH
+from .her2_data import CANONICAL, CORE_LENGTH
 from .her2_objectives import CORE_POSITIONS
 from .her2_preferences import (PROBABILITY_CONVENTION, array_digest, core_digest, score_sequences)
 from .her2_runtime import load_json, require, save_json
@@ -103,6 +103,47 @@ def quantile_summary(values, *, quantiles=QUANTILES):
     usable = array[finite]
     document["mean"] = json_number(usable.mean())
     document["quantiles"] = {str(q): json_number(np.quantile(usable, q)) for q in quantiles}
+    return document
+
+
+#: Sum log probability of a core drawn uniformly from the 20 canonical residues
+#: at each of the ten positions. Not a floor the policy is held to -- it is the
+#: reference point for "this sequence is now less likely than a coin flip over
+#: residues", which a mean drop cannot express.
+UNIFORM_SUM_LOG_PROBABILITY = CORE_POSITIONS * math.log(1.0 / len(CANONICAL))
+
+
+def drop_fractions(drop, current_chosen):
+    """How much of the population moved, not how far the average moved.
+
+    The gate stops on ``mean(parent_chosen - current_chosen)``, and a mean cannot
+    distinguish a small uniform shift from a small tail collapse: the completed
+    campaign's continued-SFT control finished at a comfortably passing mean of
+    0.34 nats/sequence while 57% of the validation population sat below the
+    parent and 1.4% had lost more than five nats. These four fractions are the
+    cheapest statistic that separates those two states. They are reported beside
+    the verdict and **decide nothing** -- the declared stop rule is unchanged.
+    """
+    values = np.asarray(drop, dtype=np.float64).ravel()
+    chosen = np.asarray(current_chosen, dtype=np.float64).ravel()
+    finite = np.isfinite(values)
+    document = {"count": int(values.size), "nonfinite": int((~finite).sum()),
+                "note": ("fractions of the scored population, over the finite rows only. "
+                         "Drops are nats per sequence over the ten core positions.")}
+    if not finite.any():
+        document.update({name: None for name in
+                         ("fraction_below_parent", "fraction_drop_gt1",
+                          "fraction_drop_gt5", "fraction_below_uniform")})
+        return document
+    usable = values[finite]
+    document["fraction_below_parent"] = json_number((usable > 0).mean())
+    document["fraction_drop_gt1"] = json_number((usable > 1.0).mean())
+    document["fraction_drop_gt5"] = json_number((usable > 5.0).mean())
+    finite_chosen = chosen[np.isfinite(chosen)]
+    document["fraction_below_uniform"] = (
+        json_number((finite_chosen < UNIFORM_SUM_LOG_PROBABILITY).mean())
+        if finite_chosen.size else None)
+    document["uniform_sum_log_probability"] = json_number(UNIFORM_SUM_LOG_PROBABILITY)
     return document
 
 
@@ -329,6 +370,7 @@ class LikelihoodGate:
                   "threshold_nats_per_sequence": float(self.threshold_nats_per_sequence),
                   "threshold_nats_per_residue": float(self.threshold_nats_per_residue),
                   "chosen_drop": quantile_summary(drop),
+                  "chosen_drop_fractions": drop_fractions(drop, chosen),
                   "rejected_drop": quantile_summary(reference.rejected - rejected),
                   "current_chosen": quantile_summary(chosen),
                   "mean_current_chosen_nll_per_residue": None,
@@ -509,6 +551,15 @@ def monitor_score_arrays(directory, verdict):
     ran it, so the file is looked up by name under this run's own
     ``monitor_scores`` directory: a copied or moved run directory still resolves,
     and an array that is simply gone is refused rather than inferred around.
+
+    That recorded path carries the *writing* platform's separator, and this campaign
+    fits on Windows and verifies on macOS. ``Path`` is the reading platform's
+    flavour, so a POSIX ``Path`` reads ``C:\\runs\\...\\check_00007.npz`` as one
+    long filename with no directories in it and the lookup then fails on a file that
+    is sitting right there. ``PureWindowsPath`` accepts both separators, so the
+    basename is taken the same way regardless of which box wrote it. Use it rather
+    than ``Path`` here: a refusal on this path claims the verdict is not evidence,
+    which is far too strong a thing to say because of a backslash.
     """
     scores = dict(verdict.get("scores") or {})
     recorded = scores.get("path")
@@ -516,7 +567,7 @@ def monitor_score_arrays(directory, verdict):
             f"A gate verdict in {directory} names no retained score vectors. D is a mean over two "
             "vectors; without them the number in the journal cannot be checked and is a claim, "
             "not a measurement.")
-    path = Path(directory) / "monitor_scores" / Path(str(recorded)).name
+    path = Path(directory) / "monitor_scores" / PureWindowsPath(str(recorded)).name
     require(path.is_file(),
             f"{path} is missing. The vectors this verdict was measured from are not beside the "
             "run, so its D cannot be recomputed and the verdict is not evidence about anything.")

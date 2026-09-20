@@ -21,6 +21,15 @@ from urllib.parse import parse_qs, urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = Path(__file__).with_name("her2_dashboard")
 
+#: How long a trajectory's own artifacts may go unwritten before the page stops
+#: calling it running. A live supervisor says nothing about a live trainer: the
+#: campaign heartbeat keeps ticking while a child hangs, so progress has to be
+#: judged from the trajectory's own files. The bound has to clear the longest
+#: legitimate silence, which is a gate check (about 14 s on the recorded
+#: campaign) plus a checkpoint write, and the pre-first-update parent scoring
+#: (about 70 s). Three minutes leaves room above both.
+STALL_SECONDS = 180.0
+
 
 def clean(value):
     if isinstance(value, float) and not math.isfinite(value):
@@ -42,14 +51,65 @@ def mean(row, key):
 
 
 def gate_point(row):
-    if row.get("record_kind") != "gate_verdict":
-        return None
+    """A completed gate check: the verdict, what it cost, and the distribution."""
     keys = ("D", "check", "update", "passed", "training_gpu_seconds", "pairs",
             "monitor_gpu_seconds", "monitor_wall_seconds", "reason",
             "mean_current_chosen_nll_per_residue", "mean_implicit_margin", "pair_accuracy")
     result = {k: row.get(k) for k in keys}
+    result["record_kind"] = "gate_verdict"
     result["quantiles"] = (row.get("chosen_drop") or {}).get("quantiles", {})
+    # A mean D of 0.34 with 1.4% of the population down more than five nats is a
+    # different state from a uniform 0.34 shift, and the mean cannot tell them
+    # apart. Checks written before the gate journalled these simply have none.
+    fractions = row.get("chosen_drop_fractions") or {}
+    result["fractions"] = {name: fractions.get(name) for name in
+                           ("fraction_below_parent", "fraction_drop_gt1",
+                            "fraction_drop_gt5", "fraction_below_uniform")
+                           } if fractions else None
     return result
+
+
+def snapshot_point(row):
+    """What was written -- or could not be written -- because of a verdict.
+
+    The trainer is careful that a declared gate stop and an artifact/IO failure
+    are different outcomes: one advances a stage, the other does not. Dropping
+    these lines shows both as "Stopped" with nothing on the page saying which
+    happened, so they are kept and rendered apart.
+    """
+    keys = ("check", "update", "passed", "training_gpu_seconds", "D",
+            "save_failed", "consequence", "scores_sha256", "verdict_journal_line")
+    result = {k: row.get(k) for k in keys if k in row}
+    result["record_kind"] = "snapshot"
+    for name in ("last_passing", "failed_state"):
+        written = row.get(name)
+        if isinstance(written, dict):
+            result[name] = {k: written.get(k)
+                            for k in ("path", "sha256", "update", "wall_seconds")}
+    return result
+
+
+def monitor_point(row):
+    """Both monitor record kinds, tagged. Anything else is not a monitor record."""
+    kind = row.get("record_kind")
+    if kind == "gate_verdict":
+        return gate_point(row)
+    if kind == "snapshot":
+        return snapshot_point(row)
+    return None
+
+
+def verdicts(rows):
+    """Gate checks only. Costs and check counts are sums over THESE rows.
+
+    A snapshot line repeats its verdict's ``D`` and sits next to it in the
+    journal; counting or summing across both kinds double-counts every check.
+    """
+    return [row for row in rows if row.get("record_kind") == "gate_verdict"]
+
+
+def snapshots(rows):
+    return [row for row in rows if row.get("record_kind") == "snapshot"]
 
 
 def update_point(row):
@@ -65,23 +125,58 @@ def update_point(row):
 
 
 class Journal:
-    """Incremental reader. An unfinished final line is retried on the next poll."""
+    """Incremental reader. An unfinished final line is retried on the next poll.
+
+    Resuming from a byte offset is sound only while the file is *the same file*,
+    appended to. A journal that was replaced rather than appended -- a rerun into
+    a reused directory, a restored copy -- can come back at or above the old
+    offset, and an offset-only reader then serves the previous run's lines as this
+    run's history. Shrinking is therefore not the only invalidation: the reader
+    also matches the file's identity (device, inode) and re-checks the bytes it
+    has already consumed. ``os.replace`` preserves the source mtime, so a
+    replacement can reproduce size and mtime exactly; the consumed-bytes check is
+    what catches an in-place rewrite that lands on the same inode.
+
+    The consumed-bytes check stands on its own, which matters on the Windows
+    training box: ``st_ino`` is the NTFS file index there, but it is 0 on volumes
+    that do not supply one, and an identity check alone would then never fire.
+    """
+
+    #: Enough of the file head to anchor the consumed prefix. Journal lines here
+    #: are whole JSON objects, so the first few hundred bytes differ between two
+    #: different runs' first records.
+    HEAD_BYTES = 512
+
     def __init__(self, path, project):
         self.path, self.project = Path(path), project
         self.offset = 0
         self.rows = []
         self.bad_lines = 0
+        self.resets = 0
         self.stamp = None
+        self.head = b""
+
+    def _discard(self):
+        """Forget everything read so far. The retained rows describe other bytes."""
+        self.offset, self.rows, self.bad_lines, self.head = 0, [], 0, b""
+        self.resets += 1
 
     def read(self):
         try:
             stat = self.path.stat()
-            stamp = (stat.st_size, stat.st_mtime_ns)
+            stamp = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
             if stamp == self.stamp:
                 return self.rows
-            if stat.st_size < self.offset:
-                self.offset, self.rows, self.bad_lines = 0, [], 0
+            if self.stamp is not None and stamp[:2] != self.stamp[:2]:
+                self._discard()                      # a different file at the same path
+            elif stat.st_size < self.offset:
+                self._discard()                      # truncated
             with self.path.open("rb") as handle:
+                head = handle.read(self.HEAD_BYTES)
+                # ``self.head`` is only ever the bytes already consumed, which an
+                # append cannot change. A mismatch means they were rewritten.
+                if self.head and head[:len(self.head)] != self.head:
+                    self._discard()
                 handle.seek(self.offset)
                 while True:
                     line = handle.readline()
@@ -95,10 +190,11 @@ class Journal:
                         continue
                     if row is not None:
                         self.rows.append(row)
+                self.head = head[:min(self.offset, self.HEAD_BYTES)]
             self.stamp = stamp
         except FileNotFoundError:
             # A removed artifact must not keep masquerading as current evidence.
-            self.offset, self.rows, self.stamp = 0, [], None
+            self.offset, self.rows, self.stamp, self.head = 0, [], None, b""
         return self.rows
 
 
@@ -128,8 +224,9 @@ def latest_update(path):
 
 
 class Campaign:
-    def __init__(self, output, control):
+    def __init__(self, output, control, *, stall_seconds=STALL_SECONDS):
         self.output, self.control = Path(output), Path(control)
+        self.stall_seconds = float(stall_seconds)
         self.cache, self.journals = {}, {}
         self.update_journal = None
         self.lock = threading.RLock()
@@ -156,11 +253,15 @@ class Campaign:
     def monitors(self, directory):
         path = directory / "monitor.jsonl"
         if path not in self.journals:
-            self.journals[path] = Journal(path, gate_point)
+            self.journals[path] = Journal(path, monitor_point)
         journal = self.journals[path]
         rows = journal.read()
         if journal.bad_lines:
             self.warnings.append(f"{directory.name}: {journal.bad_lines} unreadable monitoring lines.")
+        if journal.resets:
+            self.warnings.append(
+                f"{directory.name}: monitor.jsonl was replaced, not appended to; the displayed "
+                f"history was reloaded from the file now on disk.")
         return rows
 
     def gpu_status(self):
@@ -187,8 +288,15 @@ class Campaign:
         progress = trajectory or self.document(directory / "trajectory_progress.json")
         ledger = self.document(directory / "run.json")
         rows = self.monitors(directory)
-        gate = rows[-1] if rows else None
+        checks = verdicts(rows)
+        written = snapshots(rows)
+        gate = checks[-1] if checks else None
         latest = latest_update(directory / "updates.jsonl")
+        # Progress is judged from the trajectory's OWN artifacts. The campaign
+        # heartbeat says the supervisor is alive, which is a different claim.
+        updated_paths = [directory / n for n in ("updates.jsonl", "monitor.jsonl", "run.json")]
+        modified = max((p.stat().st_mtime for p in updated_paths if p.exists()), default=None)
+        idle = (time.time() - modified) if modified is not None else None
         state = trajectory.get("status")
         if not state:
             if progress.get("stopped") or (gate and gate.get("passed") is False):
@@ -196,7 +304,14 @@ class Campaign:
             elif ledger.get("status") == "failed":
                 state = "failed"
             elif directory.exists():
-                state = "running" if campaign_status == "running" else "interrupted"
+                if campaign_status != "running":
+                    state = "interrupted"
+                elif idle is not None and idle > self.stall_seconds:
+                    # A live supervisor can watch a hung child indefinitely. Saying
+                    # "running" here is the one claim this page cannot support.
+                    state = "stalled"
+                else:
+                    state = "running"
             else:
                 state = "queued"
         cost = trajectory.get("cost", {})
@@ -213,24 +328,44 @@ class Campaign:
                 continue
         reached = sorted(float(k) for k, v in budget_records.items() if v.get("reached") is True)
         reference = self.document(directory / "parent_validation_reference.json")
-        # The journals contain checks only; parent reference scoring is a separate cost.
-        monitoring = sum(number(r.get("monitor_gpu_seconds")) for r in rows)
+        # Verdict lines only. A snapshot line repeats its verdict's cost fields and
+        # sits next to it, so summing across both kinds double-counts every check.
+        monitoring = sum(number(r.get("monitor_gpu_seconds")) for r in checks)
         parent_gpu = number(reference.get("gpu_seconds"))
         excluded = summary.get("excluded_costs") or {}
         if excluded.get("parent_validation_reference_reused_from_disk"):
             parent_gpu = 0.0
-        updated_paths = [directory / n for n in ("updates.jsonl", "monitor.jsonl", "run.json")]
-        modified = max((p.stat().st_mtime for p in updated_paths if p.exists()), default=None)
+        # Rolling last-passing saves are real work that no clock on this page used
+        # to show: one full model serialization plus a sha256 read per passing
+        # check. The recorded campaign did 3,987 of them.
+        saves = [r for r in written if r.get("last_passing")]
+        checkpoint_wall = sum(number((r.get("last_passing") or {}).get("wall_seconds"))
+                              for r in saves)
+        # End-of-run I/O split, when the trajectory got far enough to write one.
+        io_wall = dict((summary.get("cost_summary") or {}).get("io_wall_seconds") or {})
+        io_wall.pop("note", None)
+        failure = trajectory.get("failure") or trajectory.get("artifact_failure")
+        artifact_errors = [r for r in written if r.get("save_failed")]
         return dict(id=run_id, stage=arm["stage"], arm=arm["arm_id"],
                     objective=arm["objective"], coefficients=arm.get("coefficients", {}), seed=seed,
                     status=state, updates=max(number(progress.get("updates")), number(latest.get("update"))),
                     training_gpu_seconds=training, monitor_gpu_seconds=monitoring + parent_gpu,
                     monitor_checks_gpu_seconds=monitoring, parent_reference_gpu_seconds=parent_gpu,
-                    checks=len(rows), gate=gate, budgets_reached=reached,
+                    checks=len(checks), gate=gate, budgets_reached=reached,
                     exposures=latest.get("exposures") or progress.get("exposures"),
                     stop_reason=progress.get("stop_reason") or trajectory.get("status_note"),
                     last_passing=progress.get("last_passing"), latest_update=update_point(latest),
-                    updated_at=modified,
+                    updated_at=modified, idle_seconds=idle,
+                    rolling_checkpoint_saves=len(saves),
+                    rolling_checkpoint_wall_seconds=checkpoint_wall,
+                    io_wall_seconds=io_wall or None,
+                    attempted_updates=progress.get("attempted_updates"),
+                    failed_attempts=progress.get("failed_attempts"),
+                    failed_work_gpu_seconds=progress.get("failed_work_gpu_seconds"),
+                    precharged_gpu_seconds=progress.get("precharged_gpu_seconds"),
+                    failure=failure or None,
+                    artifact_errors=artifact_errors,
+                    snapshot_errors=trajectory.get("snapshot_errors") or [],
                     whole_run_wall_seconds=summary.get("whole_run_wall_seconds"))
 
     def snapshot(self):
@@ -251,6 +386,15 @@ class Campaign:
                     for seed in plan.get("seeds", [])]
             counts = dict(Counter(r["status"] for r in runs))
             active = next((r["id"] for r in runs if r["status"] == "running"), None)
+            for stalled in (r for r in runs if r["status"] == "stalled"):
+                self.warnings.append(
+                    f"{stalled['id']} has written nothing for "
+                    f"{stalled['idle_seconds']:.0f}s while the campaign heartbeat is current. "
+                    f"The supervisor is alive; this trajectory's progress is not confirmed.")
+            for broken in (r for r in runs if r["failure"] or r["artifact_errors"]):
+                self.warnings.append(
+                    f"{broken['id']}: {(broken['failure'] or {}).get('type') or 'artifact write'} "
+                    f"failure recorded. This is not a gate stop and does not advance a stage.")
             phases = [{k: p.get(k) for k in ("stage", "phase", "started_at", "ended_at",
                                             "wall_seconds", "exit_code")}
                       for p in status.get("phases", [])]
@@ -273,6 +417,10 @@ class Campaign:
                 training_allocation_gpu_seconds=status.get("training_allocation_gpu_seconds"),
                 recorded_training_gpu_seconds=sum(r["training_gpu_seconds"] for r in runs),
                 recorded_monitor_gpu_seconds=sum(r["monitor_gpu_seconds"] for r in runs),
+                recorded_checkpoint_wall_seconds=sum(r["rolling_checkpoint_wall_seconds"]
+                                                     for r in runs),
+                recorded_checkpoint_saves=sum(r["rolling_checkpoint_saves"] for r in runs),
+                stall_seconds=self.stall_seconds,
                 counts=counts, total_runs=len(runs), gate=plan.get("gate", {}),
                 budgets=plan.get("budgets_gpu_seconds", []), runs=runs, stages=stage_rows,
                 phases=phases, gpu=self.gpu_status(), log=log,
@@ -297,9 +445,11 @@ class Campaign:
             plotted = updates[:100] + updates[100::stride]
             if updates and (not plotted or plotted[-1] != updates[-1]):
                 plotted.append(updates[-1])
-            return clean(dict(id=run_id, gates=self.monitors(directory), updates=plotted,
-                              update_count=len(updates), plot_stride=stride,
-                              unreadable_update_lines=self.update_journal.bad_lines))
+            rows = self.monitors(directory)
+            return clean(dict(id=run_id, gates=verdicts(rows), snapshots=snapshots(rows),
+                              updates=plotted, update_count=len(updates), plot_stride=stride,
+                              unreadable_update_lines=self.update_journal.bad_lines,
+                              update_journal_resets=self.update_journal.resets))
 
 
 def make_handler(campaign):
@@ -355,8 +505,10 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "outputs/her2_guarded_20260918")
     parser.add_argument("--control", type=Path, default=ROOT / "outputs/her2_guarded_launch_20260918")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--stall-seconds", type=float, default=STALL_SECONDS,
+                        help="mark a trajectory stalled after this long with no artifact write")
     args = parser.parse_args()
-    campaign = Campaign(args.output, args.control)
+    campaign = Campaign(args.output, args.control, stall_seconds=args.stall_seconds)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(campaign))
     print(f"HER2 dashboard: http://127.0.0.1:{args.port} (read only, PID {__import__('os').getpid()})", flush=True)
     try:

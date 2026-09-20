@@ -22,17 +22,19 @@
       <div><span class="label">Monitoring GPU time</span><strong id="monitoring">—</strong><small>Checks + parent scoring; additional cost</small></div>
       <div><span class="label">Trajectories finished</span><strong id="finished">—</strong><small id="counts">Waiting for run records</small></div>
       <div><span class="label">GPU utilization</span><strong id="gpu">—</strong><small id="gpu-memory">Waiting for device</small></div>
+      <div><span class="label">Rolling checkpoint I/O</span><strong id="checkpoint">—</strong><small id="checkpoint-saves">One full model write per passing check</small></div>
     </section>
     <section id="stages" class="stages" aria-label="Stage progress"></section>
     <section class="focus" aria-label="Selected trajectory">
       <div class="section-heading"><div><p class="eyebrow">TRAJECTORY INSPECTOR</p><h2 id="run-title">Waiting for a trajectory</h2></div><div class="controls"><label class="sr-only" for="run-select">Select trajectory</label><select id="run-select"></select><button id="follow" aria-pressed="true">Follow active run</button></div></div>
       <div id="run-meta" class="run-meta"></div>
       <div id="run-note" class="note"></div>
+      <div id="run-failure" class="failure" role="status" hidden></div>
       <div class="plots">
         <article class="plot-panel"><div class="plot-heading"><div><h3>Chosen-likelihood drop</h3><p>Fixed validation pairs · nats per sequence</p></div><div class="plot-value"><strong id="drop">—</strong><span id="gate-label">No check yet</span></div></div><div id="likelihood-chart" class="chart"></div><p class="chart-note">Positive = lower likelihood than the SFT parent. The red line is the stopping threshold.</p></article>
         <article class="plot-panel"><div class="plot-heading"><div><h3>Optimization trace</h3><p id="trace-description">Recorded training batches · loss</p></div><label class="sr-only" for="metric">Training metric</label><select id="metric"><option value="loss">Loss</option><option value="gradient_norm">Gradient norm</option><option value="margin">Mean relative margin</option><option value="coefficient">Mean DPO coefficient</option><option value="modified_coefficient">Mean modified coefficient</option><option value="sign_accuracy">Implicit-reward accuracy</option><option value="hinge_active_fraction">Active hinge fraction</option><option value="chosen_nll_per_residue">Chosen NLL / residue</option><option value="rejected_nll_per_residue">Rejected NLL / residue</option><option value="learning_rate_used">Learning rate</option></select></div><div id="training-chart" class="chart"></div><p id="trace-note" class="chart-note">Updates appear as they are saved.</p></article>
       </div>
-      <div class="detail-strip"><div><span class="label">Chosen-drop distribution · latest check</span><div id="quantiles" class="quantiles">No check recorded</div></div><div><span class="label">Validation chosen NLL / residue</span><strong id="chosen-nll">—</strong></div><div><span class="label">Validation pair-ranking accuracy</span><strong id="ranking">—</strong></div></div>
+      <div class="detail-strip"><div><span class="label">Chosen-drop distribution · latest check</span><div id="quantiles" class="quantiles">No check recorded</div></div><div><span class="label">Validation chosen NLL / residue</span><strong id="chosen-nll">—</strong></div><div><span class="label">Validation pair-ranking accuracy</span><strong id="ranking">—</strong></div><div class="strip-wide"><span class="label">How much of the population moved · latest check</span><div id="fractions" class="quantiles">No check recorded</div></div></div>
       <p class="interpretation">A passing likelihood check alone does not establish diversity or affinity improvement. Stage validation applies the declared diversity and ranking criteria.</p>
     </section>
     <section class="runs-section" aria-label="All trajectories">

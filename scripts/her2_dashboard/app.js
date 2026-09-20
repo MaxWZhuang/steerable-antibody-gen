@@ -6,7 +6,7 @@ const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;",
 const finite = n => typeof n === "number" && Number.isFinite(n);
 const fmt = (n, digits=0) => finite(n) ? n.toLocaleString(undefined, {maximumFractionDigits:digits,minimumFractionDigits:digits}) : "—";
 const duration = n => !finite(n) ? "—" : n >= 3600 ? `${Math.floor(n/3600)}h ${Math.floor(n%3600/60)}m` : n >= 60 ? `${Math.floor(n/60)}m ${Math.floor(n%60)}s` : `${Math.floor(n)}s`;
-const badge = state => `<span class="badge ${esc(state)}">${esc({completed:"Completed",running:"Running",stopped:"Stopped",queued:"Queued",stale:"Heartbeat stale",interrupted:"Interrupted",failed:"Failed"}[state] || state)}</span>`;
+const badge = state => `<span class="badge ${esc(state)}">${esc({completed:"Completed",running:"Running",stopped:"Stopped",queued:"Queued",stale:"Heartbeat stale",interrupted:"Interrupted",failed:"Failed",stalled:"No progress"}[state] || state)}</span>`;
 const coefficients = r => Object.entries(r.coefficients).map(([k,v]) => `${{beta:"β",lambda:"λ",lambda_site:"λsite",tau:"τ"}[k] || k}=${v}`).join(" · ");
 let snapshot = null, selected = null, following = true, details = null, busy = false, requestSerial = 0;
 
@@ -48,6 +48,8 @@ function renderOverview() {
   $("counts").textContent=`${counts.completed||0} completed · ${counts.stopped||0} stopped · ${counts.failed||0} failed`;
   $("gpu").textContent=s.gpu?`${fmt(s.gpu.utilization)}%`:"Unavailable";
   $("gpu-memory").textContent=s.gpu?`${fmt(s.gpu.memory_used_mib/1024,1)} / ${fmt(s.gpu.memory_total_mib/1024,1)} GiB · ${s.gpu.name.replace('NVIDIA GeForce ','')}`:"Device telemetry unavailable";
+  $("checkpoint").textContent=duration(s.recorded_checkpoint_wall_seconds);
+  $("checkpoint-saves").textContent=`${fmt(s.recorded_checkpoint_saves)} rolling saves · one full model write and hash per passing check`;
   $("stages").innerHTML=s.stages.map(st=>`<div class="stage ${(s.active_phase || '').startsWith(`stage${st.stage}_`)?'active':''} ${st.frozen?'done':''}"><b><span class="stage-num">0${st.stage}</span>${stageNames[st.stage-1]}</b><small>${st.counts.completed||0} completed · ${st.counts.stopped||0} stopped · ${st.total} trajectories${st.frozen?' · selection frozen':''}</small></div>`).join("");
   const warnings=[...(s.warnings||[])];
   if(s.status==='stale')warnings.unshift(`The campaign heartbeat is ${duration(s.heartbeat_age_seconds)} old. These are the last saved records; continued execution is unconfirmed.`);
@@ -79,19 +81,36 @@ function renderSelected() {
   $("run-title").textContent=`${labels[r.objective] || r.objective}${coefficients(r)?' · '+coefficients(r):''}`;
   $("run-meta").innerHTML=`${badge(r.status)}<span>Seed <b>${r.seed}</b></span><span>Updates <b>${fmt(r.updates)}</b></span><span>Training <b>${fmt(r.training_gpu_seconds,1)} / ${Math.max(...snapshot.budgets)} GPU s</b></span><span>Checks <b>${fmt(r.checks)}</b></span><span>Sequence exposures <b>${fmt(r.exposures?.sequences)}</b></span>`;
   const stop=r.stop_reason;
-  $("run-note").textContent=(r.status==='stopped'||r.status==='failed')?`Run ended: ${typeof stop==='string'?stop:JSON.stringify(stop || r.status)}. Later budgets are not credited.`:r.gate?`Latest gate: update ${fmt(r.gate.update)} · ${fmt(r.gate.training_gpu_seconds,1)} training GPU seconds · ${fmt(r.gate.pairs)} fixed validation pairs.`:"Waiting for the first completed likelihood check.";
+  $("run-note").textContent=r.status==='stalled'?`No artifact written for ${duration(r.idle_seconds)}. The campaign heartbeat is current, so the supervisor is alive; this trajectory's progress is not confirmed.`:r.failure?"Later budgets are not credited. This ended on the artifact failure below, not on a gate verdict, so it does not advance a stage.":(r.status==='stopped'||r.status==='failed')?`Run ended: ${typeof stop==='string'?stop:JSON.stringify(stop || r.status)}. Later budgets are not credited.`:r.gate?`Latest gate: update ${fmt(r.gate.update)} · ${fmt(r.gate.training_gpu_seconds,1)} training GPU seconds · ${fmt(r.gate.pairs)} fixed validation pairs.`:"Waiting for the first completed likelihood check.";
+  renderFailure(r);
   $("drop").textContent=fmt(r.gate?.D,3);
   $("gate-label").textContent=r.gate?`${r.gate.passed?'Passing':'Breach'} · threshold ${fmt(snapshot.gate.threshold_nats_per_sequence,1)}`:"No check yet";
   $("chosen-nll").textContent=fmt(r.gate?.mean_current_chosen_nll_per_residue,4);
   $("ranking").textContent=finite(r.gate?.pair_accuracy)?`${fmt(r.gate.pair_accuracy*100,2)}%`:"—";
   const qs=r.gate?.quantiles;
   $("quantiles").innerHTML=qs?[["0.05","p05"],["0.25","p25"],["0.5","p50"],["0.75","p75"],["0.95","p95"]].map(([key,label])=>`<span>${label}<b>${fmt(qs[key],2)}</b></span>`).join(""):"No check recorded";
+  // The gate stops on the mean. A passing mean with a collapsed tail and a
+  // passing mean with a uniform shift are different states, and only these
+  // fractions separate them.
+  const fr=r.gate?.fractions;
+  $("fractions").innerHTML=fr?[["fraction_below_parent","below parent"],["fraction_drop_gt1","lost &gt;1 nat"],["fraction_drop_gt5","lost &gt;5 nats"],["fraction_below_uniform","below uniform"]].map(([key,label])=>`<span>${label}<b>${finite(fr[key])?fmt(fr[key]*100,2)+"%":"—"}</b></span>`).join(""):"Not recorded for this check";
+}
+
+function renderFailure(r) {
+  // A gate stop and an artifact failure are different outcomes: one is a
+  // result and advances a stage, the other is broken I/O and does not. The
+  // trainer separates them carefully and this panel keeps them apart.
+  const panel=$("run-failure"), parts=[];
+  if(r.failure)parts.push(`<b>${esc(r.failure.type || "Failure")} — not a gate stop</b>${esc(r.failure.message || "")}${r.failure.where?` (${esc(r.failure.where)}, update ${fmt(r.failure.update)})`:""}${r.failure.note?`\n${esc(r.failure.note)}`:""}`);
+  for(const e of r.artifact_errors || [])parts.push(`<b>Check ${fmt(e.check)} · artifact write failed</b>${esc(e.save_failed || "")}${e.consequence?`\n${esc(e.consequence)}`:""}`);
+  panel.hidden=!parts.length;
+  panel.innerHTML=parts.join("<br><br>");
 }
 
 function renderTable() {
   const stage=$("stage-filter").value, queued=$("show-queued").checked;
   const rows=snapshot.runs.filter(r=>(stage==='all'||String(r.stage)===stage)&&(queued||r.status!=='queued'));
-  $("runs").innerHTML=rows.length?rows.map(r=>`<tr class="${r.id===selected?'selected':''}"><td><button class="run-link" data-run="${esc(r.id)}">${esc(labels[r.objective] || r.objective)}</button><small>Stage ${r.stage}${coefficients(r)?' · '+esc(coefficients(r)):''}</small></td><td>${r.seed}</td><td>${badge(r.status)}</td><td>${r.status==='queued'?'—':fmt(r.updates)}</td><td>${r.status==='queued'?'—':fmt(r.training_gpu_seconds,1)}</td><td>${fmt(r.gate?.D,3)}</td><td>${r.budgets_reached.map(b=>`<span class="budget-chip">${b}</span>`).join("") || '<span class="muted">None</span>'}</td></tr>`).join(""):'<tr><td colspan="7" class="muted">No started trajectories in this stage. Enable “Show queued” to see the declared arms.</td></tr>';
+  $("runs").innerHTML=rows.length?rows.map(r=>`<tr class="${r.id===selected?'selected':''}"><td><button class="run-link" data-run="${esc(r.id)}">${esc(labels[r.objective] || r.objective)}</button><small>Stage ${r.stage}${coefficients(r)?' · '+esc(coefficients(r)):''}</small></td><td>${r.seed}</td><td>${badge(r.status)}</td><td>${r.status==='queued'?'—':fmt(r.updates)}${r.status==='stalled'?`<small>idle ${esc(duration(r.idle_seconds))}</small>`:''}</td><td>${r.status==='queued'?'—':fmt(r.training_gpu_seconds,1)}</td><td>${fmt(r.gate?.D,3)}</td><td>${r.budgets_reached.map(b=>`<span class="budget-chip">${b}</span>`).join("") || '<span class="muted">None</span>'}</td></tr>`).join(""):'<tr><td colspan="7" class="muted">No started trajectories in this stage. Enable “Show queued” to see the declared arms.</td></tr>';
 }
 
 function renderPlots() {

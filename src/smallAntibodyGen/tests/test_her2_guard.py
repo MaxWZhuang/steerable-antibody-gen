@@ -211,6 +211,42 @@ def test_the_record_carries_the_whole_observed_distribution(identity):
     assert record["pair_accuracy"] == pytest.approx(1.0)
 
 
+def test_the_record_carries_the_drop_fractions_a_mean_cannot_express(identity):
+    """A small mean drop and a small tail collapse are different states.
+
+    Built to the shape the completed campaign's continued-SFT control actually
+    finished in: a comfortably passing mean, most of the population barely moved,
+    and a thin tail that has lost a great deal.
+    """
+    parent = np.full(PAIRS, -28.0)
+    current = np.full(PAIRS, -27.0)          # five pairs the policy got BETTER at
+    current[0] = -34.0                       # one collapsed, and past uniform
+    record = guard.LikelihoodGate().evaluate(reference_of(identity, parent,
+                                                          np.full(PAIRS, -40.0)),
+                                             current, np.full(PAIRS, -40.0))
+    # The mean is what the gate stops on, and it passes comfortably here.
+    assert record["D"] == pytest.approx(1 / 6) and record["passed"] is True
+    fractions = record["chosen_drop_fractions"]
+    assert fractions["count"] == PAIRS
+    assert fractions["fraction_below_parent"] == pytest.approx(1 / PAIRS)
+    assert fractions["fraction_drop_gt1"] == pytest.approx(1 / PAIRS)
+    assert fractions["fraction_drop_gt5"] == pytest.approx(1 / PAIRS)
+    assert fractions["fraction_below_uniform"] == pytest.approx(1 / PAIRS)
+    assert fractions["uniform_sum_log_probability"] == pytest.approx(-29.9573227, abs=1e-6)
+    # The fractions are reported beside the verdict and decide nothing.
+    assert json.loads(json.dumps(record, allow_nan=False))["chosen_drop_fractions"]
+
+
+def test_drop_fractions_report_nonfinite_rows_instead_of_propagating_them():
+    fractions = guard.drop_fractions([0.5, 2.0, np.nan, 7.0], [-14.0, -14.0, np.nan, -40.0])
+    assert fractions["count"] == 4 and fractions["nonfinite"] == 1
+    assert fractions["fraction_below_parent"] == pytest.approx(1.0)      # 3 finite, all > 0
+    assert fractions["fraction_drop_gt1"] == pytest.approx(2 / 3)
+    assert fractions["fraction_drop_gt5"] == pytest.approx(1 / 3)
+    assert fractions["fraction_below_uniform"] == pytest.approx(1 / 3)
+    assert guard.drop_fractions([np.nan], [np.nan])["fraction_below_parent"] is None
+
+
 def test_quantile_summary_counts_nonfinite_entries_instead_of_propagating_them():
     summary = guard.quantile_summary([1.0, 2.0, np.nan, 3.0])
     assert summary["nonfinite"] == 1
@@ -437,6 +473,30 @@ def test_a_verdict_is_reproduced_from_its_retained_vectors(tmp_path, pairs, iden
     assert recomputed["D"] == pytest.approx(0.4)
     assert recomputed["passed"] is True and recomputed["pairs"] == PAIRS
     assert recomputed["scores"]["sha256"] == record["scores"]["sha256"]
+
+
+def test_a_verdict_recorded_on_windows_still_resolves_its_vectors_on_posix(tmp_path, pairs,
+                                                                           identity):
+    """This campaign fits on Windows and verifies on macOS, over a copied run directory.
+
+    A check records the absolute path it wrote to, so a Windows-written verdict names
+    its vectors with backslashes. A POSIX ``Path`` treats those as ordinary filename
+    characters, takes a basename of the whole string, finds nothing -- and the refusal
+    that follows says the verdict is not evidence about anything, of a file that is
+    sitting in the directory.
+    """
+    from pathlib import Path
+    reference, record = journalled_check(tmp_path, pairs, identity,
+                                          chosen=np.full(PAIRS, -30.4),
+                                          rejected=np.full(PAIRS, -35.0))
+    written = Path(record["scores"]["path"]).name
+    windows = dict(record["scores"],
+                   path="C:\\Users\\big DAWG\\personal_projs\\run\\monitor_scores\\"
+                        + written)
+    recomputed = guard.recompute_gate_verdict(tmp_path, dict(record, scores=windows), reference,
+                                              gate=guard.LikelihoodGate())
+    assert recomputed["D"] == pytest.approx(0.4)
+    assert Path(recomputed["scores"]["path"]).name == written
 
 
 def test_a_verdict_with_no_arrays_a_moved_array_or_an_invented_d_is_refused(tmp_path, pairs,
