@@ -10,3 +10,10 @@ main{max-width:1480px;margin:auto;padding:34px 3.5%}.heading{display:flex;align-
 .badge.stalled{border-color:#e7c997;background:#fff5e4;color:#8a6524}.failure{border:1px solid #e0b0ac;background:#fdf1f0;color:#7d3b36;padding:12px 16px;border-radius:7px;margin:14px 0 0;font-size:12px;white-space:pre-line}.failure[hidden]{display:none}.failure b{display:block;font-size:13px;margin-bottom:4px}.strip-wide{grid-column:1/-1;border-top:1px solid var(--line);padding-top:14px}
 
 #campaign-heading[hidden]{display:none}
+/* The replay view. Its foot is a div rather than a <footer> so the page keeps
+   exactly one footer element per original view; it renders identically. */
+/* The launch tile carries the campaign's current state as a data attribute, so a
+   verified launch beside a dead or failed writer cannot read as an unqualified
+   green "Healthy". The text says the same thing; this only colours it. */
+#replay-health[data-state="failed"]{color:var(--red)}#replay-health[data-state="interrupted"]{color:var(--red)}#replay-health[data-state="running"]{color:var(--teal)}#replay-health[data-state="queued"],#replay-health[data-state="completed"]{color:var(--muted)}
+#view-replay[hidden]{display:none}.viewfoot{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;margin:25px 0 3px;font-size:10px;color:var(--muted)}.badge.stopped_by_gate{color:var(--amber);background:#fff2dc;border-color:#e6cd9f}.badge.incomplete,.badge.interrupted{color:var(--red);background:#fff0ed;border-color:#e8c8c3}.badge.unknown{color:var(--muted);background:#f3f5f1}#replay-rows td small{white-space:normal}

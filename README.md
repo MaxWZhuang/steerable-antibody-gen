@@ -120,6 +120,84 @@ carries a host path. The live dashboard gains a read-only audit panel:
 python scripts/her2_live_dashboard.py --audit outputs/her2_support_audit_20260919_r2 --port 8766
 ```
 
+**Rebuilding a completed audit report.** The audit's `report` stage has a known
+rerun rendering defect: on a rerun `her2_support.save_figure` writes
+its comparison render to `<name>.png.rerender` and calls `savefig` without
+`format=`, which matplotlib cannot infer from that suffix. `her2_support.py` is a
+member of the frozen `AUDIT_SOURCE_FILES`, so fixing it would change the audit's
+source identity and invalidate a completed, published measurement. The defect
+therefore stays, documented, and a *completed* report is verified and rebuilt
+with a separate additive tool that never re-renders a figure:
+
+```bash
+python scripts/rebuild_her2_support_report.py --check-only   # verify, write nothing
+python scripts/rebuild_her2_support_report.py                # verify, then record
+```
+
+It re-hashes the frozen identity, the committed inventory, the completion
+manifest and every shard it binds, checks every file the publication manifest
+names, reuses the verified figure bytes verbatim, re-renders both Markdown
+variants through the audit's own pure `render_report` with the **original**
+recorded timings, and compares them byte for byte against the run-directory and
+published reports. The audit's original production of that report succeeded; what
+failed was the later re-render. Only after all of that does it record an
+operational "report verified" status — preserving that recorded failure beside
+it, because it is evidence about the renderer — and write
+`reference/evidence/her2-support-audit-2026-09-19/review/report-compatibility.json`.
+It writes nothing into the audit's own completion manifest: a later tool does not
+register itself in the saved authority that the completed artifacts are checked
+against.
+
+**Conditional parent-replay screen (phase D).** The audit escalated on both
+intended surviving methods, so the exposure-matched screen in the plan is
+warranted: two tasks (continued SFT, IPO tau=0.1) x six replay coefficients
+(0, 0.01, 0.1, 1, 10, 100) x three parent seeds = **36 trajectories**, at 64
+chosen examples per optimizer update, with endpoints at 64,000 / 128,000 /
+240,000 chosen exposures. Fitting is gated on a *second*, separate specification
+freeze, written after the audit and informed by it:
+
+```bash
+python scripts/posttrain_her2_replay.py --help
+python scripts/posttrain_her2_replay.py prepare     # existing inputs + the common ordered stream
+python scripts/posttrain_her2_replay.py preflight   # native parity + a synthetic gradient control
+# review and commit the generated evidence and the config, then:
+python scripts/posttrain_her2_replay.py freeze      # verifies the commit; writes the marker
+python scripts/posttrain_her2_replay.py banks       # replay + monitoring banks and teacher caches
+python scripts/posttrain_her2_replay.py fit         # the declared queue, one exclusive writer
+python scripts/posttrain_her2_replay.py status
+python scripts/posttrain_her2_replay.py report --publish
+python scripts/posttrain_her2_replay.py verify
+```
+
+`prepare` resolves existing inputs and the ordered training stream only; the
+banks are generated **after** the freeze, under the sampling rule, seeds, counts
+and dtypes it binds, and their digests are bound back to it and re-hashed against
+that manifest once before the first update — every array and the identity sidecar
+beside it, since nothing can be loaded without one. `verify` holds the run to what
+its own records claim: the reached endpoints, the journalled passing and failing
+snapshots and each terminal status, so deleting an artifact does not delete its
+requirement. No optimizer step touches a HER2
+parent before the freeze: the preflight's real-parent half is inference only, and
+its gradient half runs on randomly initialized weights of the same architecture
+with synthetic inputs, at the full configured learning rate and at the production
+effective batch. There is no resume — an interrupted trajectory is `incomplete`
+and is never restarted under the same identity — a gate breach stops one
+trajectory while the queue continues, and an unexpected exception makes that
+trajectory `failed` and fail-stops the campaign. Whether a writer is alive is
+decided by the exclusive OS lock, observed without taking it; a heartbeat's age is
+a stall signal and never the liveness test. Outputs go to the ignored
+`outputs/her2_parent_replay_20260920/`; the run root's machine-local location
+lives in that directory's ignored `local_roots.json`. The dashboard gains a
+read-only Replay tab:
+
+```bash
+python scripts/her2_live_dashboard.py --audit outputs/her2_support_audit_20260919_r2 \
+  --replay outputs/her2_parent_replay_20260920 --port 8766
+```
+
+This screen reports the preservation-versus-ranking tradeoff. It selects no
+winner, and preservation is not affinity.
+
 **Sources**, hash-pinned and tracked: the affinity library and SPR workbook
 ([`specs/benchmarks/buzz_her2_affinity.json`](specs/benchmarks/buzz_her2_affinity.json),
 oxpig/`Tz_her2_affinity_and_beyond`, BSD-3-Clause), the AbSci de novo HER2

@@ -1,0 +1,264 @@
+{
+  "schema_version": "her2-parent-replay/1",
+  "campaign_id": "her2_parent_replay_20260920",
+  "protocol": "specs/her2_support_preservation_plan.md",
+  "config_path": "configs/experiments/her2_parent_replay.json",
+  "run_root": "outputs/her2_parent_replay_20260920",
+  "evidence_root": "reference/evidence/her2-parent-replay-2026-09-20",
+  "input_manifest": "reference/evidence/her2-parent-replay-2026-09-20/input_manifest.json",
+  "published_report": "reference/her2-parent-replay.md",
+  "publication": {
+    "root": "reference",
+    "data_directory": "evidence/her2-parent-replay-2026-09-20/published",
+    "figure_directory": "figures",
+    "figure_prefix": "her2-parent-replay-",
+    "manifest": "evidence/her2-parent-replay-2026-09-20/published/manifest.json",
+    "note": "publish copies the report, the small status/endpoint/delta/Pareto tables and the rendered figures into the tracked reference tree, with links relative to the published report. Checkpoints, journals and per-check score vectors stay in the ignored run root. This CLI performs no network or git action."
+  },
+
+  "audit": {
+    "input_manifest": "reference/evidence/her2-support-audit-2026-09-19/input_manifest.json",
+    "publication_manifest": "reference/evidence/her2-support-audit-2026-09-19/published/manifest.json",
+    "published": {
+      "decision": "reference/evidence/her2-support-audit-2026-09-19/published/decision.json",
+      "verification": "reference/evidence/her2-support-audit-2026-09-19/published/verification.json",
+      "coverage": "reference/evidence/her2-support-audit-2026-09-19/published/coverage.json",
+      "checkpoints": "reference/evidence/her2-support-audit-2026-09-19/published/checkpoints.json",
+      "ches": "reference/evidence/her2-support-audit-2026-09-19/published/ches.json"
+    },
+    "completion_marker": "audit_complete.json",
+    "required_outcome": "escalate",
+    "source_freeze_commit": "be302f825c307ebdf8a38a15a0a6bf999b598025",
+    "escalation_detail": "continued_sft crossed both the tenfold and the hundredfold Wilson-lower criteria in 3 of 3 seeds; ipo_tau0p1 crossed the tenfold criterion in 3 of 3 seeds and did not cross the hundredfold criterion in any seed. The declared rule is an OR, so both methods escalate and the full grid is warranted. No artifact of this screen may state that IPO crossed both criteria.",
+    "dependence": "this training specification was written after the audit and is informed by it. Nothing here was fixed before the audit ran."
+  },
+
+  "roots": {
+    "original": {
+      "logical": "outputs/her2_posttrain_20260918",
+      "probe_kinds": ["selected_parent"],
+      "acceptance": "raw-byte hash probe of the three selected initial-SFT parents, against the digests the published audit input manifest recorded for them"
+    },
+    "guarded": {
+      "logical": "outputs/her2_guarded_20260918",
+      "probe_kinds": ["parent_bank"],
+      "acceptance": "raw-byte hash probe of the three persisted parent draw banks named by the published audit input manifest. On the recording box this logical directory is a junction onto another volume; the local mapping lives in the ignored local_roots.json and never appears in a scientific field."
+    },
+    "raw": {
+      "logical": "data/raw/her2_functional_20260918",
+      "probe_files": [
+        "piggen/model.safetensors",
+        "piggen/config.json",
+        "piggen/tokenizer.json",
+        "buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/train.csv",
+        "buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/val.csv",
+        "buzz/data/spr/spr_submitted.csv"
+      ],
+      "sequence_only_files": [
+        "buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/test.csv"
+      ],
+      "probe_note": "spr_submitted.csv is pinned because her2_data.load_scaffold reads row 0 of it for the fixed VH/VL prefix at every stage; a file this screen actually opens is part of its frozen input identity.",
+      "sequence_only_note": "her2_data.test_sequences opens test.csv with usecols=['seq'], so only the reserved split's SEQUENCES cross the wire and no bin, label or SPR outcome is read. It is needed for the inherited generation overlap/novelty diagnostic, so it is bound by digest and declared here rather than left as an unpinned read. No reserved LABEL enters this screen at any point, and nothing here is scored against the reserved split."
+    },
+    "audit_run": {
+      "logical": "outputs/her2_support_audit_20260919_r2",
+      "probe_file": "decision.json",
+      "probe_matches_published": "decision",
+      "acceptance": "the run-root decision.json is the canonical JSON of the same document that was published, so its bytes are the published digest. The mutable verification.json and the progress files are deliberately not probes and are not inputs."
+    }
+  },
+
+  "source": {
+    "entry_points": ["scripts/posttrain_her2_replay.py"],
+    "rule": "the freeze computes the transitive module-level AST import closure from this entry point, includes every package __init__.py on the path, compares each file's worktree bytes to its committed bytes at HEAD, and records external dependency versions from the environment."
+  },
+
+  "screen": {
+    "tasks": ["continued_sft", "ipo"],
+    "ipo_tau": 0.1,
+    "replay_lambdas": [0.0, 0.01, 0.1, 1.0, 10.0, 100.0],
+    "parent_seeds": [20260918, 20260919, 20260920],
+    "trajectories": 36,
+    "chosen_per_update": 64,
+    "microbatch_rows": 16,
+    "endpoint_updates": [1000, 2000, 3750],
+    "endpoint_chosen_exposures": [64000, 128000, 240000],
+    "max_updates": 3750,
+    "max_total_chosen_exposures": 8640000,
+    "execution_order": "ascending parent seed, then ascending lambda (controls first), then the declared task order. Fixed before fitting so an early stop still leaves the matched zero-replay control for every arm that ran, and so no ordering decision can follow a result.",
+    "resume": "none. An interrupted trajectory is incomplete and is never restarted under the same identity.",
+    "immutable_fields": ["tasks", "replay_lambdas", "parent_seeds", "chosen_per_update", "microbatch_rows", "endpoint_updates", "max_updates", "device"],
+    "note": "64 chosen examples per effective optimizer update in every arm; IPO additionally consumes the 64 paired rejected examples; replay arms additionally consume 64 replay rows. One combined gradient, one clipping operation and one optimizer/scheduler step per update. Microbatch accumulation reduces memory without changing those counts or any component mean."
+  },
+
+  "losses": {
+    "continued_sft": "mean over the batch of -chosen_sum_log_probability / 10",
+    "ipo": "mean over the batch of (Delta - 1 / (2 * tau))**2 with tau = 0.1, Delta = (chosen_lp - rejected_lp) - (parent_chosen_lp - parent_rejected_lp)",
+    "replay": "mean over replay rows of K(y) = sum over the ten positions and the twenty canonical residues of p0 * (log p0 - log p_theta). No division by 10 and none by 20.",
+    "total": "L_task + lambda_replay * L_replay",
+    "logging": "the unweighted task component, the unweighted replay component, the weighted total, the gradient norm and whether the clip bound are journalled per update",
+    "lambda_note": "lambda values are not assumed equally strong across continued SFT and IPO: the two task losses have different scales and different gradients."
+  },
+
+  "optimization": {
+    "learning_rate": 0.00001,
+    "betas": [0.9, 0.999],
+    "weight_decay": 0.01,
+    "gradient_clip": 1.0,
+    "warmup_updates": 100,
+    "schedule": "linear_warmup_then_constant",
+    "schedule_basis": "bound to updates, never to wall time",
+    "start_from": "the selected initial-SFT parent, with a fresh optimizer. Never from a post-trained checkpoint.",
+    "weight_decay_scope": "every parameter including norms and biases, as inherited from her2_preferences.build_optimizer. Recorded, not changed here."
+  },
+
+  "pairing": {
+    "seed_base": 20260924,
+    "validation_seed": 20260925,
+    "validation_pairs": null,
+    "inherited": "the eligibility and pairing rules of the completed campaign: high versus distance-matched low, mid never treated as a non-binder, per-cycle partner rotation. No new positive population is filtered here.",
+    "validation_pairs_note": "null means every eligible validation pair. The gate scores all 25,722 on both sides at every check; there is no monitor subset."
+  },
+
+  "gate": {
+    "threshold_nats_per_sequence": 1.0,
+    "threshold_nats_per_residue": 0.1,
+    "statistic": "D = mean(parent_chosen - current_chosen) over the fixed validation pairs, in nats per sequence",
+    "stop_rule": "strict D > threshold stops; exact equality passes; any nonfinite score stops",
+    "population": "all fixed validation pairs, chosen and rejected, on every check",
+    "applies_to": "every arm, the zero-replay controls included",
+    "first_update": 1,
+    "update_interval": 25,
+    "cadence": "completed updates 1, 25, 50, ... plus every declared exposure endpoint and the final completed update, de-duplicated",
+    "cadence_amendment": "this replaces the historical additional five-GPU-second trigger. Matching the cadence on updates keeps the number of scheduled checks independent of replay cost. The statistic, the population and the threshold are unchanged.",
+    "preservation_is_not_a_stop_rule": "forward KL, sequence-drop tails and conditional KL are recorded at every check as diagnostics. No preservation stopping rule was declared before fitting, so none is applied."
+  },
+
+  "banks": {
+    "replay_rows": 100000,
+    "monitor_rows": 10000,
+    "temperature": 1.0,
+    "cache_dtype": "float32",
+    "cache_arrays": ["probabilities", "log_probabilities"],
+    "cache_bytes_per_parent": 160000000,
+    "monitor_cache_bytes_per_parent": 16000000,
+    "cache_bytes_total": 528000000,
+    "cache_bytes_derivation": "100000 rows x 10 positions x 20 residues x 4 bytes = 80,000,000 bytes per array, and both the probabilities and the log probabilities are stored: 160,000,000 bytes per parent replay cache. The fresh 10,000-row monitoring cache adds 16,000,000 per parent. Three parents: 528,000,000 bytes. These are exact products, not rounded binary multiples.",
+    "cache_note": "both views are stored: the probabilities are the distillation weights and the stored log-softmax output keeps the teacher term finite by construction, so a zero probability contributes exactly zero with no epsilon. 80 MB each and 160 MB per parent replay cache, plus 16 MB per parent for the monitoring cache.",
+    "probe_rows": 64,
+    "generated_after_freeze": true,
+    "generation_note": "the freeze binds this sampling rule, these seeds, these counts and these dtypes. The banks are generated afterwards and their completed draw-order and content digests are bound to the freeze in banks_manifest.json.",
+    "overlap_policy": "accidental sequence-identity overlap between the independently sampled replay and monitoring banks is reported and retained. Rejecting a coincident identity would change the sampling law; a strict identity-disjoint evaluation is a different estimand and is not declared here.",
+    "monitor_independence": "the monitoring bank is freshly sampled and is never trained on. It is not the historical audit bank, which already contributed to the historical diversity assessments and to the escalation decision behind this screen.",
+    "monitor_is_not_a_final_test": "the monitoring bank supplies model-selection diagnostics during the fit, so it is not an untouched final test. Any later confirmatory preservation claim needs a new, independently generated bank drawn after the candidates are frozen."
+  },
+
+  "seeds": {
+    "replay_draw": {"20260918": 777000101, "20260919": 777000102, "20260920": 777000103},
+    "monitor_draw": {"20260918": 777000201, "20260919": 777000202, "20260920": 777000203},
+    "replay_order": 777000301,
+    "generation_base": 777000401,
+    "cache_probe": 777000501,
+    "synthetic_gradient_control": 777000601,
+    "band_rule": "every literal above sits outside the historical guarded draw-seed band [20260921, 20360920], which is 20260921 + sha256(checkpoint name)[:8] % 100000. A seed inside that band could coincide with a historical draw seed and make two banks described as independent share a sampling stream.",
+    "derivation": "purpose-specific literals recorded here. Python's process-randomized hash() is never used to derive a seed; the endpoint generation offset is sha256(trajectory name)[:8] % 100000 added to generation_base."
+  },
+
+  "inference": {
+    "device": "cuda",
+    "score_batch_size": 256,
+    "sample_batch_size": 256,
+    "monitor_batch_size": 256,
+    "teacher_batch_size": 256,
+    "conditional_batch_size": 64,
+    "cpu_threads": 4,
+    "attention_implementation": "sdpa",
+    "forward_dtype": "float32",
+    "reduction_dtype": "float64",
+    "batch_size_note": "inference batch size is a recorded operational parameter, not a scientific arm, and only while the recorded parity holds."
+  },
+
+  "preflight": {
+    "synthetic_control_rows": 64,
+    "synthetic_control_microbatches": [16, 24],
+    "synthetic_control_full_learning_rate": 0.00001,
+    "synthetic_control_prefix_length": 99,
+    "rows_note": "64 rows is the production effective batch, so the accumulation the control checks is the accumulation the fit performs. Microbatch 16 is the production partition (4 x 16, exact) and 24 is an additional deliberately partial one (24 + 24 + 16), because an exact partition is the only case where the n_i/N_i weighting and a 1/k average agree.",
+    "learning_rate_note": "the control steps at the FULL configured learning rate, not at the first warmup rate. The inherited step+1 warmup makes the first production step 1e-5/100 = 1e-7, and a comparison of two parameter vectors that barely moved would accept two routes that had done nothing. The production warmup schedule is unchanged; this is a separate probe of the update at full scale.",
+    "prefix_token_note": "the synthetic prefix is drawn from vocabulary ids at or above the 20 canonical residues, so the prefix-gradient proof can name an embedding ROW that no core token can reach. Checking a whole embedding tensor proves nothing: the core positions write into it too, so it is nonzero even when the prefix is detached.",
+    "teacher_note": "the synthetic teacher is a second frozen instance of the native architecture and its targets go through the real teacher-cache build, so 'the teacher is frozen and its cached targets are what the student distils' is checked on the path production uses."
+  },
+
+  "tolerances": {
+    "sum_log_probability_atol": 0.00005,
+    "sum_log_probability_rtol": 0.000002,
+    "sum_log_probability_justification": "the inherited campaign tolerance from her2_policy.SUM_LOG_PROBABILITY_ATOL/RTOL, measured on the pinned weights over 10,000 native draws. Not loosened, and not reused for gradients or parameters.",
+    "native_gradient_atol": 0.0001,
+    "native_gradient_rtol": 0.001,
+    "native_gradient_justification": "direct versus accumulated float32 gradients over 22.1M parameters on CUDA differ by kernel reduction order, which scales with the gradient magnitude; this is a separately declared gradient tolerance and is independent of the sum-log-probability score tolerance. The measured maximum error is recorded in the preflight evidence, and widening this after seeing a failure requires a committed amendment naming the observation.",
+    "post_adamw_parameter_atol": 0.000003,
+    "post_adamw_parameter_rtol": 0.0001,
+    "post_adamw_parameter_justification": "one AdamW step at learning rate 1e-5 moves a parameter by at most about 1e-5, so a 3e-6 absolute floor with a 1e-4 relative term admits float32 reduction-order differences between the direct and accumulated routes while still rejecting a genuinely different update. UNCHANGED by the 2026-09-20 amendment below: the cross-route comparison retains this tolerance and reconciles its exceptions rather than widening it. Each route also passes the separate, tighter post_adamw_oracle_atol/rtol check against its own clipped-gradient oracle.",
+    "post_adamw_oracle_atol": 0.000000001,
+    "post_adamw_oracle_rtol": 0.000001,
+    "post_adamw_oracle_justification": "each route's post-step parameters against an independent closed-form first AdamW step computed in float64 from THAT route's own float32 gradients. The only error admitted is the float32-to-float64 promotion of the parameters and the gradients, so this is held tightly. It is the check that says the optimizer plumbing did what the update rule says, and it does not depend on the two routes agreeing.",
+    "native_post_step_amendment": "MEASURED 2026-09-20 by the reviewer on this architecture (random weights, no HER2 checkpoint, 64 rows, micro 16 and 24, SFT + 10 x conditional KL, full LR 1e-5): direct-versus-accumulated gradients passed at atol 1e-4 / rtol 1e-3 (max 4.455e-6 and 4.165e-6), and the post-AdamW parameter comparison FAILED the 3e-6 / 1e-4 tolerance at max 1.392e-5 and 1.474e-5. Cause observed: raw gradients of order 1e-7 differ in SIGN between the two float32 reduction orders, and AdamW's first step is -lr * g / (|g| + eps), which saturates to -lr * sign(g); a sign flip therefore produces a difference of up to 2 * lr = 2e-5 regardless of how small the gradient was. AMENDMENT: the cross-route parameter comparison is replaced by her2_replay.reconcile_post_step, which keeps the same tolerance, counts every coordinate outside it, and requires each one to be (a) a coordinate where the two routes' gradients bracket zero within their own measured discrepancy and (b) inside the maximum movement one first step can produce. A coordinate with a decided gradient that moved differently still fails. The tolerance is NOT widened, the learning rate is NOT reduced to hide the step, and no smaller batch is retried. LATER THE SAME DAY, the same reviewer ran the corrected control -- the frozen native synthetic teacher targets now go through the production teacher-cache build (the earlier implementation also used a real teacher forward), and the per-route oracle is computed from the clipped gradients the optimizer actually stepped on -- and every comparison passed at these UNCHANGED tolerances: gradients max 4.7684e-7 (micro 16) and 5.9605e-7 (micro 24); per-route AdamW oracle max 7.7764e-8 direct, 7.7766e-8 micro 16, 7.8539e-8 micro 24 at atol 1e-9 / rtol 1e-6; cross-route parameters max 2.1420e-7 and 2.3656e-7 with ZERO coordinates outside the 3e-6 / 1e-4 tolerance, and therefore zero coordinates reconciled. The reconciliation is retained as the declared acceptance rule for the regime it was written for; on a run where nothing falls outside the tolerance it decides nothing. Both measurements are the reviewer's, recorded before any HER2 optimizer step. This text is the amendment of record: it travels with the config and with every preflight document that embeds tolerances.native_post_step_amendment. The reviewer's raw console records live in an untracked review working directory and are evidence, not the authority.",
+    "near_zero_gradient_note": "the near-zero band is not a declared constant. It is the measured per-coordinate cross-route gradient discrepancy, so the criterion calibrates itself to the float32 reduction noise actually observed rather than to a number chosen after seeing a failure.",
+    "tiny_cpu_atol": 1e-10,
+    "tiny_cpu_rtol": 1e-09,
+    "tiny_cpu_justification": "the enumerable CPU controls run in float64 on a tiny model, where the only error is float64 rounding. They are held strictly; they are not a stand-in for the native checks.",
+    "teacher_cache_probe_atol": 0.0001,
+    "teacher_cache_probe_rtol": 0.0001,
+    "teacher_cache_probe_justification": "the live teacher is re-evaluated at the probe batch shape and compared to a cache built at the scoring batch shape. Identical weights on the same route usually agree bitwise; this covers the batch-shape kernel difference and still rejects a cache from different weights, which differs by nats.",
+    "amendment_rule": "loosening any tolerance after seeing a result requires a committed amendment naming the observation that prompted it. Retrying at a smaller batch until a discrepancy disappears is not an investigation."
+  },
+
+  "expected_counts": {
+    "train_chosen": 120477,
+    "train_rejected": 113530,
+    "reference_rows": 234007,
+    "val_chosen": 25722,
+    "note": "asserted against the release before anything is fitted, so a changed split stops here rather than producing a differently sized 'fixed' validation pair set under the same name."
+  },
+
+  "diversity_gates": {
+    "relative_floor": 0.9,
+    "min_unique_fraction": 0.9,
+    "max_single_core_frequency": 0.01,
+    "min_fraction_not_in_training": 0.5,
+    "reference": "the inherited persisted parent draw bank of the completed campaign supplies the relative floor, so endpoint verdicts stay comparable with it. The freshly sampled monitoring bank is never used as this reference.",
+    "status": "preregistered operational heuristics for distributional collapse. Ineligibility is a distinct observation from a likelihood breach; it does not stop a trajectory and it does not remove an endpoint from the tables."
+  },
+
+  "generation": {
+    "draws": 10000,
+    "temperature": 1.0,
+    "retain_duplicates": true,
+    "restrict_to_catalog": false,
+    "applies_at": "reached exposure endpoints only"
+  },
+
+  "evaluation": {
+    "k_values": [32, 100, 1000],
+    "train_distance_strata": ["0", "1", "2", ">=3"],
+    "selection_strata": ["1", "2", ">=3"],
+    "max_train_distance": 2,
+    "primary_statistic": "the macro average of per-stratum validation average precision over the training-distance strata [1, 2, >=3]; stratum 0 is reported and never averaged in",
+    "inputs": ["validation"],
+    "no_selection": "this screen reports the preservation-versus-ranking tradeoff. It declares no winner, applies no post-hoc scalar combination of the two axes and performs no selection."
+  },
+
+  "storage": {
+    "min_free_bytes": 21474836480,
+    "min_free_note": "20 GiB against an approximately 16 GB budget, leaving room for the transient second copy an atomic checkpoint write needs. The observed free capacity is recorded whether or not it passes.",
+    "root_note": "the run root is a portable logical name. Its machine-local location, which may be a junction onto another volume, lives in the ignored local_roots.json inside the run directory; no scientific field carries a drive letter or a host path."
+  },
+
+  "reporting": {
+    "figures": true,
+    "figure_backend": "matplotlib, optional; an absent backend is recorded as a skipped figure with its reason",
+    "axes": ["validation macro-AP against forward KL", "validation macro-AP against the tenfold-drop fraction", "validation macro-AP against the hundredfold-drop fraction"],
+    "labels": "every plotted point carries its method, lambda, parent seed and chosen exposure",
+    "missing": "missing, stopped and incomplete configurations are listed in the tables and are never plotted as zeros"
+  }
+}

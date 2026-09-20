@@ -43,3 +43,32 @@ scripts/audit_her2_support.py text eol=lf
 # Published audit figures are binary: never let a text/eol rule touch them.
 reference/figures/her2-support-*.png binary
 reference/figures/her2-support-*.svg text eol=lf
+# The conditional parent-replay screen computes its own source closure and
+# re-hashes those bytes at every gated stage. These rules exist BEFORE the first
+# digest is taken, for exactly the reason above: with core.autocrlf=true a Windows
+# checkout of the same commit would hand back CRLF bytes, hash differently and
+# break the training freeze while `git status` stayed clean. Only the files this
+# screen introduces are listed; no pre-existing source or evidence is
+# renormalized, and the worktree-versus-HEAD comparison is what covers those.
+configs/experiments/her2_parent_replay.json text eol=lf
+scripts/posttrain_her2_replay.py text eol=lf
+scripts/rebuild_her2_support_report.py text eol=lf
+src/smallAntibodyGen/experiments/her2_replay.py text eol=lf
+src/smallAntibodyGen/experiments/her2_replay_banks.py text eol=lf
+src/smallAntibodyGen/experiments/her2_replay_campaign.py text eol=lf
+src/smallAntibodyGen/experiments/her2_replay_report.py text eol=lf
+src/smallAntibodyGen/experiments/her2_replay_spec.py text eol=lf
+src/smallAntibodyGen/experiments/her2_replay_streams.py text eol=lf
+reference/evidence/her2-parent-replay-2026-09-20/** text eol=lf
+reference/her2-parent-replay.md text eol=lf
+# These three package initializers are in the replay screen's computed source
+# closure, so the freeze hashes their worktree bytes and compares them to HEAD.
+# They already hold CRLF on disk while Git stores LF, which would make that
+# comparison fail on this machine while `git status` stayed clean. Their existing
+# working bytes are preserved exactly, the same narrow treatment the audit already
+# gives two legacy sources -- not renormalized, and not edited.
+src/smallAntibodyGen/__init__.py -text whitespace=cr-at-eol
+src/smallAntibodyGen/benchmarks/__init__.py -text whitespace=cr-at-eol
+src/smallAntibodyGen/experiments/__init__.py -text whitespace=cr-at-eol
+# Published replay figures are binary: never let a text/eol rule touch them.
+reference/figures/her2-parent-replay-*.png binary

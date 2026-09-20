@@ -204,20 +204,155 @@ async function refreshAudit() {
   } finally {auditBusy=false;}
 }
 
+// ---------------------------------------------------------------------------
+// Parent-replay view. Additive again: everything it renders comes from
+// /api/replay, every value is written with textContent rather than innerHTML for
+// anything that came out of a run directory, and a value the campaign did not
+// record is shown as "—" rather than filled in. It never says a launch is healthy
+// without an actual completed update and an actual passed check.
+// ---------------------------------------------------------------------------
+let replayView = false, replayBusy = false;
+const replayStatusLabel = {queued:"Queued", running:"Running", completed:"Completed",
+  stopped_by_gate:"Stopped by gate", incomplete:"Incomplete", failed:"Failed",
+  interrupted:"Interrupted", unknown:"Unknown"};
+const phaseLabel = {no_run_directory:"No run directory", before_freeze:"Before the freeze",
+  preparing_banks:"Preparing banks", banks_ready:"Banks ready", fitting:"Fitting"};
+// The launch tile is never an unqualified "Healthy". The first update and the
+// first passed check stay true after the writer dies, so the label carries what
+// the campaign is doing now and the evidence stays in the detail line.
+const healthLabel = {not_established:"Not established", healthy:"Healthy · running",
+  launch_verified:"Launch verified", launch_verified_but_interrupted:"Launched · interrupted",
+  launch_verified_but_campaign_failed:"Launched · campaign failed",
+  launch_verified_and_session_finished:"Launched · session finished"};
+const healthBadge = {not_established:"queued", healthy:"running",
+  launch_verified:"queued", launch_verified_but_interrupted:"interrupted",
+  launch_verified_but_campaign_failed:"failed",
+  launch_verified_and_session_finished:"completed"};
+
+function cell(row, text, title) {
+  const td = document.createElement("td");
+  td.textContent = text;
+  if(title){const small=document.createElement("small");small.textContent=title;td.appendChild(small);}
+  row.appendChild(td);
+  return td;
+}
+
+function renderReplay(r) {
+  const phase = phaseLabel[r.phase] || r.phase || "—";
+  const state = !r.present ? "No replay run directory yet"
+    : r.writer_state === "failed" ? "Campaign failed"
+    : r.writer_state === "gone" ? "Writer gone · lock released"
+    : r.writer_state === "unknown" ? "Writer state unknown"
+    : r.writer_state === "alive" ? `Running · ${phase}`
+    : r.writer_state === "finished" ? "Session finished"
+    : phase;
+  const badgeClass = !r.present ? "queued"
+    : r.writer_state === "failed" ? "failed"
+    : r.writer_state === "gone" ? "interrupted"
+    : r.writer_state === "unknown" ? "interrupted"
+    : r.writer_state === "alive" ? "running"
+    : r.writer_state === "finished" ? "completed" : "queued";
+  $("replay-status").outerHTML=`<span id="replay-status" class="badge ${badgeClass}">${esc(state)}</span>`;
+  $("replay-note").textContent = r.present
+    ? (r.queue_present ? `${fmt(r.total)} declared trajectories · ${esc(r.campaign_id||"")}`
+                       : "The campaign has not been launched; there is no queue yet.")
+    : "Run the prepare stage to create it.";
+  const health = r.health || {};
+  const lockState = (r.lock && r.lock.state) || "not observed";
+  $("replay-health").textContent = healthLabel[health.status] || (health.healthy ? "Launch verified" : "Not established");
+  $("replay-health").dataset.state = healthBadge[health.status] || "queued";
+  $("replay-health-detail").textContent = health.healthy
+    ? `first update ${fmt(health.first_update_completed)} · first check at update ${fmt(health.first_check_update)} passed · lock ${esc(lockState)}${finite(r.heartbeat_age_seconds) ? ` · heartbeat ${fmt(Math.round(r.heartbeat_age_seconds))}s old` : ""}`
+    : (health.detail || health.basis || "Needs a completed update and a passed check");
+  const counts = r.counts || {};
+  const done = (counts.completed||0)+(counts.stopped_by_gate||0);
+  $("replay-finished").textContent = r.queue_present ? `${done} / ${fmt(r.total)}` : "—";
+  $("replay-counts").textContent = r.queue_present
+    ? `${counts.completed||0} completed · ${counts.stopped_by_gate||0} stopped · ${counts.incomplete||0} incomplete · ${counts.queued||0} queued`
+    : "No queue document yet";
+  $("replay-active").textContent = r.active || "—";
+  $("replay-active-detail").textContent = r.heartbeat && r.heartbeat.update
+    ? `update ${fmt(r.heartbeat.update)} · ${fmt(r.heartbeat.exposures?.chosen)} chosen exposures`
+    : "No trajectory is writing right now";
+  $("replay-freeze").textContent = r.frozen ? String(r.frozen.commit||"").slice(0,10) : "Not frozen";
+  $("replay-freeze-detail").textContent = r.frozen
+    ? `${fmt(r.frozen.sources)} sources · ${fmt(r.frozen.inputs)} inputs · audit ${esc(r.frozen.audit_decision||"—")}`
+    : "fitting refuses to start without the marker";
+  $("replay-banks").textContent = r.banks ? `${fmt(r.banks.count)} artifacts` : "Not generated";
+  $("replay-banks-detail").textContent = r.banks
+    ? `bound to freeze ${String(r.banks.freeze_commit||"").slice(0,10)}`
+    : "generated after the freeze and bound to it";
+  const results = r.results || {};
+  $("replay-endpoints").textContent = finite(results.reached_endpoint_rows)
+    ? `${fmt(results.reached_endpoint_rows)} / ${fmt(results.declared_endpoint_rows)}` : "—";
+  $("replay-deltas").textContent = finite(results.matched_deltas)
+    ? `${fmt(results.matched_deltas)} matched · ${fmt(results.unavailable_deltas)} unavailable`
+    : "No report has been built yet";
+  const body = $("replay-rows");
+  body.textContent = "";
+  const rows = r.trajectories || [];
+  $("replay-queue-label").textContent = rows.length ? `${fmt(rows.length)} declared` : "";
+  if(!rows.length){
+    const tr=document.createElement("tr");const td=document.createElement("td");
+    td.colSpan=10;td.className="muted";
+    td.textContent=r.present?"No queue document yet: the campaign has not been launched.":"No replay run directory yet.";
+    tr.appendChild(td);body.appendChild(tr);
+  }
+  for(const row of rows){
+    const tr=document.createElement("tr");
+    cell(tr,row.trajectory||"—",row.is_control?"matched zero-replay control":"");
+    cell(tr,labels[row.task]||row.task||"—");
+    cell(tr,finite(row.replay_lambda)?String(row.replay_lambda):"—");
+    cell(tr,row.seed??"—");
+    const status=document.createElement("td");
+    status.innerHTML=`<span class="badge ${esc(row.status)}">${esc(replayStatusLabel[row.status]||row.status)}</span>`;
+    if(row.stop_reason){const small=document.createElement("small");small.textContent=row.stop_reason;status.appendChild(small);}
+    tr.appendChild(status);
+    cell(tr,finite(row.updates)?fmt(row.updates):"—");
+    cell(tr,finite(row.chosen_exposures)?fmt(row.chosen_exposures):"—",
+         finite(row.replay_exposures)&&row.replay_exposures?`${fmt(row.replay_exposures)} replay rows`:"");
+    cell(tr,finite(row.gate?.D)?fmt(row.gate.D,4):"—",row.gate&&row.gate.passed===false?"gate breached":"");
+    cell(tr,finite(row.gate?.forward_kl)?fmt(row.gate.forward_kl,4):"—",
+         finite(row.gate?.tenfold_fraction)?`>ln10 ${pct(row.gate.tenfold_fraction)}`:"");
+    cell(tr,(row.endpoints_reached||[]).join(", ")||"—");
+    body.appendChild(tr);
+  }
+  const problems=[...(r.warnings||[]),...(r.errors||[])];
+  if(r.error)problems.unshift(typeof r.error==="string"?r.error:JSON.stringify(r.error));
+  $("replay-notice").hidden=!problems.length;$("replay-notice").textContent=problems.join("\n");
+  $("replay-updated").textContent=`Snapshot ${new Date(r.generated_at).toLocaleTimeString()}`;
+}
+
+async function refreshReplay() {
+  if(replayBusy)return;replayBusy=true;
+  try {
+    const response=await fetch('/api/replay',{cache:"no-store",signal:AbortSignal.timeout(15000)});
+    if(response.status===404){renderReplay({present:false,trajectories:[],generated_at:new Date().toISOString()});return;}
+    if(!response.ok)throw Error(`Replay request failed (${response.status})`);
+    renderReplay(await response.json());
+  } catch(err) {
+    $("replay-notice").hidden=false;$("replay-notice").textContent=`Replay refresh failed. Displayed values may be out of date. ${err.message}`;
+  } finally {replayBusy=false;}
+}
+
 function showView(view) {
   auditView = view === "audit";
-  $("campaign-heading").hidden = auditView;
-  $("view-campaign").hidden = auditView;
+  replayView = view === "replay";
+  $("campaign-heading").hidden = auditView || replayView;
+  $("view-campaign").hidden = auditView || replayView;
   $("view-audit").hidden = !auditView;
-  $("tab-campaign").setAttribute("aria-pressed", String(!auditView));
+  $("view-replay").hidden = !replayView;
+  $("tab-campaign").setAttribute("aria-pressed", String(!auditView && !replayView));
   $("tab-audit").setAttribute("aria-pressed", String(auditView));
+  $("tab-replay").setAttribute("aria-pressed", String(replayView));
   if(auditView)refreshAudit();
+  if(replayView)refreshReplay();
 }
 
 function selectRun(id){following=false;selected=id;details=null;populateSelect();renderSelected();renderTable();for(const el of ['likelihood-chart','training-chart'])$(el).innerHTML='<div class="empty-chart">Loading trajectory…</div>';fetchDetail().catch(err=>{$('notice').hidden=false;$('notice').textContent=err.message;});}
 // The header button refreshes whatever is on screen. Wiring it to the campaign
 // unconditionally meant pressing Refresh on the audit tab reloaded the hidden view.
-$("refresh").addEventListener('click',()=>{auditView?refreshAudit():refresh();});
+$("refresh").addEventListener('click',()=>{replayView?refreshReplay():auditView?refreshAudit():refresh();});
 $("run-select").addEventListener('change',e=>selectRun(e.target.value));
 $("follow").addEventListener('click',()=>{following=!following;populateSelect();renderSelected();renderTable();fetchDetail().catch(()=>{});});
 $("metric").addEventListener('change',renderPlots);
@@ -227,3 +362,4 @@ $("runs").addEventListener('click',e=>{const button=e.target.closest('[data-run]
 for(const tab of document.querySelectorAll('[data-view]'))tab.addEventListener('click',()=>showView(tab.dataset.view));
 refresh();setInterval(refresh,5000);
 setInterval(()=>{if(auditView)refreshAudit();},5000);
+setInterval(()=>{if(replayView)refreshReplay();},5000);

@@ -19,6 +19,7 @@
     <nav class="tabs" aria-label="Views">
       <button id="tab-campaign" class="tab" aria-pressed="true" data-view="campaign">Guarded campaign</button>
       <button id="tab-audit" class="tab" aria-pressed="false" data-view="audit">Support audit</button>
+      <button id="tab-replay" class="tab" aria-pressed="false" data-view="replay">Parent replay</button>
     </nav>
     <div id="view-campaign">
     <section class="metrics" aria-label="Campaign overview">
@@ -78,6 +79,24 @@
         <div id="audit-blocking" class="note"></div>
       </section>
       <footer><span>Local, read-only view · refreshes every 5 seconds</span><span id="audit-updated">No snapshot yet</span><a href="/api/audit" target="_blank" rel="noopener">Audit JSON ↗</a></footer>
+    </div>
+    <div id="view-replay" hidden>
+      <div class="heading"><div><p class="eyebrow">HER2 · EXPOSURE-MATCHED PARENT REPLAY</p><h1>What replay costs, and what it keeps.</h1><p class="subtitle">Token-level parent distillation against no replay at matched chosen exposure. Preservation against validation ranking; no winner is selected here.</p></div><div class="status-area"><span id="replay-status" class="badge">Loading</span><p id="replay-note" class="muted">Reading the campaign…</p></div></div>
+      <div id="replay-notice" role="status" class="notice" hidden></div>
+      <section class="metrics" aria-label="Replay overview">
+        <div><span class="label">Launch health</span><strong id="replay-health">—</strong><small id="replay-health-detail">Needs a completed update and a passed check</small></div>
+        <div><span class="label">Trajectories finished</span><strong id="replay-finished">—</strong><small id="replay-counts">Waiting for the queue</small></div>
+        <div><span class="label">Active trajectory</span><strong id="replay-active">—</strong><small id="replay-active-detail">Arm · seed · updates</small></div>
+        <div><span class="label">Training specification</span><strong id="replay-freeze">Not frozen</strong><small id="replay-freeze-detail">Fitting refuses to start without the marker</small></div>
+        <div><span class="label">Banks</span><strong id="replay-banks">Not generated</strong><small id="replay-banks-detail">Generated after the freeze and bound to it</small></div>
+        <div><span class="label">Reached endpoints</span><strong id="replay-endpoints">—</strong><small id="replay-deltas">Matched zero-replay differences</small></div>
+      </section>
+      <section class="runs-section" aria-label="Replay queue">
+        <div class="section-heading"><div><p class="eyebrow">QUEUE</p><h2>All 36 trajectories</h2></div><span id="replay-queue-label" class="muted"></span></div>
+        <div class="table-scroll"><table><thead><tr><th>Trajectory</th><th>Task</th><th>λ</th><th>Seed</th><th>Status</th><th>Updates</th><th>Chosen exposures</th><th>Latest D</th><th>Forward KL</th><th>Endpoints</th></tr></thead><tbody id="replay-rows"></tbody></table></div>
+        <p class="note">A gate breach is a declared scientific outcome and the queue continues. An interrupted trajectory is <code>incomplete</code>, is never resumed, and is not a result at a lower exposure.</p>
+      </section>
+      <div class="viewfoot"><span>Local, read-only view · refreshes every 5 seconds</span><span id="replay-updated">No snapshot yet</span><a href="/api/replay" target="_blank" rel="noopener">Replay JSON ↗</a></div>
     </div>
   </main>
 </body>
