@@ -12,6 +12,7 @@ specs/her2_support_preservation_plan.md text eol=lf
 # stay narrow on purpose: nothing outside the audit's hashed inputs is affected.
 reference/evidence/her2-support-audit-2026-09-19/** text eol=lf
 reference/her2-support-audit.md text eol=lf
+reference/her2-support-audit-review.md text eol=lf
 configs/experiments/her2_support_audit.json text eol=lf
 # The audit also hashes its own SOURCE bytes -- the module-level import closure it
 # executes -- and re-verifies those digests at every gated stage. core.autocrlf=true
