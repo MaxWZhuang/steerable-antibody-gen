@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import math
+import os
 from pathlib import Path
 import subprocess
 import threading
@@ -452,7 +453,219 @@ class Campaign:
                               update_journal_resets=self.update_journal.resets))
 
 
-def make_handler(campaign):
+class AuditRun:
+    """Read-only view of a HER2 support-audit run directory.
+
+    Additive: it shares the server and the security posture with the campaign
+    view and imports nothing from the audit package -- no model, no torch, no
+    scientific module -- so a broken or half-written run directory can never do
+    more than make this panel say so.
+
+    Three things it refuses to do, because each of them turns an unfinished audit
+    into a finished-looking one:
+
+    * invent a denominator. A stage records ``total: null`` when it cannot know
+      one, and this reports a count with ``fraction: null`` rather than a bar.
+    * treat a ``running`` heartbeat as progress. A stage whose progress file has
+      not been touched for longer than the stall bound is reported ``stalled``.
+    * call the audit complete because the process exited. Completion is read from
+      the ``audit_complete.json`` the CLI writes only after its own requirement
+      checks pass, and the unmet requirements are shown when it is absent.
+    """
+
+    STAGES = ("inventory", "prepare", "preflight", "freeze", "score", "ches", "decide", "report")
+    #: Documents this view may read, by logical name. Nothing else is opened, so a
+    #: crafted name cannot walk out of the run directory.
+    DOCUMENTS = {
+        "inventory": "inventory.json",
+        "coverage": "summaries/coverage.json",
+        "checkpoints": "summaries/checkpoints.json",
+        "ches": "summaries/ches.json",
+        "decision": "decision.json",
+        "freeze": "audit_spec_frozen.json",
+        "verification": "verification.json",
+        "complete": "audit_complete.json",
+    }
+
+    def __init__(self, root, *, stall_seconds=STALL_SECONDS):
+        self.root = Path(root)
+        self.stall_seconds = float(stall_seconds)
+        self.lock = threading.Lock()
+        self.errors = []
+
+    # -- safe, bounded reads ----------------------------------------------
+    def path(self, relative):
+        """Join one forward-slash relative name under the run root, or refuse it.
+
+        Absolute names, drive letters, empty and traversing components are all
+        rejected before the join: ``os.path.join(base, "", "etc", "passwd")``
+        happily produces a path under ``base``, so a containment check alone is
+        not enough to refuse ``/etc/passwd``.
+        """
+        parts = str(relative).replace("\\", "/").split("/")
+        if any(part in ("", ".", "..") or ":" in part for part in parts):
+            raise KeyError(relative)
+        base = Path(os.path.normpath(os.path.abspath(str(self.root))))
+        target = Path(os.path.normpath(os.path.join(str(base), *parts)))
+        if base != target and base not in target.parents:
+            raise KeyError(relative)
+        return target
+
+    def document(self, relative):
+        try:
+            target = self.path(relative)
+        except KeyError:
+            return None
+        if not target.is_file():
+            return None
+        try:
+            return json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            self.errors.append(f"{relative}: {type(error).__name__}: {error}")
+            return None
+
+    def age(self, relative):
+        try:
+            target = self.path(relative)
+        except KeyError:
+            return None
+        if not target.is_file():
+            return None
+        return max(0.0, datetime.now(timezone.utc).timestamp() - target.stat().st_mtime)
+
+    # -- the panel ---------------------------------------------------------
+    def stages(self):
+        rows = []
+        for name in self.STAGES:
+            relative = f"progress/{name}.json"
+            record = self.document(relative)
+            if record is None:
+                rows.append({"stage": name, "status": "not_started", "completed": None,
+                             "total": None, "fraction": None, "current": None, "error": None,
+                             "stale": False, "age_seconds": None})
+                continue
+            age = self.age(relative)
+            status = record.get("status")
+            stale = bool(status == "running" and age is not None and age > self.stall_seconds)
+            total = record.get("total")
+            completed = record.get("completed")
+            rows.append({
+                "stage": name,
+                # A stage that stopped writing is not running, whatever its file says.
+                "status": "stalled" if stale else status,
+                "recorded_status": status,
+                "completed": completed, "total": total,
+                "fraction": (completed / total if isinstance(total, (int, float)) and total
+                             and isinstance(completed, (int, float)) else None),
+                "total_note": record.get("total_note"),
+                "current": record.get("current"), "error": record.get("error"),
+                "stale": stale, "age_seconds": age,
+                "started_at": record.get("started_at"),
+                "elapsed_wall_seconds": record.get("elapsed_wall_seconds")})
+        return rows
+
+    def snapshot(self):
+        with self.lock:
+            self.errors = []
+            if not self.root.is_dir():
+                return clean({"present": False, "root": self.root.name,
+                              "generated_at": datetime.now(timezone.utc).isoformat(),
+                              "stages": [], "errors": [], "complete": False,
+                              "unmet_requirements": [], "decision": None, "frozen": None,
+                              "counts": {}, "coverage": {}, "results": {}, "verification": {},
+                              "note": "no audit run directory yet"})
+            inventory = self.document(self.DOCUMENTS["inventory"]) or {}
+            coverage_document = self.document(self.DOCUMENTS["coverage"]) or {}
+            checkpoints = self.document(self.DOCUMENTS["checkpoints"]) or {}
+            ches = self.document(self.DOCUMENTS["ches"]) or {}
+            decision = self.document(self.DOCUMENTS["decision"]) or {}
+            freeze = self.document(self.DOCUMENTS["freeze"])
+            verification = self.document(self.DOCUMENTS["verification"]) or {}
+            complete = self.document(self.DOCUMENTS["complete"])
+            coverage = inventory.get("coverage") or coverage_document.get("inventory_coverage") or {}
+            stages = self.stages()
+            current = next((row for row in stages if row["status"] == "running"), None)
+            return clean({
+                "present": True, "root": self.root.name,
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "audit_id": inventory.get("audit_id") or decision.get("audit_id"),
+                "protocol": inventory.get("protocol"),
+                "stages": stages,
+                "active_stage": current["stage"] if current else None,
+                "checkpoint": (current or {}).get("current"),
+                "frozen": None if not freeze else {
+                    "commit": (freeze.get("git") or {}).get("commit"),
+                    "frozen_at": freeze.get("frozen_at"),
+                    "sources": len(freeze.get("source_sha256") or {}),
+                    "inputs": freeze.get("input_count"),
+                    "evidence": len(freeze.get("evidence_sha256") or {})},
+                "counts": {
+                    "states_enumerated": coverage.get("total"),
+                    "states_verified": coverage.get("verified_total"),
+                    "states_expected": (coverage.get("expected") or {}).get("total"),
+                    "distinct_computations":
+                        (inventory.get("deduplication") or {}).get("distinct_computations"),
+                    "scored": coverage_document.get("scored_count"),
+                    "parent_banks": len(inventory.get("parent_banks") or {}),
+                    "ches_parent_blocks": len(ches.get("parent") or {}),
+                    "ches_endpoint_blocks": len(ches.get("endpoints") or {}),
+                    "increments": len(ches.get("increments") or {})},
+                "coverage": {
+                    "complete": coverage.get("complete"),
+                    "shortfalls": coverage.get("shortfalls") or [],
+                    "unverified": sorted((coverage_document.get("unverified") or {}))[:20]},
+                "results": {
+                    "self_controls": {name: block.get("within_tolerance")
+                                      for name, block in
+                                      sorted((checkpoints.get("self_controls") or {}).items())},
+                    "paired_comparisons":
+                        (checkpoints.get("paired_method_differences") or {}).get("count"),
+                    "ches_increment_gaps": len(ches.get("increment_gaps") or []),
+                    "endpoints": self.endpoint_rows(checkpoints, inventory)},
+                "decision": None if not decision else {
+                    "outcome": decision.get("outcome"),
+                    "blocking": decision.get("blocking") or [],
+                    "coverage_complete": decision.get("coverage_complete"),
+                    "audit_complete": decision.get("audit_complete"),
+                    "methods": {name: {"outcome": block.get("outcome"),
+                                       "seeds_usable": block.get("seeds_usable"),
+                                       "seeds_crossing": block.get("seeds_crossing"),
+                                       "seeds_declared": block.get("seeds_declared")}
+                                for name, block in sorted((decision.get("methods") or {}).items())}},
+                "verification": {"immutable": verification.get("immutable"),
+                                 "shards_checked": verification.get("shards_checked"),
+                                 "problems": (verification.get("problems") or [])[:20]},
+                # Completion is the marker the CLI writes after its own checks, never
+                # "the last stage's process exited".
+                "complete": bool(complete) and verification.get("immutable") is not False
+                            and not self.errors,
+                "completed_at": (complete or {}).get("completed_at"),
+                "unmet_requirements": ((complete or {}).get("requirements") or
+                                       (decision.get("completion") or {})).get("unmet") or [],
+                "errors": list(self.errors)})
+
+    def endpoint_rows(self, checkpoints, inventory, limit=200):
+        """The scored 600 s endpoints, enough to show the decision inputs honestly."""
+        records = {record.get("id"): record for record in inventory.get("records") or []}
+        rows = []
+        for identifier, block in sorted((checkpoints.get("checkpoints") or {}).items()):
+            record = records.get(identifier) or {}
+            tails = ((block.get("tails") or {}).get("counts") or {})
+            rows.append({
+                "id": identifier, "role": record.get("role"), "arm_id": record.get("arm_id"),
+                "seed": record.get("seed"),
+                "budget_gpu_seconds": record.get("nominal_budget_gpu_seconds"),
+                "forward_kl": (block.get("forward_kl") or {}).get("mean"),
+                "ci_low": (block.get("forward_kl") or {}).get("ci_low"),
+                "ci_high": (block.get("forward_kl") or {}).get("ci_high"),
+                "tenfold_fraction": (tails.get("tenfold") or {}).get("fraction"),
+                "tenfold_wilson_lower": (tails.get("tenfold") or {}).get("lower")})
+            if len(rows) >= limit:
+                break
+        return rows
+
+
+def make_handler(campaign, audit=None):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             allowed = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
@@ -469,6 +682,12 @@ def make_handler(campaign):
                 elif url.path == "/api/run":
                     key = parse_qs(url.query).get("id", [""])[0]
                     body = json.dumps(campaign.detail(key), allow_nan=False).encode()
+                    mime = "application/json"
+                elif url.path == "/api/audit":
+                    if audit is None:
+                        self.send_error(404)
+                        return
+                    body = json.dumps(audit.snapshot(), allow_nan=False).encode()
                     mime = "application/json"
                 elif url.path in ("/", "/app.js", "/style.css"):
                     file = {"/": "index.html", "/app.js": "app.js", "/style.css": "style.css"}[url.path]
@@ -505,12 +724,18 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "outputs/her2_guarded_20260918")
     parser.add_argument("--control", type=Path, default=ROOT / "outputs/her2_guarded_launch_20260918")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--audit", type=Path, default=None,
+                        help="support-audit run directory to serve at /api/audit (read only); "
+                             "omit to serve the campaign view alone")
     parser.add_argument("--stall-seconds", type=float, default=STALL_SECONDS,
                         help="mark a trajectory stalled after this long with no artifact write")
     args = parser.parse_args()
     campaign = Campaign(args.output, args.control, stall_seconds=args.stall_seconds)
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(campaign))
-    print(f"HER2 dashboard: http://127.0.0.1:{args.port} (read only, PID {__import__('os').getpid()})", flush=True)
+    audit = None if args.audit is None else AuditRun(args.audit,
+                                                     stall_seconds=args.stall_seconds)
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(campaign, audit))
+    print(f"HER2 dashboard: http://127.0.0.1:{args.port} (read only, PID {os.getpid()})"
+          + (f" · audit {args.audit}" if audit is not None else ""), flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

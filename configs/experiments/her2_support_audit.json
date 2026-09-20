@@ -1,0 +1,187 @@
+{
+  "schema_version": "her2-support-audit/1",
+  "audit_id": "her2_support_audit_20260919",
+  "protocol": "specs/her2_support_preservation_plan.md",
+  "run_root": "outputs/her2_support_audit_20260919_r2",
+  "evidence_root": "reference/evidence/her2-support-audit-2026-09-19",
+  "input_manifest": "reference/evidence/her2-support-audit-2026-09-19/input_manifest.json",
+  "inventory_evidence": "reference/evidence/her2-support-audit-2026-09-19/inventory.json",
+  "published_report": "reference/her2-support-audit.md",
+  "publication": {
+    "root": "reference",
+    "data_directory": "evidence/her2-support-audit-2026-09-19/published",
+    "figure_directory": "figures",
+    "figure_prefix": "her2-support-",
+    "manifest": "evidence/her2-support-audit-2026-09-19/published/manifest.json",
+    "note": "--publish copies the report, the small decision/coverage/verification/CHES summaries and the rendered figures into the tracked reference tree, with links relative to the published report so they resolve in the repository. The full numeric run artifacts stay in the ignored run root; nothing here is a network or git action."
+  },
+  "source_manifests": [
+    "specs/benchmarks/buzz_her2_affinity.json",
+    "specs/benchmarks/absci_denovo_her2.json",
+    "specs/benchmarks/piggen_backbone.json"
+  ],
+
+  "historical": {
+    "guarded_manifest": "reference/evidence/her2-guarded-results-2026-09-19/manifest.json",
+    "launch_manifest": "outputs/her2_guarded_launch_20260918/launch_manifest.json",
+    "campaign_status": "outputs/her2_guarded_launch_20260918/campaign_status.json",
+    "source_snapshot": "outputs/her2_guarded_launch_20260918/source_snapshot",
+    "guarded_config": "configs/experiments/her2_guarded_continuation.json",
+    "original_config": "configs/experiments/her2_posttrain.json",
+    "base_selection_relative": "base_selection.json",
+    "original_continuation_relative": "continuation",
+    "v1_selection_frozen_relative": "validation_math/selection_frozen.json",
+    "v1_final_integrity": "reference/evidence/her2-final-integrity-2026-09-18.json",
+    "v1_validation_note": "Historical validation uses the complete MATH-backend re-evaluation bound by the original selection freeze and published integrity record. continuation/validation_records.json is the obsolete partial pre-amendment evaluation. This audit does not change or re-evaluate historical ranking/diversity metrics.",
+    "note": "the published guarded manifest supplies the freeze hashes that accept the guarded root; the launch manifest supplies the producer source identities. Neither is a publication CSV."
+  },
+
+  "roots": {
+    "guarded": {
+      "logical": "outputs/her2_guarded_20260918",
+      "acceptance": "raw-byte hash probe of the three frozen stage markers named by the published guarded manifest",
+      "note": "on the recording box this logical directory is a junction onto another volume. The local mapping lives in the ignored local_roots.json and never appears in a scientific field."
+    },
+    "original": {
+      "logical": "outputs/her2_posttrain_20260918",
+      "acceptance": "raw-byte hash probe of the three selected SFT parents named by this candidate's own base_selection.json, against the parent digests the already-verified guarded campaign recorded for the weights it inherited",
+      "acceptance_note": "the launch manifest lists the source files that PRODUCED these artifacts, not artifacts under this root, so it cannot probe it. A candidate that merely has a file at the expected path is not accepted; the bytes have to hash to what the guarded stage documents recorded."
+    },
+    "raw": {
+      "logical": "data/raw/her2_functional_20260918",
+      "acceptance": "raw-byte hash probe against the tracked benchmark manifests under specs/benchmarks/",
+      "probe_files": [
+        "piggen/model.safetensors",
+        "piggen/config.json",
+        "piggen/tokenizer.json",
+        "buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/train.csv",
+        "buzz/data/affinity_data/her2/her2_aff_large/processed/remove_overlap/random_split/0.7_0.15_0.15/val.csv",
+        "buzz/data/spr/spr_submitted.csv"
+      ],
+      "probe_note": "test.csv is deliberately absent: this audit never opens the reserved split, and spr_submitted.csv is read only through her2_data.load_scaffold for fixed-scaffold metadata."
+    }
+  },
+
+  "populations": {
+    "seeds": [20260918, 20260919, 20260920],
+    "v1_methods": ["continued_sft", "dpo"],
+    "expected_parents": 3,
+    "expected_guarded_endpoints": 72,
+    "expected_completed_trajectories": 24,
+    "expected_stopped_trajectories": 30,
+    "expected_diagnostic_snapshots": 60,
+    "expected_v1_dpo_endpoints": 15,
+    "expected_v1_sft_endpoints": 9,
+    "expected_total_states": 159,
+    "bank_rows": 10000,
+    "bank_temperature": 1.0,
+    "fixed_validation_pairs": 25722,
+    "v1_training_pairs_per_seed": 4096,
+    "v1_training_cycle": 0,
+    "pairing_seed_base": 20260924,
+    "validation_pairing_seed": 20260925,
+    "population_note": "the 60 diagnostic snapshots are exactly the 30 stopped trajectories' retained last_passing and failed_state files. The 24 completed trajectories' rolling files are excluded, and no last_passing is treated as an alias of a 600 s endpoint."
+  },
+
+  "probability": {
+    "convention": "sum_log_probability_over_10_core_positions_20way_renormalized",
+    "core_length": 10,
+    "canonical_residues": 20,
+    "forward_dtype": "float32",
+    "reduction_dtype": "float64",
+    "mode": "eval_and_inference_mode",
+    "excluded": ["scaffold likelihood", "EOS", "full-vocabulary probability", "length averaging"]
+  },
+
+  "tolerances": {
+    "sum_log_probability_atol": 5e-05,
+    "sum_log_probability_rtol": 2e-06,
+    "sum_log_probability_justification": "the existing campaign tolerance from her2_policy.SUM_LOG_PROBABILITY_ATOL/RTOL, measured on the pinned weights over 10,000 native draws (sampler vs scorer 2.384e-5, full vs cached 3.342e-5, batch 16 vs 256 2.074e-5). Not loosened after seeing results; a failure is a numerical investigation and a recorded amendment.",
+    "self_control_atol": 5e-05,
+    "self_control_rtol": 2e-06,
+    "self_control_justification": "the parent against its own bank travels the same fp32 route twice, so it is held to the same sum-log-probability tolerance as every other route comparison.",
+    "head_reconstruction_atol": 0.001,
+    "head_reconstruction_rtol": 1e-05,
+    "head_reconstruction_justification": "the recorded cached-versus-full logit agreement on this backbone is 6.2e-6 absolute (her2_policy module docstring). 1e-3 absolute with a 1e-5 relative term leaves roughly two orders of magnitude of headroom over that measurement while still rejecting a wrong normalization, which moves logits by O(1).",
+    "ches_dot_atol": 0.01,
+    "ches_dot_rtol": 1e-05,
+    "ches_dot_justification": "CHES sums ten 768-wide float32 states and takes two dot products, so absolute error scales with the score itself; the relative term is the real gate. 1e-5 relative rejects a wrong position shift or a wrong response order, which change CHES by a relative O(1), while absorbing fp32 kernel differences between the cached and full routes. The 1e-2 absolute floor covers a near-zero score, including the identical-input control.",
+    "amendment_rule": "loosening any tolerance after seeing results requires a committed amendment naming the observation that prompted it. Silently widening one is a protocol violation, and retrying at a smaller batch until a discrepancy disappears is not an investigation."
+  },
+
+  "statistics": {
+    "bootstrap_draws": 2000,
+    "bootstrap_seed": 20260927,
+    "bootstrap_seed_rule": "bootstrap_seed + training seed; one index matrix per parent seed, reused bitwise by every checkpoint of that seed so within-parent comparisons are paired",
+    "confidence": 0.95,
+    "quantiles": [0.0, 0.5, 0.9, 0.95, 0.99, 0.999, 1.0],
+    "quantile_convention": "linear",
+    "drop_thresholds": {
+      "gt1": 1.0,
+      "gt5": 5.0,
+      "tenfold": 2.302585092994046,
+      "hundredfold": 4.605170185988092
+    },
+    "threshold_comparison": "strictly greater; exact equality is not counted",
+    "wilson_z": 1.959963984540054,
+    "wilson_continuity_correction": false,
+    "parent_lp_quartiles": 4,
+    "ches_deciles": 10,
+    "nearest_training_bins": ["0", "1", "2", ">=3"],
+    "spearman_ranks": "average",
+    "spearman_p_values": false,
+    "spearman_p_value_reason": "cores recur across pairs, so there is no independent-pair null and a naive p-value would overstate the evidence",
+    "seed_pooling": "per-seed results first, then an equal-weight descriptive summary over the three seeds. Bank rows are never pooled across seeds.",
+    "negative_estimates": "preserved with their uncertainty; a slightly negative finite-bank KL estimate is sampling error and is not clipped to zero"
+  },
+
+  "decision": {
+    "endpoint_gpu_seconds": 600.0,
+    "methods": ["continued_sft", "ipo_tau0p1"],
+    "seeds": [20260918, 20260919, 20260920],
+    "min_seeds": 2,
+    "of_seeds": 3,
+    "tenfold_wilson_lower_threshold": 0.01,
+    "hundredfold_wilson_lower_threshold": 0.001,
+    "intended_preservation_target": "the selected initial-SFT parent's own temperature-1 distribution over the ten editable HCDR3 residues, as represented by its persisted 10,000-draw bank",
+    "ches_is_a_positive_gate": false,
+    "missing_coverage_rule": "a missing, unverified or incomplete endpoint is missing coverage. It never becomes a no-go preservation finding and it never narrows the reported population silently.",
+    "other_arms": "every other arm and budget is reported descriptively; the main rule is evaluated only for the two intended surviving methods"
+  },
+
+  "inference": {
+    "device": "auto",
+    "score_batch_size": 256,
+    "ches_batch_size": 64,
+    "preflight_rows": 64,
+    "preflight_batch_rows": 256,
+    "preflight_batch_sizes": [16, 256],
+    "cpu_threads": 4,
+    "batch_size_note": "inference batch size is a recorded operational parameter, not a scientific arm, and only while the recorded parity holds"
+  },
+
+  "ches": {
+    "populations": ["fixed_validation_pairs", "v1_training_cycle0_prefix"],
+    "compute_ches_at": ["parent", "earliest_v1_endpoint"],
+    "compute_displacement_at": "all_v1_endpoints",
+    "extraction_path": "cached",
+    "extraction_path_justification": "the shared-prefix path is used only because the preflight recorded cached-versus-full CHES agreement within the declared tolerance on this backbone; the ches stage re-reads that recorded parity and refuses the cached path without it. Each call builds its own cache, so chosen and rejected never share a mutated one.",
+    "control_arm": "continued_sft",
+    "control_rule": "a matched control is the continued-SFT endpoint at the SAME seed and the SAME nominal budget, and its displacement is subtracted per pair on the same pair order. Where no such endpoint exists the increment is reported uncontrolled and no substitute is formed from another budget, seed or arm.",
+    "displacement": "log p_parent(chosen) - log p_checkpoint(chosen), per pair, same pair order",
+    "extraction": "the last scaffold position (prefix index 98) predicts core residue 1; core input positions 0..8 predict residues 2..10. Exactly ten final-normalized states, before the output head.",
+    "controls": ["output_head_reconstruction", "identical_inputs_are_zero", "cached_vs_full_parity", "direct_double_sum_on_tiny_tensors"],
+    "missing_controls": {
+      "v1_continued_sft_1200": "not run: the v1 continued-SFT arm has budgets 180/360/600 only",
+      "v1_continued_sft_1800": "not run: the v1 continued-SFT arm has budgets 180/360/600 only",
+      "consequence": "the 1200 s and 1800 s DPO increments are reported uncontrolled and are never called control-matched. No control is invented for them."
+    }
+  },
+
+  "reporting": {
+    "figures": true,
+    "figure_backend": "matplotlib, optional; an absent backend is recorded as a skipped figure with its reason",
+    "required_phrase": "no detected abandonment at the resolution of this audit",
+    "caveats": ["retrospective", "rare_tail_resolution", "no_biological_affinity_claim"]
+  }
+}

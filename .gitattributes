@@ -6,3 +6,39 @@ reference/figures/her2-guarded-*.svg text eol=lf
 reference/figures/her2-original-*.svg text eol=lf
 # Keep the cross-platform implementation handoff stable on Windows checkouts.
 specs/her2_support_preservation_plan.md text eol=lf
+# The support audit hashes its own committed evidence and re-verifies those digests
+# at freeze time and at every gated stage. A CRLF checkout would change the bytes and
+# the freeze would stop being reproducible, so these paths are pinned to LF. The rules
+# stay narrow on purpose: nothing outside the audit's hashed inputs is affected.
+reference/evidence/her2-support-audit-2026-09-19/** text eol=lf
+reference/her2-support-audit.md text eol=lf
+configs/experiments/her2_support_audit.json text eol=lf
+# The audit also hashes its own SOURCE bytes -- the module-level import closure it
+# executes -- and re-verifies those digests at every gated stage. core.autocrlf=true
+# is set in this environment, so without an explicit rule a Windows checkout of the
+# very same commit would hand back CRLF bytes, hash differently and break the freeze
+# while `git status` stayed clean. Listed one by one rather than globbed: only the
+# files named in her2_support.AUDIT_SOURCE_FILES are pinned, and no historical
+# evidence is renormalized.
+# Preserve legacy CRLF/mixed working bytes exactly; never normalize historical bytes.
+src/smallAntibodyGen/benchmarks/provenance.py -text whitespace=cr-at-eol
+src/smallAntibodyGen/experiments/dpo.py text eol=lf
+src/smallAntibodyGen/experiments/her2_ches.py text eol=lf
+src/smallAntibodyGen/experiments/her2_data.py text eol=lf
+src/smallAntibodyGen/experiments/her2_eval.py text eol=lf
+src/smallAntibodyGen/experiments/her2_guard.py -text whitespace=cr-at-eol
+src/smallAntibodyGen/experiments/her2_guarded_eval.py text eol=lf
+src/smallAntibodyGen/experiments/her2_guarded_trajectory.py text eol=lf
+src/smallAntibodyGen/experiments/her2_lineage.py text eol=lf
+src/smallAntibodyGen/experiments/her2_objectives.py text eol=lf
+src/smallAntibodyGen/experiments/her2_policy.py text eol=lf
+src/smallAntibodyGen/experiments/her2_preferences.py text eol=lf
+src/smallAntibodyGen/experiments/her2_runtime.py text eol=lf
+src/smallAntibodyGen/experiments/her2_support.py text eol=lf
+src/smallAntibodyGen/experiments/her2_support_inventory.py text eol=lf
+src/smallAntibodyGen/experiments/her2_support_paths.py text eol=lf
+src/smallAntibodyGen/experiments/her2_support_scoring.py text eol=lf
+scripts/audit_her2_support.py text eol=lf
+# Published audit figures are binary: never let a text/eol rule touch them.
+reference/figures/her2-support-*.png binary
+reference/figures/her2-support-*.svg text eol=lf

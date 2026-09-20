@@ -16,6 +16,11 @@
   <main>
     <div class="heading"><div><p class="eyebrow">HER2 · GUARDED CONTINUATION</p><h1>Learning, under observation.</h1><p class="subtitle">Preference ranking and parent-likelihood preservation, across three staged comparisons.</p></div><div class="status-area"><span id="campaign-status" class="badge">Loading</span><p id="phase" class="muted">Reading campaign…</p></div></div>
     <div id="notice" role="status" class="notice" hidden></div>
+    <nav class="tabs" aria-label="Views">
+      <button id="tab-campaign" class="tab" aria-pressed="true" data-view="campaign">Guarded campaign</button>
+      <button id="tab-audit" class="tab" aria-pressed="false" data-view="audit">Support audit</button>
+    </nav>
+    <div id="view-campaign">
     <section class="metrics" aria-label="Campaign overview">
       <div><span class="label">Elapsed wall time</span><strong id="elapsed">—</strong><small>Includes training, checks, evaluation &amp; I/O</small></div>
       <div><span class="label">Training GPU budget used</span><strong id="training">—</strong><small id="allocation">Recorded updates + required reference scoring</small></div>
@@ -44,6 +49,36 @@
     </section>
     <section class="logs-section"><div class="section-heading"><div><p class="eyebrow">FROM THE RUNNER</p><h2>Recent activity</h2></div><span id="log-label" class="muted"></span></div><pre id="logs" aria-label="Recent training log">Waiting for logs…</pre></section>
     <footer><span>Local, read-only view · refreshes every 5 seconds</span><span id="updated">No snapshot yet</span><a href="/api/status" target="_blank" rel="noopener">Snapshot JSON ↗</a></footer>
+    </div>
+    <div id="view-audit" hidden>
+      <div class="heading"><div><p class="eyebrow">HER2 · SUPPORT-PRESERVATION AUDIT</p><h1>What the post-training kept.</h1><p class="subtitle">Inference-only, retrospective. Forward KL from persisted parent draws, its tails, and CHES as a mechanism check.</p></div><div class="status-area"><span id="audit-status" class="badge">Loading</span><p id="audit-note" class="muted">Reading the audit run…</p></div></div>
+      <div id="audit-notice" role="status" class="notice" hidden></div>
+      <section class="metrics" aria-label="Audit overview">
+        <div><span class="label">States verified</span><strong id="audit-verified">—</strong><small id="audit-enumerated">Enumerated / declared</small></div>
+        <div><span class="label">Distinct computations scored</span><strong id="audit-scored">—</strong><small>Aliases are scored once, never recounted</small></div>
+        <div><span class="label">Parent banks verified</span><strong id="audit-banks">—</strong><small>10,000 persisted temperature-1 draws per seed</small></div>
+        <div><span class="label">CHES blocks</span><strong id="audit-ches">—</strong><small id="audit-increments">Parent + endpoint populations</small></div>
+        <div><span class="label">Specification freeze</span><strong id="audit-freeze">Not frozen</strong><small id="audit-freeze-detail">No production scoring before the commit</small></div>
+        <div><span class="label">Immutability</span><strong id="audit-immutable">—</strong><small id="audit-immutable-detail">Completed artifacts verified, never refreshed</small></div>
+      </section>
+      <section class="stages" id="audit-stages" aria-label="Audit stages"></section>
+      <section class="runs-section" aria-label="Coverage">
+        <div class="section-heading"><div><p class="eyebrow">COVERAGE</p><h2>What is missing</h2></div><span id="audit-coverage-label" class="muted"></span></div>
+        <div id="audit-coverage" class="run-meta"></div>
+        <p class="note">A shortfall of kind <code>verification</code> means the row was enumerated but its artifact did not verify. Missing coverage is never a preservation finding.</p>
+      </section>
+      <section class="runs-section" aria-label="Scored endpoints">
+        <div class="section-heading"><div><p class="eyebrow">RESULTS</p><h2>Scored computations</h2></div><span id="audit-results-label" class="muted"></span></div>
+        <div class="table-scroll"><table><thead><tr><th>Checkpoint</th><th>Arm</th><th>Seed</th><th>Budget s</th><th>Forward KL</th><th>95% CI</th><th>&gt;ln10 fraction</th><th>Wilson lower</th></tr></thead><tbody id="audit-endpoints"></tbody></table></div>
+        <p class="note">Forward KL is measured on the parent's own draws. Historical diversity numbers are measured on policy draws and are a different population.</p>
+      </section>
+      <section class="runs-section" aria-label="Decision">
+        <div class="section-heading"><div><p class="eyebrow">DECISION</p><h2 id="audit-outcome">Not decided</h2></div></div>
+        <div class="table-scroll"><table><thead><tr><th>Method</th><th>Seeds usable</th><th>Seeds crossing</th><th>Outcome</th></tr></thead><tbody id="audit-methods"></tbody></table></div>
+        <div id="audit-blocking" class="note"></div>
+      </section>
+      <footer><span>Local, read-only view · refreshes every 5 seconds</span><span id="audit-updated">No snapshot yet</span><a href="/api/audit" target="_blank" rel="noopener">Audit JSON ↗</a></footer>
+    </div>
   </main>
 </body>
 </html>

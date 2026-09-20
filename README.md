@@ -72,6 +72,54 @@ The [support-preservation audit and conditional replay plan](specs/her2_support_
 specifies the next inference-only checks, including failed checkpoints, before
 any new replay experiment. It includes the Git/Windows artifact handoff.
 
+**Running the support audit (inference only; no training, no sampling, no commits).**
+The stages run in protocol order and each one refuses to start on evidence the
+previous one did not produce. Scoring is gated on a *committed* specification:
+`prepare` writes the tracked evidence, a human reviews and commits it, and only
+then does `freeze` record the marker that `score` and `ches` require. There is no
+`--allow-dirty`.
+
+```bash
+python scripts/audit_her2_support.py --help
+python scripts/audit_her2_support.py inventory        # verify 159 states + 3 parent banks
+python scripts/audit_her2_support.py prepare          # write reference/evidence/... (no scoring)
+python scripts/audit_her2_support.py preflight        # bounded numerical probes on new code
+# review and commit the generated evidence and the config, then:
+python scripts/audit_her2_support.py freeze           # verifies the commit; writes the marker
+python scripts/audit_her2_support.py score            # signed drops, tails, strata, pairing
+python scripts/audit_her2_support.py ches             # parent CHES, displacement, increments
+python scripts/audit_her2_support.py decide
+python scripts/audit_her2_support.py report --publish # report + small tables + figures
+python scripts/audit_her2_support.py --verify-only    # re-check completed artifacts only
+```
+
+A completed stage is **verified and reused**, not recomputed: `score` and `ches`
+check their summaries and every shard against the run's completion manifest, add a
+bounded parent-cache parity probe, and return. An *interrupted* stage reuses the
+per-state shards that finished and computes only the rest. Completed artifacts —
+shards, report, figures and the completion marker — are immutable; a rerun that
+would change one fails instead of overwriting it, and `--recompute` does not
+relax that. Every shard's record *and* its `.npz` are registered in the manifest,
+so an output that is deleted after the fact is still reported rather than
+disappearing from a directory scan.
+
+Outputs go to the new run root `outputs/her2_support_audit_20260919_r2/` (ignored);
+the tracked, portable half is `reference/evidence/her2-support-audit-2026-09-19/`
+and the published narrative is `reference/her2-support-audit.md`. `--publish` also
+copies the small decision/coverage/verification/checkpoint/CHES tables to
+`reference/evidence/her2-support-audit-2026-09-19/published/` and the figures to
+`reference/figures/her2-support-*.png`, with links relative to the published
+report so they resolve in the repository. It writes local tracked files only: this
+CLI performs no network or Git action, and committing them stays a human decision. Machine-local
+roots — the guarded campaign directory is a junction on the recording box — live
+in the ignored `local_roots.json` inside the run root, or can be passed with
+`--guarded-root`, `--original-root` and `--raw-root`; no scientific field ever
+carries a host path. The live dashboard gains a read-only audit panel:
+
+```bash
+python scripts/her2_live_dashboard.py --audit outputs/her2_support_audit_20260919_r2 --port 8766
+```
+
 **Sources**, hash-pinned and tracked: the affinity library and SPR workbook
 ([`specs/benchmarks/buzz_her2_affinity.json`](specs/benchmarks/buzz_her2_affinity.json),
 oxpig/`Tz_her2_affinity_and_beyond`, BSD-3-Clause), the AbSci de novo HER2

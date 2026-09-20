@@ -143,12 +143,86 @@ async function refresh() {
   } finally {busy=false;}
 }
 
+// ---------------------------------------------------------------------------
+// Support-audit view. Additive: it shares the page and touches none of the
+// campaign state above. Everything it renders comes from /api/audit, and a value
+// the audit did not record is shown as "—" rather than filled in.
+// ---------------------------------------------------------------------------
+let auditView = false, auditBusy = false;
+const pct = n => finite(n) ? `${fmt(n*100,2)}%` : "—";
+
+function renderAudit(a) {
+  const status = !a.present ? "No audit run directory yet"
+    : a.complete ? "Audit complete"
+    : a.active_stage ? `Running · ${a.active_stage}`
+    : "Not complete";
+  $("audit-status").outerHTML=`<span id="audit-status" class="badge ${a.complete?'completed':a.active_stage?'running':'queued'}">${esc(status)}</span>`;
+  $("audit-note").textContent=a.present?(a.checkpoint?`Current: ${a.checkpoint}`:(a.protocol||"")):"Run the inventory stage to create it.";
+  const counts=a.counts||{}, coverage=a.coverage||{};
+  $("audit-verified").textContent=fmt(counts.states_verified);
+  $("audit-enumerated").textContent=`${fmt(counts.states_enumerated)} enumerated · ${fmt(counts.states_expected)} declared`;
+  $("audit-scored").textContent=`${fmt(counts.scored)} / ${fmt(counts.distinct_computations)}`;
+  $("audit-banks").textContent=fmt(counts.parent_banks);
+  $("audit-ches").textContent=`${fmt(counts.ches_parent_blocks)} + ${fmt(counts.ches_endpoint_blocks)}`;
+  $("audit-increments").textContent=`${fmt(counts.increments)} early-to-later increments · ${fmt(a.results?.ches_increment_gaps)} reported gaps`;
+  $("audit-freeze").textContent=a.frozen?`${String(a.frozen.commit||"").slice(0,10)}`:"Not frozen";
+  $("audit-freeze-detail").textContent=a.frozen?`${fmt(a.frozen.sources)} sources · ${fmt(a.frozen.inputs)} inputs · ${fmt(a.frozen.evidence)} evidence files`:"score and ches refuse to run without the marker";
+  const immutable=a.verification?.immutable;
+  $("audit-immutable").textContent=immutable===true?"Verified":immutable===false?"Problems":"—";
+  $("audit-immutable-detail").textContent=`${fmt(a.verification?.shards_checked)} shards checked${(a.verification?.problems||[]).length?` · ${a.verification.problems.length} problem(s)`:""}`;
+  $("audit-stages").innerHTML=(a.stages||[]).map(s=>{
+    const progress=finite(s.fraction)?`${fmt(s.fraction*100,0)}%`:(finite(s.completed)?`${fmt(s.completed)} done`:"—");
+    const total=finite(s.total)?` / ${fmt(s.total)}`:" · total not knowable in advance";
+    return `<div class="stage ${s.status==='running'?'active':''} ${s.status==='completed'?'done':''}"><b>${esc(s.stage)} ${badge(s.status==='not_started'?'queued':s.status)}</b><small>${esc(progress)}${esc(total)}${s.error?` · ${esc(s.error)}`:""}${s.stale?" · heartbeat stale":""}</small></div>`;}).join("");
+  const shortfalls=(coverage.shortfalls||[]);
+  $("audit-coverage-label").textContent=coverage.complete===true?"complete":coverage.complete===false?"gaps reported":"not evaluated";
+  $("audit-coverage").innerHTML=shortfalls.length
+    ? shortfalls.map(s=>`<span>${esc(s.role)} · ${esc(s.kind||"enumeration")} <b>${fmt(s.observed)} / ${fmt(s.expected)}</b></span>`).join("")
+    : (coverage.complete?`<span>Every declared population was located <b>and verified</b></span>`:`<span class="muted">Coverage has not been evaluated yet</span>`);
+  const rows=(a.results?.endpoints)||[];
+  $("audit-results-label").textContent=`${fmt(rows.length)} scored`;
+  $("audit-endpoints").innerHTML=rows.length?rows.map(r=>`<tr><td>${esc(r.id)}<small>${esc(r.role||"")}</small></td><td>${esc(r.arm_id||"—")}</td><td>${esc(r.seed??"—")}</td><td>${finite(r.budget_gpu_seconds)?fmt(r.budget_gpu_seconds):"—"}</td><td>${fmt(r.forward_kl,4)}</td><td>${finite(r.ci_low)?`[${fmt(r.ci_low,4)}, ${fmt(r.ci_high,4)}]`:"—"}</td><td>${pct(r.tenfold_fraction)}</td><td>${pct(r.tenfold_wilson_lower)}</td></tr>`).join(""):'<tr><td colspan="8" class="muted">No scored computations yet. Scoring refuses to run before the freeze.</td></tr>';
+  const decision=a.decision;
+  $("audit-outcome").textContent=decision?decision.outcome.replaceAll("_"," "):"Not decided";
+  $("audit-methods").innerHTML=decision?Object.entries(decision.methods||{}).map(([name,m])=>`<tr><td>${esc(name)}</td><td>${fmt(m.seeds_usable)} / ${fmt(m.seeds_declared)}</td><td>${fmt(m.seeds_crossing)}</td><td>${esc(m.outcome)}</td></tr>`).join(""):'<tr><td colspan="4" class="muted">The decision is a function of the scored artifacts.</td></tr>';
+  const blocking=[...(decision?.blocking||[]),...(a.unmet_requirements||[]).map(r=>`unmet requirement: ${r}`)];
+  $("audit-blocking").textContent=blocking.length?`This audit cannot support a preservation finding yet — ${blocking.join("; ")}.`:(a.complete?"Every declared requirement was satisfied and verified.":"");
+  const problems=[...(a.errors||[]),...(a.verification?.problems||[]).map(p=>p.problem||JSON.stringify(p))];
+  $("audit-notice").hidden=!problems.length;$("audit-notice").textContent=problems.join("\n");
+  $("audit-updated").textContent=`Snapshot ${new Date(a.generated_at).toLocaleTimeString()}`;
+}
+
+async function refreshAudit() {
+  if(auditBusy)return;auditBusy=true;
+  try {
+    const response=await fetch('/api/audit',{cache:"no-store",signal:AbortSignal.timeout(15000)});
+    if(response.status===404){renderAudit({present:false,stages:[],generated_at:new Date().toISOString()});return;}
+    if(!response.ok)throw Error(`Audit request failed (${response.status})`);
+    renderAudit(await response.json());
+  } catch(err) {
+    $("audit-notice").hidden=false;$("audit-notice").textContent=`Audit refresh failed. Displayed values may be out of date. ${err.message}`;
+  } finally {auditBusy=false;}
+}
+
+function showView(view) {
+  auditView = view === "audit";
+  $("view-campaign").hidden = auditView;
+  $("view-audit").hidden = !auditView;
+  $("tab-campaign").setAttribute("aria-pressed", String(!auditView));
+  $("tab-audit").setAttribute("aria-pressed", String(auditView));
+  if(auditView)refreshAudit();
+}
+
 function selectRun(id){following=false;selected=id;details=null;populateSelect();renderSelected();renderTable();for(const el of ['likelihood-chart','training-chart'])$(el).innerHTML='<div class="empty-chart">Loading trajectory…</div>';fetchDetail().catch(err=>{$('notice').hidden=false;$('notice').textContent=err.message;});}
-$("refresh").addEventListener('click',refresh);
+// The header button refreshes whatever is on screen. Wiring it to the campaign
+// unconditionally meant pressing Refresh on the audit tab reloaded the hidden view.
+$("refresh").addEventListener('click',()=>{auditView?refreshAudit():refresh();});
 $("run-select").addEventListener('change',e=>selectRun(e.target.value));
 $("follow").addEventListener('click',()=>{following=!following;populateSelect();renderSelected();renderTable();fetchDetail().catch(()=>{});});
 $("metric").addEventListener('change',renderPlots);
 $("stage-filter").addEventListener('change',()=>snapshot&&renderTable());
 $("show-queued").addEventListener('change',()=>snapshot&&renderTable());
 $("runs").addEventListener('click',e=>{const button=e.target.closest('[data-run]');if(button)selectRun(button.dataset.run);});
+for(const tab of document.querySelectorAll('[data-view]'))tab.addEventListener('click',()=>showView(tab.dataset.view));
 refresh();setInterval(refresh,5000);
+setInterval(()=>{if(auditView)refreshAudit();},5000);
