@@ -1,0 +1,28 @@
+{
+  "kind": "source_supersessions",
+  "schema_version": "1",
+  "note": "Reviewed source migrations for campaigns that were already frozen. Each record authorizes exactly ONE transition of ONE file between TWO digests. It is not a licence for the file to keep changing: the next edit needs its own record. Stages that accept a file this way report it as a supersession rather than as a match.",
+  "supersessions": [
+    {
+      "file": "scripts/posttrain_her2_replay.py",
+      "superseded_sha256": "363d015890331b2c04a0fbca070cfe25d06de8d3ca0135e3e6fe5a61426d51e3",
+      "current_sha256": "ce170f44a751e8e999418349ac8411992925224837cef0ee5503073fa194515e",
+      "commit": "1ee644f4677c48471a266bc6de4e513d091317b8",
+      "reason": "The repository was narrowed to code alone, so reference/ stopped being tracked. Both campaign freezes required every evidence file to be tracked and equal to HEAD, which no longer had a legal solution, so evidence authentication moved to committed digest manifests and these files changed after the campaigns were already frozen. The artifacts they attest to are unmodified; only the code that produced them moved."
+    },
+    {
+      "file": "src/smallAntibodyGen/experiments/her2_replay_spec.py",
+      "superseded_sha256": "af2199078319088a1c67698daf856bd80cb4a7cbd45ed9578c92407f1049e173",
+      "current_sha256": "ecbf2ebd38c470ebcd21a22b071a75d23c334460239ee8835d5e5a808ce941fb",
+      "commit": "1ee644f4677c48471a266bc6de4e513d091317b8",
+      "reason": "The repository was narrowed to code alone, so reference/ stopped being tracked. Both campaign freezes required every evidence file to be tracked and equal to HEAD, which no longer had a legal solution, so evidence authentication moved to committed digest manifests and these files changed after the campaigns were already frozen. The artifacts they attest to are unmodified; only the code that produced them moved."
+    },
+    {
+      "file": "src/smallAntibodyGen/experiments/her2_support.py",
+      "superseded_sha256": "b8e54f971771e30b77925b0a04ac408f44012b611fee370feff6194bec6edd41",
+      "current_sha256": "5482b8a3523deeb29c8518c9cea77d93a4b0672b8db5331fc9401194cbb00881",
+      "commit": "1ee644f4677c48471a266bc6de4e513d091317b8",
+      "reason": "The repository was narrowed to code alone, so reference/ stopped being tracked. Both campaign freezes required every evidence file to be tracked and equal to HEAD, which no longer had a legal solution, so evidence authentication moved to committed digest manifests and these files changed after the campaigns were already frozen. The artifacts they attest to are unmodified; only the code that produced them moved."
+    }
+  ]
+}
