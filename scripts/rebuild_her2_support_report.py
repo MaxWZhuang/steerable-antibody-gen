@@ -239,6 +239,7 @@ def rebuild(context, *, check_only=False):
     """Verify the completed report and prove both Markdown variants still reproduce."""
     started = time.perf_counter()
     marker = support.require_frozen_identity(context)
+    superseded_sources = marker.get("superseded_sources") or []
     documents, completion = completed_documents(context)
     inventory = documents["inventory"]
     support.require_committed_inventory(context, inventory)
@@ -337,10 +338,24 @@ def rebuild(context, *, check_only=False):
         "timings_source": ("the originally recorded per-stage timing blocks in the run "
                            "directory; the report embeds them and they are not refreshed"),
         "legacy_defect": dict(LEGACY_DEFECT),
-        "claim": ("the completed report reproduces byte for byte from the frozen sources, the "
-                  "committed inventory, the completion-manifest-bound summaries and the reused "
-                  "figure bytes. This is a compatibility verification of a finished measurement; "
-                  "it is not a new audit, a new score or a new scientific claim."),
+        # A source the freeze pinned may have been migrated afterwards under a
+        # reviewed supersession. The byte-for-byte reproduction is still real,
+        # but "from the frozen sources" would be the wrong words for it, and a
+        # reader of this record cannot see the difference unless it is stated.
+        "superseded_sources": superseded_sources,
+        "claim": (("the completed report reproduces byte for byte from the frozen sources, the "
+                   "committed inventory, the completion-manifest-bound summaries and the reused "
+                   "figure bytes. This is a compatibility verification of a finished measurement; "
+                   "it is not a new audit, a new score or a new scientific claim.")
+                  if not superseded_sources else
+                  ("the completed report reproduces byte for byte from the committed inventory, "
+                   "the completion-manifest-bound summaries and the reused figure bytes. "
+                   f"{len(superseded_sources)} source file(s) pinned by the freeze have since "
+                   "been migrated under a recorded supersession and are listed in "
+                   "superseded_sources, so this is NOT a reproduction from the frozen source "
+                   "bytes: it is a reproduction from their reviewed successors. This is a "
+                   "compatibility verification of a finished measurement; it is not a new audit, "
+                   "a new score or a new scientific claim.")),
         # ``recorded_at`` and ``wall_seconds`` are operational keys that
         # ``scientific_projection`` strips, so a second verification run compares
         # equal and rewrites nothing.

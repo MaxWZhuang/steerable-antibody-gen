@@ -423,12 +423,43 @@ EVIDENCE_MANIFEST_DIR = "configs/evidence_manifests"
 SOURCE_SUPERSESSIONS = "configs/source_supersessions.json"
 
 
+def git_commit_exists(repository_root, commit):
+    code, _, _ = git(repository_root, "cat-file", "-e", f"{commit}^{{commit}}")
+    return code == 0
+
+
 def load_source_supersessions(repository_root):
-    """``{(logical, superseded_sha256): record}`` for deliberately migrated sources."""
+    """``{(logical, superseded_sha256): record}`` for deliberately migrated sources.
+
+    The record file is itself authenticated before any of it is believed. An
+    untracked or locally-modified record would let an uncommitted source edit
+    authorize itself -- add the new digest, and both identity verifiers accept
+    the change with no commit and no review, which is precisely the bypass the
+    freeze exists to prevent. Absent is fine and means "nothing is superseded";
+    present-but-unauthenticated is refused rather than ignored, because silently
+    dropping it would fail later with a message about the wrong thing.
+    """
     path = Path(repository_root) / SOURCE_SUPERSESSIONS
     if not path.is_file():
         return {}
+    require(git_tracked(repository_root, SOURCE_SUPERSESSIONS),
+            f"{SOURCE_SUPERSESSIONS} is present but not tracked at HEAD. A supersession is an "
+            "authorization somebody reviewed, and an untracked one reviews itself. Commit it or "
+            "remove it.")
+    drifted = worktree_matches_head(repository_root, [SOURCE_SUPERSESSIONS])
+    require(not drifted,
+            f"{SOURCE_SUPERSESSIONS} differs from its committed bytes: "
+            + canonical_json(drifted).strip()
+            + " The reviewed version is the committed one.")
     records = paths.read_json(path).get("supersessions") or []
+    for record in records:
+        commit = record.get("commit")
+        require(commit and git_commit_exists(repository_root, commit),
+                f"The supersession for {record.get('file')} names commit {commit!r}, which is not "
+                "a commit in this repository. A migration has to point at the change that made "
+                "it, or it documents nothing.")
+        require(record.get("reason"),
+                f"The supersession for {record.get('file')} carries no reason.")
     return {(record["file"], record["superseded_sha256"]): record for record in records}
 
 
@@ -569,6 +600,15 @@ def require_frozen_identity(context):
             "The frozen identity no longer holds: " + canonical_json(differing).strip()
             + " Scoring under changed sources, config or inputs would attribute new numbers to "
               "the frozen specification.")
+    # Most callers discard the returned marker, so a disclosure that lives only
+    # there is invisible exactly where it matters: a scoring or reporting stage
+    # that ran against superseded sources would look identical to one that did
+    # not. Say it on the way past, whatever the caller does with the marker.
+    for record in superseded:
+        print(f"NOTE: frozen identity accepted {record['file']} via a recorded supersession "
+              f"({record['superseded_sha256'][:12]} -> {record['current_sha256'][:12]}, "
+              f"commit {str(record['commit'])[:12]}); its bytes are NOT the frozen ones.",
+              flush=True)
     marker["superseded_sources"] = superseded
     return marker
 
