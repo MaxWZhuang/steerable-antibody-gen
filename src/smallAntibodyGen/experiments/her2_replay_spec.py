@@ -692,9 +692,14 @@ def run_freeze(context, *, allow_missing_preflight=False):
     require(evidence_files,
             f"{evidence_root} holds no evidence; run the prepare stage and commit its output "
             "before freezing")
+    # Evidence is local-only research material and is authenticated against
+    # committed digests rather than by being tracked; the sources and the config
+    # are code and stay tracked. Requiring evidence at HEAD would mean publishing
+    # it to be able to freeze it.
+    evidence_manifest = support.require_evidence_matches_manifest(
+        context.repository_root, evidence_files, context.config["campaign_id"])
     tracked = sorted(set(closure["files"])
-                     | {context.relative(context.config_path)}
-                     | set(evidence_files))
+                     | {context.relative(context.config_path)})
     untracked = [logical for logical in tracked
                  if not support.git_tracked(context.repository_root, logical)]
     require(not untracked,
@@ -762,6 +767,7 @@ def run_freeze(context, *, allow_missing_preflight=False):
         "config": {"path": context.relative(context.config_path),
                    "sha256": context.config_sha256, "digest": context.config_digest,
                    "resolved": context.config},
+        "evidence_manifest": evidence_manifest,
         "evidence_sha256": {logical: paths.sha256_file(context.repository_root / logical)
                             for logical in evidence_files},
         "inputs": dict(sorted(inputs.items())), "input_sha256": input_hashes,

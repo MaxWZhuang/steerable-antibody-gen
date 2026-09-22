@@ -1,0 +1,8 @@
+{
+  "kind": "j11_selected_width_pin",
+  "schema_version": "1",
+  "note": "The J11 width comparison lives in specs/evidence/, which is local-only research material and absent from a clean checkout. This pin carries the one value the chain test needs, plus the digest of the report it came from, so CI can check the configs deterministically while a machine that HAS the report still fails if the report ever disagrees with this pin.",
+  "source": "specs/evidence/j11-comparison.json",
+  "source_sha256": "98f2442e43edd52350a6c771c83b341b362c478a279dea1601b2c2e29610dc2d",
+  "selected_width": 680
+}

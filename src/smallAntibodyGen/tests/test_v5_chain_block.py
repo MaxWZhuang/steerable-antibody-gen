@@ -101,17 +101,36 @@ def test_the_width_matches_the_one_j11_selected(project_root: Path):
     Pinned against the evidence rather than against a remembered number. If the
     promotion report ever says something else, this fails instead of the chain
     quietly training a width nothing chose.
+
+    The J11 report itself is local-only research material, so a clean checkout
+    does not have it and this test used to die with FileNotFoundError -- which
+    also broke CI, because the ignored local copy masked it here. The tracked pin
+    carries the selected width and the report's digest. CI checks the configs
+    against the pin; a machine that still HAS the report additionally checks the
+    report against the pin, so real drift is caught where it can be seen.
     """
+    import hashlib
     import json
 
-    report = json.loads(
-        (project_root.parents[1] / "specs/evidence/j11-comparison.json").read_text(
+    pin = json.loads(
+        (Path(__file__).parent / "data" / "j11-selected-width.json").read_text(
             encoding="utf-8"
         )
     )
-    assert report["selected_width"] == PROMOTED_BLOCK["swiglu_hidden_dim"]
+    selected_width = pin["selected_width"]
+    assert selected_width == PROMOTED_BLOCK["swiglu_hidden_dim"]
     for name in CHAIN:
-        assert _config(project_root, name)["swiglu_hidden_dim"] == report["selected_width"]
+        assert _config(project_root, name)["swiglu_hidden_dim"] == selected_width
+
+    report_path = project_root.parents[1] / pin["source"]
+    if not report_path.is_file():
+        return
+    raw = report_path.read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == pin["source_sha256"], (
+        f"{pin['source']} changed since the pin was taken; re-take the pin "
+        "deliberately rather than letting the chain drift from the evidence"
+    )
+    assert json.loads(raw.decode("utf-8"))["selected_width"] == selected_width
 
 
 @pytest.mark.parametrize("name", CHAIN + (ABLATION,))

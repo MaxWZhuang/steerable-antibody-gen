@@ -314,7 +314,10 @@ def audit(root, sources_path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT)
-    parser.add_argument("--sources", type=Path, default=ROOT / "reference/evidence/cr9114-5cjq-mapping-sources-2026-09-16.json")
+    # Same manifest as prepare_cr9114_5cjq_context.py, and for the same reason it
+    # lives under configs/: it is runtime configuration a clean checkout needs.
+    parser.add_argument("--sources", type=Path,
+                        default=ROOT / "configs/cr9114_5cjq_sources.json")
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     report = audit(args.root, args.sources)

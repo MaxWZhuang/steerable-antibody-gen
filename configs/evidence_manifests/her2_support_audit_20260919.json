@@ -1,0 +1,30 @@
+{
+  "kind": "campaign_evidence_manifest",
+  "schema_version": "1",
+  "campaign_id": "her2_support_audit_20260919",
+  "evidence_root": "reference/evidence/her2-support-audit-2026-09-19",
+  "note": "Digests of local-only campaign evidence. The bytes are research material and are not committed; these hashes are, so a freeze can authenticate the evidence without publishing it. Re-pin deliberately.",
+  "file_count": 20,
+  "sha256": {
+    "reference/evidence/her2-support-audit-2026-09-19/build_validation.json": "ba235187568770b908813882093074855a773d1e3e87b1a641ce6461492dbd25",
+    "reference/evidence/her2-support-audit-2026-09-19/input_manifest.json": "df1311ce22d77caa7243401ead166f1b282d054b9d01ffaa89bc318c546b4070",
+    "reference/evidence/her2-support-audit-2026-09-19/inventory.json": "fef6370096111f93a6190e633ca8c422736329017f6c7f3714443cbb8df364a2",
+    "reference/evidence/her2-support-audit-2026-09-19/pairs/fixed_validation_pairs.csv": "f6032b31cd5eb12bbf9bb4618a4582c072621433b4dff12c14f6ae2eaf5e3d56",
+    "reference/evidence/her2-support-audit-2026-09-19/pairs/v1_training_cycle0_seed20260918.csv": "6f0544854e899e3e2f0e8b04045390ba5d6aeabaa8659fac2cb486dc6a430732",
+    "reference/evidence/her2-support-audit-2026-09-19/pairs/v1_training_cycle0_seed20260919.csv": "b7cedc87703c7139333c4117505e5b9aaed8b74b1ab1e2de90574c5780dc8a71",
+    "reference/evidence/her2-support-audit-2026-09-19/pairs/v1_training_cycle0_seed20260920.csv": "71d446d250b0406b45d8d370617f7a05f5ba8b9a078399d4adc8eb9c568b2ea1",
+    "reference/evidence/her2-support-audit-2026-09-19/published/checkpoints.json": "a4b3ebc876e331fd686552b5ca560aed42dddd9f9a3121b79631923c96817b93",
+    "reference/evidence/her2-support-audit-2026-09-19/published/ches.json": "af04092ea8b95e0ede1db7d1490564491a4d9cfb0bc9f698c32a0dc3c6c1ad1f",
+    "reference/evidence/her2-support-audit-2026-09-19/published/coverage.json": "218ec2176e213e9140eff7c735c0dd4f8be96813ccf6889a32e9df3cd9b759a5",
+    "reference/evidence/her2-support-audit-2026-09-19/published/decision.json": "fb3f84cea12a666079eb7ba730cbb3e242fa78c79030dfa08b7fff339d90a684",
+    "reference/evidence/her2-support-audit-2026-09-19/published/manifest.json": "1139b4c25d784879e03dc41dbc67ea2e17b9b88afa504fe3386c19abf1876f68",
+    "reference/evidence/her2-support-audit-2026-09-19/published/verification.json": "96d88ddaf07e1c06c9566142ffab5b6997b895973b85fc0435a6e2bed7decd43",
+    "reference/evidence/her2-support-audit-2026-09-19/review/ches_companion.json": "895649ec1941fa7076a0a499febede8fb180c411111cce023a2ae475ad02f1cc",
+    "reference/evidence/her2-support-audit-2026-09-19/review/production-rerun-check.json": "c3e2b3710b4548a4a8978ab4c5fee1c344127b12b4b265b74de8fd104ee402a1",
+    "reference/evidence/her2-support-audit-2026-09-19/review/production-vector-crosscheck.json": "fe8e3c86711b1d54c6377d6c00eed814863879cf27737933dde42db1aaace8e5",
+    "reference/evidence/her2-support-audit-2026-09-19/review/publication-integrity.json": "4240ccde43f0728016f1d05c432865038a6a59ffc0e5633d476997ab32e1c5f5",
+    "reference/evidence/her2-support-audit-2026-09-19/review/render_ches_companion.py": "e9bf694f581e2fc49663b0798d390f3a00df8e47c39362134e9773e4d22ec1cc",
+    "reference/evidence/her2-support-audit-2026-09-19/review/report-compatibility-acceptance.json": "3185d8e4e07b4e5332a1eafcc3c21286111a8a605b70540cac0f04e6fb4a68b2",
+    "reference/evidence/her2-support-audit-2026-09-19/review/report-compatibility.json": "c676defdefe563c6cee60c41aeefc0cdf58e17a339d608831a0e69de6ea4666d"
+  }
+}

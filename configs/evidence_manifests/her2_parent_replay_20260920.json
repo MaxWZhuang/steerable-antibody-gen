@@ -1,0 +1,17 @@
+{
+  "kind": "campaign_evidence_manifest",
+  "schema_version": "1",
+  "campaign_id": "her2_parent_replay_20260920",
+  "evidence_root": "reference/evidence/her2-parent-replay-2026-09-20",
+  "note": "Digests of local-only campaign evidence. The bytes are research material and are not committed; these hashes are, so a freeze can authenticate the evidence without publishing it. Re-pin deliberately.",
+  "file_count": 7,
+  "sha256": {
+    "reference/evidence/her2-parent-replay-2026-09-20/input_manifest.json": "3c787841fec9cda0e805ae311624cdffaa66fb8b9b01ea4a0eac1ad2411d6e22",
+    "reference/evidence/her2-parent-replay-2026-09-20/numerical-amendment.md": "dd7f4f3c69c4d61ad8194a0c56eb716a0e9a0d6f29037001f7b2a7b75977edd0",
+    "reference/evidence/her2-parent-replay-2026-09-20/preflight.json": "fe53d70c470058b33deefc4750041c5cb42da08ac475a21b09797f99d65bda2e",
+    "reference/evidence/her2-parent-replay-2026-09-20/published/manifest.json": "ba39edbf3a8b0803e17864a79d6fb196c17f3222ddcc78a7b3d60107ac3bd556",
+    "reference/evidence/her2-parent-replay-2026-09-20/published/tables.json": "ca88aab39f7033a7af05db599f3d615ae44cc190978af0596f1358015081f2d0",
+    "reference/evidence/her2-parent-replay-2026-09-20/review.json": "1cb5fcdf8c61db7af8cedf51f4a845c1c2da38295a4bd641fb6243fc139180df",
+    "reference/evidence/her2-parent-replay-2026-09-20/streams.json": "3569a24cf67373944e5d661185914b77425c3d22929b16ac5d29ee9c6c56f23a"
+  }
+}

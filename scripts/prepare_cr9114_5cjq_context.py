@@ -25,6 +25,13 @@ from audit_cr9114_5cjq_mapping import (  # noqa: E402
 
 VL_SHA256 = "05f7a22f34aba4f465a9b5cf67f8373c7c49b32ae80e0b32f6c2a4ad25e5b085"
 
+#: Runtime configuration, not a report. The manifest pins every source file by
+#: URL, size and SHA-256, and preparation cannot run without it, so it lives
+#: under configs/ where a fresh clone has it. It used to be read from
+#: reference/evidence/, which is local-only research material -- a clean
+#: checkout could not prepare the context at all.
+DEFAULT_SOURCES = "configs/cr9114_5cjq_sources.json"
+
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -89,7 +96,7 @@ def check_light_chain(reference, supplements, structure_sequence):
             "interpretation": "Partner VL geometry is a template; it is not an exact assay light-chain match."}
 
 
-def prepare(root, output_dir):
+def prepare(root, output_dir, sources_path=None):
     import numpy as np
     from biotite.sequence import ProteinSequence
     from biotite.structure.io import pdbx
@@ -99,7 +106,7 @@ def prepare(root, output_dir):
     from smallAntibodyGen.structure.policy_adapter import build_edit_space
 
     require(not output_dir.exists(), "Output directory already exists; choose a new one")
-    sources_path = root / "reference/evidence/cr9114-5cjq-mapping-sources-2026-09-16.json"
+    sources_path = Path(sources_path) if sources_path else root / DEFAULT_SOURCES
     sources, contents = read_pinned_sources(root, sources_path)
     mapping = audit(root, sources_path)
     cif = pdbx.CIFFile.read(io.StringIO(contents["structure"].decode()))
@@ -236,8 +243,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--sources", type=Path, default=None,
+                        help=f"pinned-source manifest (default: {DEFAULT_SOURCES})")
     args = parser.parse_args()
-    prepare(args.root, args.output_dir)
+    prepare(args.root, args.output_dir, args.sources)
 
 
 if __name__ == "__main__":

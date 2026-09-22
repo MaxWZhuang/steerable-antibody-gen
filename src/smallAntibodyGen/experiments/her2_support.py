@@ -401,6 +401,56 @@ def git_tracked(repository_root, logical):
     return code == 0
 
 
+#: Campaign evidence is local-only research material, so it cannot be
+#: authenticated by asking "is this tracked, and equal to HEAD?" -- that question
+#: requires publishing it. A committed manifest of digests gives the same
+#: tamper-detection without the bytes: the repository carries the hashes, the
+#: machine carries the evidence. A freeze that silently accepted whatever
+#: evidence happened to be on disk would certify nothing.
+EVIDENCE_MANIFEST_DIR = "configs/evidence_manifests"
+
+
+def evidence_manifest_path(repository_root, campaign_id):
+    return Path(repository_root) / EVIDENCE_MANIFEST_DIR / f"{campaign_id}.json"
+
+
+def evidence_digests(repository_root, evidence_files):
+    """``{logical_path: sha256}`` over the evidence as it exists on disk."""
+    return {logical: paths.sha256_file(Path(repository_root) / logical)
+            for logical in sorted(evidence_files)}
+
+
+def require_evidence_matches_manifest(repository_root, evidence_files, campaign_id):
+    """Verify local evidence against its committed digests, or refuse the freeze."""
+    manifest_path = evidence_manifest_path(repository_root, campaign_id)
+    logical_manifest = _relative(manifest_path, repository_root)
+    require(manifest_path.is_file(),
+            f"{logical_manifest} is absent. Campaign evidence is local-only, so the freeze "
+            "authenticates it against committed digests rather than against HEAD. Write the "
+            f"manifest with:  python scripts/pin_evidence_manifest.py --config <config> ")
+    require(git_tracked(repository_root, logical_manifest),
+            f"{logical_manifest} is not tracked at HEAD. An untracked manifest is not evidence "
+            "about anything -- anyone could rewrite it beside the files it certifies.")
+    manifest = paths.read_json(manifest_path)
+    recorded = manifest.get("sha256") or {}
+    observed = evidence_digests(repository_root, evidence_files)
+    missing = sorted(set(recorded) - set(observed))
+    extra = sorted(set(observed) - set(recorded))
+    require(not missing and not extra,
+            f"The evidence on disk does not match {logical_manifest}. Absent here: {missing}. "
+            f"Not in the manifest: {extra}. Re-pin the manifest deliberately; a freeze over a "
+            "changed evidence set would attribute the run to a specification nobody reviewed.")
+    differing = [{"file": logical, "manifest": recorded[logical], "observed": observed[logical]}
+                 for logical in sorted(recorded) if recorded[logical] != observed[logical]]
+    require(not differing,
+            "These evidence files differ from their committed digests: "
+            + canonical_json(differing).strip())
+    return {"path": logical_manifest, "sha256": paths.sha256_file(manifest_path),
+            "file_count": len(recorded),
+            "authenticated_by": ("committed digests, not tracked bytes: the evidence is "
+                                 "local-only research material and is deliberately not published")}
+
+
 def environment_record():
     record = {"python": sys.version.split()[0], "platform": platform.platform(),
               "executable": Path(sys.executable).name}
@@ -1289,11 +1339,16 @@ def run_freeze(context):
     require(evidence_files,
             f"{evidence_root} holds no evidence; run the inventory/prepare stages and commit their "
             "output before freezing")
-    untracked = [logical for logical in tracked + evidence_files
+    # Evidence is authenticated against committed digests instead of being
+    # required to be tracked; see require_evidence_matches_manifest. Sources and
+    # the config are code and stay tracked.
+    evidence_manifest = require_evidence_matches_manifest(
+        context.repository_root, evidence_files, context.config["audit_id"])
+    untracked = [logical for logical in tracked
                  if not git_tracked(context.repository_root, logical)]
     require(not untracked,
             f"These files are not tracked at HEAD and cannot be frozen: {untracked}")
-    crlf = [logical for logical in tracked + evidence_files
+    crlf = [logical for logical in tracked
             if logical not in LEGACY_RAW_SOURCE_FILES
             if b"\r\n" in (context.repository_root / logical).read_bytes()]
     require(not crlf,
@@ -1305,7 +1360,7 @@ def run_freeze(context):
     # the only check that means anything is a comparison of those bytes to the bytes
     # the commit actually holds. With core.autocrlf=true and no eol attribute, a
     # fresh checkout of these same commits would hash differently and this stops it.
-    drifted = worktree_matches_head(context.repository_root, tracked + evidence_files)
+    drifted = worktree_matches_head(context.repository_root, tracked)
     require(not drifted,
             "These frozen files differ from their committed bytes at HEAD: "
             + canonical_json(drifted).strip()
@@ -1359,6 +1414,7 @@ def run_freeze(context):
                                                              AUDIT_SOURCE_FILES),
         "config": {"path": _relative(context.config_path, context.repository_root),
                    "sha256": context.config_sha256, "digest": context.config_digest},
+        "evidence_manifest": evidence_manifest,
         "evidence_sha256": {logical: paths.sha256_file(context.repository_root / logical)
                             for logical in evidence_files},
         "inputs": dict(sorted(inputs.items())), "input_sha256": input_hashes,
