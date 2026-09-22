@@ -72,3 +72,7 @@ src/smallAntibodyGen/benchmarks/__init__.py -text whitespace=cr-at-eol
 src/smallAntibodyGen/experiments/__init__.py -text whitespace=cr-at-eol
 # Published replay figures are binary: never let a text/eol rule touch them.
 reference/figures/her2-parent-replay-*.png binary
+# The supersession record is compared to its own committed bytes before any of
+# it is believed, so a CRLF checkout would make a fresh clone reject it while
+# `git status` stayed clean. Same reason as the audit and replay rules above.
+configs/source_supersessions.json text eol=lf
