@@ -165,10 +165,15 @@ def conditions(snapshot, *, seen_running):
                 f"This is not a gate stop and does not advance a stage.")
         elif state == "stopped":
             gate = run.get("gate") or {}
+            # Hoisted out of the f-string: a nested f-string reusing the same
+            # quote character only parses on 3.12+ (PEP 701), and this repo runs
+            # 3.11, where it is a SyntaxError that aborts pytest collection for
+            # the whole suite rather than just this module.
+            gate_d = gate.get("D")
+            gate_detail = f", D={gate_d:.3f}" if isinstance(gate_d, (int, float)) else ""
             found[f"stopped:{run_id}"] = (
                 DIGEST, f"Gate stop: {run_id}",
-                f"{run.get('stop_reason') or 'gate stop'} at {where}"
-                f"{f', D={gate['D']:.3f}' if isinstance(gate.get('D'), (int, float)) else ''}.")
+                f"{run.get('stop_reason') or 'gate stop'} at {where}{gate_detail}.")
         elif state == "completed":
             found[f"completed:{run_id}"] = (
                 DIGEST, f"Completed: {run_id}",
