@@ -9,11 +9,14 @@ script is the policy; the hook is a thin caller.
 
 Categories are local-only for different reasons and the distinction matters:
 
-- ``docs/`` is **internal**. The bug log, the architecture contract, the steering
-  plans, and the research notes are the owner's working material, not the public
-  repository's. There are no exemptions, and adding one is a publishing decision
-  rather than a config change -- in this repository "tracked" and "public" are
-  the same thing the moment anyone pushes.
+- ``docs/``, ``reference/`` and ``specs/`` are **internal**. The bug log, the
+  architecture contract, the steering plans, the research notes, the narrative
+  write-ups and the published evidence are the owner's working material, not the
+  public repository's. In this repository "tracked" and "public" are the same
+  thing the moment anyone pushes, so adding an exemption is a publishing decision
+  rather than a config change. There is exactly one standing exemption:
+  ``specs/benchmarks/*.json`` are benchmark definitions the code loads at
+  runtime, which makes them code rather than notes.
 - ``outputs/``, ``checkpoints/``, ``wandb/``, ``logs/`` and the large binary
   suffixes are run artifacts: machine-specific, large, or both.
 - ``data/raw/`` and ``data/processed/`` are corpora, which are neither ours to
@@ -40,6 +43,13 @@ from pathlib import Path
 #: than only that it matched something.
 LOCAL_ONLY_RULES: tuple[tuple[str, str], ...] = (
     (r"^docs/", "internal documents (bug log, architecture contract, plans, research notes)"),
+    (r"^reference/", "internal research material (narrative write-ups, figures, published evidence)"),
+    # specs/benchmarks/ is the one exception in this tree: those JSON files are
+    # benchmark definitions the code LOADS at runtime, so they are part of the
+    # code rather than internal material. Everything else under specs/ -- the
+    # prose specifications, the decision records, the experiment write-ups and
+    # the evidence JSON -- is the owner's working material.
+    (r"^specs/(?!benchmarks/)", "internal specifications, decision records and evidence"),
     (r"^CLAUDE\.md$", "local tooling configuration"),
     (r"^\.claude/", "local tooling configuration"),
     (r"^outputs/", "run artifacts and local evidence"),

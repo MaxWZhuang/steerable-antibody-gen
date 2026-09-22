@@ -68,14 +68,41 @@ def test_the_three_internal_docs_have_no_exemption(guard):
         assert "internal" in reason
 
 
+def test_research_material_is_internal_but_benchmark_data_is_not(guard):
+    """
+    reference/ and specs/ were tracked until the repository was narrowed to code
+    alone. The distinction that matters: specs/benchmarks/*.json are loaded by
+    the code at runtime, so they ARE code; the narrative, the figures and the
+    published evidence are the owner's working material and must never return.
+    """
+    for path in (
+        "reference/her2-parent-replay.md",
+        "reference/evidence/her2-support-audit-2026-09-19/inventory.json",
+        "reference/figures/her2-support-ches.png",
+        "specs/conditional_denoising_eligibility.md",
+        "specs/decisions/0002-typed-target-identity.md",
+        "specs/evidence/split-leakage-audit.json",
+    ):
+        reason = guard.classify(path)
+        assert reason is not None, f"{path} should be local-only"
+        assert "internal" in reason
+
+    for path in (
+        "specs/benchmarks/avida_hil6.json",
+        "specs/benchmarks/buzz_her2_affinity.json",
+        "specs/benchmarks/README.md",
+    ):
+        assert guard.classify(path) is None, f"{path} is code and must stay committable"
+
+
 @pytest.mark.parametrize(
     "path",
     [
         "src/smallAntibodyGen/models/mlm.py",
         "scripts/mlm_train.py",
         "configs/refine_antigen_real_label.yaml",
-        "specs/conditional_denoising_eligibility.md",
         "specs/benchmarks/avida_hil6.json",
+        "specs/benchmarks/README.md",
         "pyproject.toml",
         "README.md",
         ".gitignore",
