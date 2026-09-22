@@ -1986,10 +1986,17 @@ def cmd_verify(context, args):
         # whose outputs are all intact but whose sources moved is not verified.
         try:
             marker = spec.require_frozen_identity(context, device=None, label="verify")
+            migrated = marker.get("superseded_sources") or []
             frozen = {"commit": marker["git"]["commit"],
                       "sources": len(marker["source"]["sha256"]),
-                      "inputs": marker["input_count"]}
-            source = "re-hashed against the freeze marker"
+                      "inputs": marker["input_count"],
+                      "superseded_sources": migrated}
+            # Say which question was answered. "Identity held" means something
+            # weaker once a source has been deliberately migrated, and a reader
+            # of this record is entitled to see that rather than infer it.
+            source = ("re-hashed against the freeze marker" if not migrated else
+                      f"re-hashed against the freeze marker; {len(migrated)} source file(s) "
+                      "accepted via recorded supersession rather than matching bytes")
         except ValueError as error:
             problems.append({"artifact": spec.FREEZE_MARKER,
                              "problem": f"{type(error).__name__}: {error}"})

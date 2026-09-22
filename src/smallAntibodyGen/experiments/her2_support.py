@@ -409,6 +409,43 @@ def git_tracked(repository_root, logical):
 #: evidence happened to be on disk would certify nothing.
 EVIDENCE_MANIFEST_DIR = "configs/evidence_manifests"
 
+#: A freeze binds a campaign to exact source bytes, which is what makes its
+#: numbers attributable. That contract has no room for "the file changed but it
+#: is fine" -- so when a source genuinely must migrate after a campaign is
+#: complete, the migration is recorded here rather than waved through.
+#:
+#: Each record authorizes ONE transition: this file, from this digest, to this
+#: digest, in this commit, for this reason. A later edit to the same file breaks
+#: the identity again until somebody records that transition too, and a record
+#: whose current digest does not match the tree authorizes nothing. It is tracked
+#: so the authorization is reviewable, and stages report identity held "via
+#: recorded supersession" rather than silently passing as though bytes matched.
+SOURCE_SUPERSESSIONS = "configs/source_supersessions.json"
+
+
+def load_source_supersessions(repository_root):
+    """``{(logical, superseded_sha256): record}`` for deliberately migrated sources."""
+    path = Path(repository_root) / SOURCE_SUPERSESSIONS
+    if not path.is_file():
+        return {}
+    records = paths.read_json(path).get("supersessions") or []
+    return {(record["file"], record["superseded_sha256"]): record for record in records}
+
+
+def classify_source_drift(repository_root, logical, expected, observed, *, table=None):
+    """The supersession authorizing exactly this transition, or ``None``.
+
+    ``None`` means the drift is unexplained and the caller must fail. Both ends
+    are checked: a record that names the old digest but not the bytes actually on
+    disk is not an authorization for whatever happens to be there now.
+    """
+    table = load_source_supersessions(repository_root) if table is None else table
+    record = table.get((logical, expected))
+    if record is None or record.get("current_sha256") != observed:
+        return None
+    return {"file": logical, "superseded_sha256": expected, "current_sha256": observed,
+            "commit": record.get("commit"), "reason": record.get("reason")}
+
 
 def evidence_manifest_path(repository_root, campaign_id):
     return Path(repository_root) / EVIDENCE_MANIFEST_DIR / f"{campaign_id}.json"
@@ -500,10 +537,21 @@ def require_frozen_identity(context):
     """Re-hash everything the marker pinned. A mismatch stops the stage."""
     marker = read_freeze_marker(context)
     differing = []
+    superseded = []
+    table = load_source_supersessions(context.repository_root)
     for logical, expected in sorted((marker.get("source_sha256") or {}).items()):
         observed = paths.sha256_file(context.repository_root / logical)
-        if observed != expected:
+        if observed == expected:
+            continue
+        # Only SOURCE may be superseded, and only by a reviewed record. Evidence,
+        # inputs and the config still fail on any drift: those are what the run
+        # measured, not the code that measured it.
+        migration = classify_source_drift(context.repository_root, logical, expected,
+                                          observed, table=table)
+        if migration is None:
             differing.append({"file": logical, "expected": expected, "observed": observed})
+        else:
+            superseded.append(migration)
     if context.config_sha256 != marker["config"]["sha256"]:
         differing.append({"file": marker["config"]["path"], "expected": marker["config"]["sha256"],
                           "observed": context.config_sha256})
@@ -521,6 +569,7 @@ def require_frozen_identity(context):
             "The frozen identity no longer holds: " + canonical_json(differing).strip()
             + " Scoring under changed sources, config or inputs would attribute new numbers to "
               "the frozen specification.")
+    marker["superseded_sources"] = superseded
     return marker
 
 

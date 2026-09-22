@@ -866,11 +866,21 @@ def require_frozen_identity(context, *, check_inputs=True, device=None, label="f
     marker = read_freeze_marker(context)
     require_runtime_contract(marker, device=device, label=label)
     differing = []
+    superseded = []
+    table = support.load_source_supersessions(context.repository_root)
     for logical, expected in sorted((marker["source"].get("sha256") or {}).items()):
         target = context.repository_root / logical
         observed = paths.sha256_file(target) if target.is_file() else None
-        if observed != expected:
+        if observed == expected:
+            continue
+        # See her2_support.SOURCE_SUPERSESSIONS: only reviewed, exactly-matching
+        # source migrations are accepted. Evidence, config and inputs below are not.
+        migration = support.classify_source_drift(context.repository_root, logical, expected,
+                                                  observed, table=table)
+        if migration is None:
             differing.append({"file": logical, "expected": expected, "observed": observed})
+        else:
+            superseded.append(migration)
     if context.config_sha256 != marker["config"]["sha256"]:
         differing.append({"file": marker["config"]["path"],
                           "expected": marker["config"]["sha256"],
@@ -889,6 +899,7 @@ def require_frozen_identity(context, *, check_inputs=True, device=None, label="f
             "The frozen identity no longer holds: " + canonical_json(differing).strip()
             + " Fitting under changed sources, config or inputs would attribute new numbers to the "
               "frozen specification.")
+    marker["superseded_sources"] = superseded
     return marker
 
 
