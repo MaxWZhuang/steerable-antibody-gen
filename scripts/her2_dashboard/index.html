@@ -20,6 +20,7 @@
       <button id="tab-campaign" class="tab" aria-pressed="true" data-view="campaign">Guarded campaign</button>
       <button id="tab-audit" class="tab" aria-pressed="false" data-view="audit">Support audit</button>
       <button id="tab-replay" class="tab" aria-pressed="false" data-view="replay">Parent replay</button>
+      <button id="tab-next-flight" class="tab" aria-pressed="false" data-view="next-flight">Next flight</button>
     </nav>
     <div id="view-campaign">
     <section class="metrics" aria-label="Campaign overview">
@@ -97,6 +98,51 @@
         <p class="note">A gate breach is a declared scientific outcome and the queue continues. An interrupted trajectory is <code>incomplete</code>, is never resumed, and is not a result at a lower exposure.</p>
       </section>
       <div class="viewfoot"><span>Local, read-only view · refreshes every 5 seconds</span><span id="replay-updated">No snapshot yet</span><a href="/api/replay" target="_blank" rel="noopener">Replay JSON ↗</a></div>
+    </div>
+    <div id="view-next-flight" hidden>
+      <div class="heading"><div><p class="eyebrow">HER2 · NEXT FLIGHT</p><h1>The next flight, live.</h1><p class="subtitle">Calibration, training and evaluation across objectives and preservation methods.</p></div><div class="status-area"><span id="flight-status" class="badge">Loading</span><p id="flight-note" class="muted">Reading the flight…</p></div></div>
+      <div id="flight-notice" role="status" class="notice" hidden></div>
+      <section class="metrics" aria-label="Flight overview">
+        <div><span class="label">Flight state</span><strong id="flight-state">—</strong><small id="flight-state-detail">Waiting for flight status</small></div>
+        <div><span class="label">Stages completed</span><strong id="flight-stages-count">—</strong><small id="flight-stages-detail">Waiting for stage results</small></div>
+        <div><span class="label">Calibration measured</span><strong id="flight-cost">—</strong><small id="flight-cost-detail">Completed pilots and work in progress</small></div>
+        <div><span class="label">Runtime forecast</span><strong id="flight-forecast">—</strong><small id="flight-forecast-detail">Measured, with the declared reserve</small></div>
+        <div><span class="label">Source freeze</span><strong id="flight-source">Not frozen</strong><small id="flight-source-detail">The frozen source closure this flight runs</small></div>
+        <div><span class="label">Coefficient freeze</span><strong id="flight-freeze">Not frozen</strong><small id="flight-freeze-detail">Qualification comes only from the outcome</small></div>
+      </section>
+      <section class="stages" id="flight-stages" aria-label="Flight stages"></section>
+      <section class="runs-section" aria-label="Calibration pilots">
+        <div class="section-heading"><div><p class="eyebrow">CALIBRATION</p><h2>Pilots</h2></div><span id="flight-calibration-label" class="muted"></span></div>
+        <div class="table-scroll"><table><thead><tr><th>Pilot</th><th>Status</th><th>Writing</th><th>Updates</th><th>Latest weighted total</th><th>Latest full-gate D</th><th>Threshold</th><th>Endpoints</th></tr></thead><tbody id="flight-calibration"></tbody></table></div>
+        <p id="flight-budget-note" class="note"></p>
+        <p class="note">Completed pilots must still pass qualification before their coefficients can be selected for production. Gate stops and execution failures are shown separately.</p>
+      </section>
+      <section class="focus" aria-label="Selected job">
+        <div class="section-heading"><div><p class="eyebrow">JOB INSPECTOR</p><h2 id="flight-job-title">No job selected</h2></div><div class="controls"><label class="sr-only" for="flight-select">Select job</label><select id="flight-select"></select><button id="flight-follow" type="button" aria-pressed="true">Following active</button><label class="sr-only" for="flight-metric">Training metric</label><select id="flight-metric"><option value="weighted_total">Weighted total</option><option value="task_loss">Task loss</option><option value="preservation_loss">Preservation loss</option><option value="raw_task_loss">Raw task loss</option><option value="margin_mean">Mean margin</option><option value="gradient_norm">Gradient norm</option><option value="learning_rate_used">Learning rate</option></select></div></div>
+        <div id="flight-job-meta" class="run-meta"></div>
+        <div id="flight-job-note" class="note"></div>
+        <div class="plots">
+          <article class="plot-panel"><div class="plot-heading"><div><h3>Full-gate drop</h3><p>Recorded full gate checks · nats per sequence</p></div><div class="plot-value"><strong id="flight-drop">—</strong><span id="flight-gate-label">No full gate yet</span></div></div><div id="flight-gate-chart" class="chart"></div><p class="chart-note">Each full check appears once. The red line marks the recorded stopping threshold; sentinel checks are counted separately.</p></article>
+          <article class="plot-panel"><div class="plot-heading"><div><h3>Optimization trace</h3><p id="flight-trace-description">Recorded updates</p></div></div><div id="flight-training-chart" class="chart"></div><p id="flight-trace-note" class="chart-note">Updates appear as they are journalled.</p></article>
+        </div>
+        <div class="detail-strip"><div><span class="label">Latest journalled update · exposures</span><div id="flight-exposures" class="quantiles">No update recorded</div></div><div><span class="label">Endpoints reached</span><strong id="flight-endpoints">—</strong></div><div><span class="label">Journal integrity</span><strong id="flight-journal">—</strong></div></div>
+      </section>
+      <section class="runs-section" aria-label="Fresh parents">
+        <div class="section-heading"><div><p class="eyebrow">FRESH PARENTS</p><h2>Stage-1 progress</h2></div><span id="flight-parents-label" class="muted"></span></div>
+        <div class="table-scroll"><table><thead><tr><th>Parent</th><th>Epochs recorded</th><th>Last recorded epoch</th><th>Checkpoint files</th><th>Selection</th></tr></thead><tbody id="flight-parents"></tbody></table></div>
+        <p class="note">Parent progress updates after each completed epoch.</p>
+      </section>
+      <section class="runs-section" aria-label="Production">
+        <div class="section-heading"><div><p class="eyebrow">PRODUCTION</p><h2>Recorded jobs</h2></div><span id="flight-production-label" class="muted"></span></div>
+        <div class="table-scroll"><table><thead><tr><th>Job</th><th>Status</th><th>Writing</th><th>Updates</th><th>Latest full-gate D</th><th>Endpoints</th></tr></thead><tbody id="flight-production"></tbody></table></div>
+        <p id="flight-production-note" class="note"></p>
+      </section>
+      <section class="runs-section" aria-label="Completion">
+        <div class="section-heading"><div><p class="eyebrow">COMPLETION</p><h2 id="flight-complete">Not complete</h2></div></div>
+        <div id="flight-completion" class="run-meta"></div>
+        <p class="note">Completion requires the final report, a passing independent verification, and a completed verification stage.</p>
+      </section>
+      <div class="viewfoot"><span>Local, read-only view · refreshes every 5 seconds</span><span id="flight-updated">No snapshot yet</span><a href="/api/next-flight" target="_blank" rel="noopener">Next-flight JSON ↗</a></div>
     </div>
   </main>
 </body>

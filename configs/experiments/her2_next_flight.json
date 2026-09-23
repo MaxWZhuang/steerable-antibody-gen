@@ -1,0 +1,388 @@
+{
+  "schema_version": "her2-next-flight/1",
+  "campaign_id": "her2_next_flight_20260922",
+  "protocol": "specs/her2_next_flight/FLIGHT_SPEC.md",
+  "config_path": "configs/experiments/her2_next_flight.json",
+  "run_root": "outputs/her2_next_flight_20260922/production_03",
+  "run_root_note": "a portable logical name. On this box it links to the host-approved F:/smallAntibodyGen/her2_next_flight_20260922; the machine-local mapping never appears in a scientific field. Historical roots stay read-only.",
+  "run_root_supersession": "two earlier roots are retained read-only and neither is resumed; nothing measured under either is carried into this one. .../production reached the freeze stage on 2026-09-22 and crashed there when four files of its frozen source closure were edited in the worktree while it ran. .../production_02 was stopped deliberately by the operator six minutes in, at the profile stage, to land a corrected conditional-storage dtype; its preflight record holds the first update-kernel parity result measured against the saved 25,722-row monitor vectors. Each root is a separate protocol identity under different source bytes, which is why a frozen snapshot is verified and REUSED, never rewritten.",
+
+  "roots": {
+    "raw": {
+      "logical": "data/raw/her2_functional_20260918",
+      "acceptance": "the pinned p-IgGen release plus the published splits and the SPR submitted table that supplies the fixed scaffold"
+    },
+    "historical": {
+      "logical": "outputs/her2_parent_replay_20260920",
+      "acceptance": "read-only. Stream records, trajectory journals and endpoint checkpoints of the completed campaign. Nothing under it is written."
+    },
+    "posttrain": {
+      "logical": "outputs/her2_posttrain_20260918",
+      "acceptance": "read-only. The three selected initial-SFT parents."
+    }
+  },
+
+  "source": {
+    "entry_points": ["scripts/her2_next_flight.py", "scripts/her2_next_flight_supervisor.py"],
+    "extra_files": ["specs/her2_next_flight/FLIGHT_SPEC.md",
+                    "specs/her2_next_flight/EVIDENCE_AND_RISKS.md",
+                    "specs/her2_next_flight/reference_math.py"],
+    "rule": "the freeze computes the transitive module-level AST import closure from these entry points, copies every file's bytes into the run root, and records one aggregate content digest plus HEAD and the full dirty list. This flight is authorized to build and train and NOT to commit, so its source identity is content-addressed rather than a commit. her2_replay_spec.run_freeze is untouched and still requires a clean tree."
+  },
+
+  "historical": {
+    "stream_record": "streams/seed{seed}/task_stream.complete.json",
+    "updates_journal": "trajectories/ipo_lambda0_seed{seed}/updates.jsonl",
+    "continued_sft": "trajectories/continued_sft_lambda0p1_seed{seed}",
+    "continued_sft_updates": [1000, 3750],
+    "reuse": "the saved task stream (including its replay order), the saved 100k replay bank with its frozen teacher cache, the saved 10k independent monitor bank and the saved IPO reference cache are LOADED, not re-derived. Re-deriving an array whose digest happens to agree is a check on the derivation rule, not a reuse of the bytes the completed campaign trained on.",
+    "supersession_provenance": "outputs/her2_parent_replay_20260920/supersession_provenance.json",
+    "supersession_note": "three historical source files differ from the completed campaign's freeze. That is a reviewed supersession limited to freeze, evidence and verification machinery; the training-mathematics sources match. It is disclosed in the freeze record and this flight makes no claim that all historical source bytes are unchanged.",
+    "early_checkpoints": "missing for the reused historical paths. They are marked missing and are never reconstructed."
+  },
+
+  "probability": {
+    "event": "the ten editable core residues under the fixed VH/VL prefix, 20-way renormalized, temperature 1, fixed length, no filtering and no deduplication",
+    "ranking_score": "mean_log_probability = sum_log_probability / 10",
+    "parity_draws": 64,
+    "sum_log_probability_atol": 0.00005,
+    "sum_log_probability_rtol": 0.000002,
+    "tail_comparison": ">=",
+    "tail_comparison_note": "INCLUSIVE tail events throughout this flight. The historical post-hoc audit used the strict comparison; both are published and never mixed. The likelihood gate keeps its inherited STRICT D > 1 rule, which is a different statistic on a different population."
+  },
+
+  "objectives": {
+    "ipo": {"tau": 0.1, "target": 5.0, "formula": "mean_pairs (Delta - 1/(2*tau))**2"},
+    "dpo": {"formula": "mean_pairs (20/beta) * softplus(-beta*Delta)",
+            "scale_rule": "c = 4*target/beta = 20/beta matches IPO's initial margin derivative of -10. It controls the deterministic initial scale only.",
+            "logging": "raw and scaled loss are both journalled"},
+    "simpo": {"formula": "mean_pairs softplus(gamma - beta_s*m_Q/10)",
+              "candidates": [[1.0, 0.5], [2.0, 1.0]],
+              "status": "optional; its loss multiplier is matched once on a fixed training-only calibration batch and then frozen. Weaker matching than the exact DPO identity and never called equivalent optimization."}
+  },
+
+  "preservation": {
+    "none": "no replay forward pass, no bank read, no stream movement",
+    "fkl": "mean over replay rows of sum over positions and residues of p0*(log p0 - log q). No division by 10 and none by 20.",
+    "tail": "mean over parent draws of h_t10(d)/.01 + h_t100(d)/.001 with h_t(d)=max(0,(d-(t-ln2))/ln2)**2",
+    "context_average": "DEFERRED. Its evaluation decomposition is retained; it needs its own tensor-gradient and runtime validation before it earns a training cell."
+  },
+
+  "optimization": {
+    "learning_rate": 0.00001,
+    "betas": [0.9, 0.999],
+    "weight_decay": 0.01,
+    "gradient_clip": 1.0,
+    "warmup_updates": 100,
+    "schedule": "linear_warmup_then_constant",
+    "scaler": null,
+    "scaler_reason": "float32 forward with float64 reductions and no autocast region, so no GradScaler was ever constructed. Recorded as absent with the reason rather than as a missing key.",
+    "weight_decay_scope": "every parameter including norms and biases, as inherited"
+  },
+
+  "block_a": {
+    "parent_seeds": [20260918, 20260919, 20260920],
+    "chosen_per_update": 64,
+    "microbatch_rows": 16,
+    "endpoint_updates": [1000, 2000, 3750],
+    "checkpoint_updates": [250, 500, 1000, 2000, 3750],
+    "pairing": {"seed_base": 20260924,
+                "validation_seed": 20260925,
+                "validation_pairs": null,
+                "note": "the historical pairing seed is seed_base + parent seed, e.g. 40521842 at seed 20260918. Every arm at one seed consumes the identical ordered stream. The GATE is defined on the VALIDATION population under validation_seed; null validation_pairs means every eligible validation pair, which is the inherited 25,722."},
+    "parents": {
+      "20260918": {"logical": "outputs/her2_posttrain_20260918/policy_sft_seed20260918/epoch_3.pt",
+                   "state_sha256": "e6c878c335d1e3a7cd9e7e72edcb5f3628fd08a0898e3e1c703e2dc1253cac4e"},
+      "20260919": {"logical": "outputs/her2_posttrain_20260918/policy_sft_seed20260919/epoch_3.pt",
+                   "state_sha256": "9f0d7bf0947b6a036521506a321012b57cca09a422b1b099f7e54b051e64cb54"},
+      "20260920": {"logical": "outputs/her2_posttrain_20260918/policy_sft_seed20260920/epoch_3.pt",
+                   "state_sha256": "bfa59a955482fb8a20685226d94ca43aaa84adb91aeaf1014a46f4e429d01875"}
+    },
+    "arms": [
+      {"id": "IPO_0", "task": "ipo", "preservation": "none", "coefficients": {"tau": 0.1},
+       "reuse_historical": "trajectories/ipo_lambda0_seed{seed}"},
+      {"id": "IPO_FKL", "task": "ipo", "preservation": "fkl",
+       "coefficients": {"tau": 0.1, "lambda": 10.0},
+       "reuse_historical": "trajectories/ipo_lambda10_seed{seed}"},
+      {"id": "IPO_TAIL", "task": "ipo", "preservation": "tail", "coefficients": {"tau": 0.1},
+       "frozen_coefficients": {"lambda": "ipo_tail.lambda"}},
+      {"id": "DPO_0", "task": "dpo", "preservation": "none", "coefficients": {},
+       "frozen_coefficients": {"beta": "dpo_beta"}},
+      {"id": "DPO_FKL", "task": "dpo", "preservation": "fkl", "coefficients": {},
+       "frozen_coefficients": {"beta": "dpo_beta", "lambda": "dpo_fkl.lambda"}},
+      {"id": "DPO_TAIL", "task": "dpo", "preservation": "tail", "coefficients": {},
+       "frozen_coefficients": {"beta": "dpo_beta", "lambda": "dpo_tail.lambda"}},
+      {"id": "SIMPO_FKL", "task": "simpo", "preservation": "fkl", "optional": true,
+       "coefficients": {"beta_s": 2.0, "gamma": 1.0, "lambda": 10.0}}
+    ],
+    "reuse_rule": "a historical trajectory becomes a factorial cell only after its stream digests re-derive and the old/new update kernels agree on identical state, cache and stream at the declared tolerance. Otherwise it is an external reference and the path is retrained."
+  },
+
+  "block_b": {
+    "regimes": ["purge", "matched"],
+    "parent_seeds": [20260918, 20260919, 20260920],
+    "chosen_per_update": 64,
+    "microbatch_rows": 16,
+    "endpoint_updates": [1000],
+    "checkpoint_updates": [250, 500, 1000],
+    "arms": [
+      {"id": "IPO_0", "task": "ipo", "preservation": "none", "coefficients": {"tau": 0.1}},
+      {"id": "IPO_FKL", "task": "ipo", "preservation": "fkl",
+       "coefficients": {"tau": 0.1, "lambda": 10.0}},
+      {"id": "DPO_FKL", "task": "dpo", "preservation": "fkl", "coefficients": {},
+       "frozen_coefficients": {"beta": "dpo_beta", "lambda": "dpo_fkl.lambda"}}
+    ],
+    "stage1": {
+      "epochs": 5,
+      "batch_size": 128,
+      "microbatch_rows": 16,
+      "checkpoints": [1, 3, 5],
+      "start_from": "RAW p-IgGen. The old adapted parent, its reference scores and its replay bank are never reused here.",
+      "selection": "lowest positive-class NLL per residue on C",
+      "optimization": {"learning_rate": 0.0001, "betas": [0.9, 0.999], "weight_decay": 0.01,
+                       "gradient_clip": 1.0, "warmup_fraction": 0.05,
+                       "final_learning_rate_fraction": 0.1},
+      "protocol_source": "configs/experiments/her2_posttrain.json, recovered. Effective batch 128, lr 1e-4, AdamW(.9,.999), wd .01, clip 1, 5% warmup, cosine to a tenth of the peak, five epochs. The historical 942 optimizer steps over a 120,504-high-row epoch independently confirm batch 128. This is recovered, not newly searched.",
+      "accumulation_note": "microbatch_rows only changes how the effective batch of 128 is accumulated. It does not change the batch, the schedule or the number of optimizer steps; only a validated accumulation may change memory use."
+    },
+    "default_new_objective": "DPO + FKL. If no usable configuration survives the bounded calibration, the documented alternative is frozen before challenge training and before any E scoring, and the failure is reported.",
+    "extension": "extending all 18 paths to u2000 requires freezing that extension BEFORE opening E results. u1000 remains the primary common endpoint and only whichever method looks promising on E is never extended alone."
+  },
+
+  "split": {
+    "radius": 2,
+    "fallback_radius": 1,
+    "panel_sizes": [1000, 500, 250],
+    "calibration_rows": 3000,
+    "order": "ascending sha256(core UTF-8) within each original proximity stratum; C is the first hash-ordered V rows outside E certified beyond the radius",
+    "matched_deletion": {"entropy": 20260922, "spawn_key": [2, 1000]},
+    "monitoring": "C only. The old validation gate contains E and is never pointed at by a challenge run.",
+    "disclosure": "a newly enforced adaptation separation on existing data, not a newly collected blind benchmark. Block-A calibration uses the historical validation population, which contains E."
+  },
+
+  "banks": {
+    "replay_rows": 100000,
+    "monitor_rows": 10000,
+    "final_preservation_rows": 50000,
+    "screen_rows": 10000,
+    "finalist_rows": 50000,
+    "finalist_models": 15,
+    "finalist_banks_per_model": 2,
+    "screen_models": 147,
+    "temperature": 1.0,
+    "requirement": "two independent 50k banks for fifteen single models is 1.5 million sequences. Bank counts are not reduced for storage; storage is provisioned on the approved volume instead.",
+    "conditional_storage": "15 models x 2 banks x 50k x 10 x 20 float64 is about 2.4 GB of finalist conditionals, plus registry screens. No diagnostic downcast."
+  },
+
+  "seeds": {
+    "replay_order": 777000301,
+    "spawn_keys": {
+      "replay": [1, 0],
+      "development_preservation": [3, 0],
+      "final_preservation": [4, 0],
+      "q_generation_screen": [5, 0],
+      "q_generation_finalist": [6, 0],
+      "permutation_floor": [7, 0],
+      "calibration_stream": [8, 0],
+      "contract_probe": [9, 0],
+      "profile": [10, 0],
+      "bootstrap": [11, 0],
+      "mixture_component": [12, 0],
+      "smoke": [13, 0]
+    },
+    "domains": "these are the DOMAIN roots. A running stream's spawn key is (domain, repeat, sha256(role::regime::parent::model) as three 32-bit words), so two banks cannot share a stream by differing only in role, regime, parent lineage, model identity or repeat index. Every derived seed is registered and a collision is a refusal, not a coincidence.",
+    "rule": "numpy SeedSequence(20260922, spawn_key) mapped into this flight's band, which lies entirely above the historical guarded draw-seed band [20260921, 20360920]. Python's process-randomized hash() is never used to derive a seed, and no modulus narrow enough to collide is applied to a model name."
+  },
+
+  "monitor": {
+    "sentinel_interval": 25,
+    "full_interval": 100,
+    "block_b_full_interval": 25,
+    "block_b_cadence_note": "Block B's gate is all high C rows, which is a few thousand scores rather than 51,444, so the FULL statistic runs at every sentinel. Block A keeps 100.",
+    "sentinel_pairs": 512,
+    "sentinel_parent_draws": 1024,
+    "sentinel_population": "both halves of the fixed 512 preference pairs plus 1024 draws from the INDEPENDENT development bank. A nonfinite score on either half requests the full authoritative gate.",
+    "triggers": {"chosen_side_D_at_least": 0.5, "increase_since_previous_at_least": 0.25,
+                 "inclusive_tenfold_rate_at_least": 0.02,
+                 "inclusive_hundredfold_events_at_least": 3},
+    "stop_rule": "strict D > 1.0 nat per sequence, or any nonfinite score. Only a FULL check can stop a trajectory.",
+    "preservation_cadence": "the GATE runs at every full check. The 10k-row in-fit preservation diagnostic runs at the first update, every endpoint, every checkpoint, the final state and any sentinel request -- a declared modest cadence, counted in the runtime forecast rather than hidden inside a gate.",
+    "block_a_population": "all fixed validation pairs, chosen and rejected, on every full check",
+    "block_b_population": "ALL high C rows, including cells with no eligible low partner. C-only pair statistics are an independent diagnostic and cannot change this population.",
+    "disclosure": "monitoring sensitivity between full checks is changed relative to the historical every-25 full gate. No detection probability is claimed."
+  },
+
+  "calibration": {
+    "parent_seed": 20260918,
+    "dpo_betas": [0.1, 0.5],
+    "fkl_lambdas": [3.0, 10.0, 30.0],
+    "tail_lambdas": [0.01, 0.1, 1.0],
+    "pilot_updates": 500,
+    "extended_updates": 1000,
+    "gpu_hour_cap": 3.0,
+    "max_bracket_expansions": 2,
+    "max_fallbacks_per_family": 1,
+    "criteria": {"tenfold": 0.01, "hundredfold": 0.001},
+    "ap_tie": 0.001,
+    "include_simpo": false,
+    "continuation": "an extension CONTINUES its 500-update pilot in the same directory, on the same spawned stream resolved at the 1000-update horizon, and resumes at update 500. Restarting from the parent would spend 10,500 updates against a nominal 7,500.",
+    "freeze_bar": "a family freezes only on a continuation that COMPLETED 1,000 updates with finite, feasible metrics and macro-AP above the parent. One ranked fallback per family, at most two 500-update bracket expansions across the whole stage.",
+    "rule": "smallest lambda meeting the inclusive development-bank point rates with macro-AP above the parent point estimate. Feasible betas compared by macro-AP, .001 AP tie broken by Y@10k, then Y@1M, then smaller beta. One coefficient per family is frozen across all seeds and both regimes; no per-seed retuning.",
+    "failure": "no qualified calibrated configuration is a recorded outcome, never a tuned success."
+  },
+
+  "reuse_parity": {
+    "seed": 20260918,
+    "updates": 25,
+    "tau": 0.1,
+    "task_loss_atol": 0.001,
+    "task_loss_rtol": 0.0001,
+    "updates_journal": "trajectories/ipo_lambda0_seed{seed}/updates.jsonl",
+    "basis": "identical parent state, identical cached reference, identical stream. Scalars and monitor vectors are compared; no checkpoint hash is compared approximately and no nonexistent update-25 weights are required.",
+    "measurement": "native GPU gradients differ between kernels by float32 reduction order, measured at about 2e-5 on this architecture. That is numeric behaviour, not bitwise identity; the exact identity is tested in CPU float64 at about 1e-12."
+  },
+
+  "mixture": {
+    "grid": [0.0, 0.25, 0.5, 0.75, 0.89, 0.9, 0.95, 0.99, 1.0],
+    "primary_alpha": 0.89,
+    "reported_alpha": 0.9,
+    "pairs": [
+      {"label": "ipo0_u1000_seed20260918", "seed": 20260918,
+       "policy_logical": "trajectories/ipo_lambda0_seed20260918/endpoint_update1000.pt"},
+      {"label": "ipo0_u1000_seed20260919", "seed": 20260919,
+       "policy_logical": "trajectories/ipo_lambda0_seed20260919/endpoint_update1000.pt"},
+      {"label": "ipo0_u1000_seed20260920", "seed": 20260920,
+       "policy_logical": "trajectories/ipo_lambda0_seed20260920/endpoint_update1000.pt"},
+      {"label": "ipo0_u3750_seed20260918", "seed": 20260918,
+       "policy_logical": "trajectories/ipo_lambda0_seed20260918/endpoint_update3750.pt"},
+      {"label": "ipo0_u3750_seed20260919", "seed": 20260919,
+       "policy_logical": "trajectories/ipo_lambda0_seed20260919/endpoint_update3750.pt"},
+      {"label": "ipo0_u3750_seed20260920", "seed": 20260920,
+       "policy_logical": "trajectories/ipo_lambda0_seed20260920/endpoint_update3750.pt"}
+    ],
+    "coverage": "the EARLY rescore covers every historical IPO0 seed at both required endpoints. New eligible DPO0 checkpoints and the challenge IPO0 checkpoints are covered later, from the persisted row scores, in the report evidence -- they do not exist yet when this stage runs.",
+    "conditionals": "posterior component weights w_Q(u)=alpha*Q(u)/[(1-alpha)P(u)+alpha*Q(u)], initialized at alpha, excluding the fixed conditioning prompt. A fixed weight at every position defines a different distribution.",
+    "generation": "the component is chosen once per sequence; exact scoring runs both models and two checkpoints are stored."
+  },
+
+  "comparators": {
+    "cnn_seeds": [20260918, 20260919, 20260920],
+    "additive_ridge": 0.0001,
+    "cnn": {"epochs": 10, "batch_size": 256, "learning_rate": 0.0003},
+    "historical": [
+      {"seed": 20260918, "logical": "outputs/her2_posttrain_20260918/cnn_seed20260918/cnn.pt",
+       "sha256": "68a8d27285fbb4f71a016a0054f7191c175084b54b153e4fc2bdfb607af2e7a3"},
+      {"seed": 20260919, "logical": "outputs/her2_posttrain_20260918/cnn_seed20260919/cnn.pt",
+       "sha256": "85b1bfd6870fa8af8c9fec0eb601667f19009923135cba711029eb011ac98e66"},
+      {"seed": 20260920, "logical": "outputs/her2_posttrain_20260918/cnn_seed20260920/cnn.pt",
+       "sha256": "57ff6b085bff5a21ab70498d64585705ba5591c2cf7cce155683921d39e29049"}
+    ],
+    "historical_note": "the three hash-verified historical CNN checkpoints were fitted on exactly the original-split population and are REUSED there with their own selection provenance. Refitting them would be a different model under the same name. The challenge regimes get freshly fitted CNNs on their own allowed rows, because the historical ones saw purged neighbours.",
+    "selection": "the CNN epoch, the additive ridge and the interaction classifier's regularization are all chosen on C. The CNN's all-class supervision is a different training signal from high-only stage 1, and the three-model ensemble is a separate entry from the single-model mean.",
+    "status": "discriminative ranking comparators. None of these scores is ever treated as a generative probability or fed to a yield calculation."
+  },
+
+  "coupling": {
+    "permutation_draws": 20,
+    "drift_chunk_rows": 2000,
+    "drift_note": "the parent-context T/B/gap decomposition runs over the FULL common parent bank, streamed in chunks of drift_chunk_rows: only (10,20) float64 sufficient statistics are retained, so a 50k bank costs one chunk at a time rather than two resident 80 MB blocks. It is a different quantity from the Q-context total correlation and is never merged with it. A required measurement is not shrunk because one helper allocated too much at once.",
+    "bank_size_sensitivity": [2000, 5000, 10000],
+    "bootstrap_draws": 50,
+    "bootstrap_note": "whole-trajectory resampling on finalist banks for both the MI sum and actual TC, recomputing all generated marginals; Monte Carlo sensitivity, not extra trained seeds or bias correction.",
+    "classifier": {"regularization_grid": [0.01, 0.1, 1.0], "solver": "saga",
+                   "max_iterations": 1000,
+                   "features": "190 reference-coded main effects plus 45 x 361 = 16,245 pair terms, sparse",
+                   "tuned_on": "development/C rows only",
+                   "note": "scikit-learn >= 1.9 is multinomial by default for three or more classes; the removed multi_class argument is not passed."}
+  },
+
+  "analysis": {
+    "primary_endpoints": {"block_a": [1000, 3750], "block_b": [1000],
+                          "challenge": "high-v-rest AP on the fixed E, with prevalence and AUROC"},
+    "primary_contrasts": [
+      {"name": "DPO_FKL_minus_IPO_FKL_u1000", "left": "DPO_FKL@1000", "right": "IPO_FKL@1000"},
+      {"name": "DPO_FKL_minus_IPO_FKL_u3750", "left": "DPO_FKL@3750", "right": "IPO_FKL@3750"},
+      {"name": "IPO_TAIL_minus_IPO_FKL_u1000", "left": "IPO_TAIL@1000", "right": "IPO_FKL@1000"},
+      {"name": "DPO_TAIL_minus_DPO_FKL_u1000", "left": "DPO_TAIL@1000", "right": "DPO_FKL@1000"},
+      {"name": "IPO_TAIL_minus_IPO_FKL_u3750", "left": "IPO_TAIL@3750", "right": "IPO_FKL@3750"},
+      {"name": "DPO_TAIL_minus_DPO_FKL_u3750", "left": "DPO_TAIL@3750", "right": "DPO_FKL@3750"}
+    ],
+    "secondary_contrasts": [
+      {"name": "IPO_FKL_minus_parent_u1000", "left": "IPO_FKL@1000", "right": "parent@0"},
+      {"name": "mixture_alpha089_minus_IPO_FKL_u1000", "left": "mixture089@1000",
+       "right": "IPO_FKL@1000"},
+      {"name": "continued_sft_minus_parent_u1000", "left": "continued_sft_lambda0p1@1000",
+       "right": "parent@0"}
+    ],
+    "difference_in_differences": "[DPO_FKL - IPO_FKL]_purge - [DPO_FKL - IPO_FKL]_matched, at u1000",
+    "uncertainty": "three paired seed differences with their raw values and a nominal t interval, df = 2. Row bootstraps answer a different question and are never pooled into a larger training sample.",
+    "multiplicity": "any familywise significance headline needs a declared multiplicity procedure. None is declared, so none is claimed."
+  },
+
+  "profile": {
+    "optimizer_updates": 100,
+    "replay_rows": 4096,
+    "generation_draws": 2000,
+    "scoring_rows": 50000,
+    "stage1_probe_steps": 20,
+    "comparator_rows": 4000,
+    "geometry_note": "the stage-1 batch size, the rows per epoch and the queue counts are all read from the ACTUAL configuration and data -- block_b.stage1.batch_size and the measured count of high training rows -- not from planning figures. The earlier 61,000 and 24 were planning guesses.",
+    "rule": "every category is measured on this box and then the forecast is computed from the measurements. No estimated cost is ever written as a measurement, and no extrapolated total is recorded with units=1."
+  },
+
+  "evaluation": {
+    "validation_rows": 78652,
+    "note": "the original validation split, used for the Block-A result matrix. It contains E and that exposure is disclosed."
+  },
+
+  "runtime": {
+    "target_hours": 24.0,
+    "reserve_hours": 4.0,
+    "drop_order": ["context-averaged training penalty (already deferred)", "optional SimPO",
+                   "Block-B continuation beyond u1000"],
+    "note": "24 hours is the user's ideal, not permission to relabel an incomplete flight as complete. The measured forecast is reported whether or not it fits."
+  },
+
+  "smoke": {
+    "namespace": "smoke",
+    "updates": 8,
+    "bank_rows": 256,
+    "monitor_rows": 128,
+    "analysis_rows": 256,
+    "generation_draws": 256,
+    "comparator_rows": 600,
+    "purpose": "a miniature but COMPLETE native pass: train to declared endpoints with intermediate checkpoints, inject a real interruption inside the endpoint publication, resume and compare weights/optimizer/scheduler/RNG/cadence/endpoints, trigger a deliberate gate stop, refuse a wrong identity, tampered weights, a tampered optimizer half and a forbidden row, repair a truncated journal, then score, decompose, screen, fit a comparator and write a numeric report block.",
+    "namespace_rule": "everything lives under this explicit namespace, which no production stage reads. A namespace that already holds results is a collision and the run refuses; nothing is ever deleted to make a smoke pass."
+  },
+
+  "inference": {
+    "device": "cuda",
+    "score_batch_size": 256,
+    "sample_batch_size": 256,
+    "teacher_batch_size": 256,
+    "conditional_batch_size": 64,
+    "attention_implementation": "sdpa",
+    "forward_dtype": "float32",
+    "reduction_dtype": "float64"
+  },
+
+  "storage": {
+    "min_free_bytes": 21474836480,
+    "note": "20 GiB on the approved volume. Inadequate storage stops dependent stages; it never shrinks the declared bank counts."
+  },
+
+  "recovery_probes": [
+    {"path": "outputs/her2_posttrain_20260918/policy_sft_seed20260918/epoch_3.pt",
+     "sha256": "38db10b3ff7f1b6087626f01dae266deaea581c6038f17c52067f869df81a16e"},
+    {"path": "outputs/her2_posttrain_20260918/policy_sft_seed20260919/epoch_3.pt",
+     "sha256": "7fbb47f49d34b841b44f4444e242e8c04eda4cc1ea41b575e9e0d740ba778e1e"},
+    {"path": "outputs/her2_posttrain_20260918/policy_sft_seed20260920/epoch_3.pt",
+     "sha256": "c892ddf21cc3291eb8e280521846d9932a5dabae5347fe388e60bd561a82d068"},
+    {"path": "outputs/her2_parent_replay_20260920/streams/seed20260918/task_stream.complete.json",
+     "sha256": "13aa3fe93eee017faf760f72cc0c71a697c5d9539777c3b9457e8f61f393ab61"},
+    {"path": "outputs/her2_parent_replay_20260920/banks_manifest.json",
+     "sha256": "31490185535f70f30349a0a8729e5bb7e9e09e4d026760084e9b497ea017dbf3"},
+    {"path": "outputs/her2_parent_replay_20260920/replay_config.json",
+     "sha256": "fb484593c6ce32959eb0e2099794cd8ca081da648b66ea6216866ebd6b4f2fce"}
+  ]
+}

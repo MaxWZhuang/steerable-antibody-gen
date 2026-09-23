@@ -17,3 +17,17 @@ main{max-width:1480px;margin:auto;padding:34px 3.5%}.heading{display:flex;align-
    green "Healthy". The text says the same thing; this only colours it. */
 #replay-health[data-state="failed"]{color:var(--red)}#replay-health[data-state="interrupted"]{color:var(--red)}#replay-health[data-state="running"]{color:var(--teal)}#replay-health[data-state="queued"],#replay-health[data-state="completed"]{color:var(--muted)}
 #view-replay[hidden]{display:none}.viewfoot{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;margin:25px 0 3px;font-size:10px;color:var(--muted)}.badge.stopped_by_gate{color:var(--amber);background:#fff2dc;border-color:#e6cd9f}.badge.incomplete,.badge.interrupted{color:var(--red);background:#fff0ed;border-color:#e8c8c3}.badge.unknown{color:var(--muted);background:#f3f5f1}#replay-rows td small{white-space:normal}
+
+/* The next-flight view. Twelve stages need their own column count, and the
+   statuses this flight records are not the campaign's three: a stage that was
+   not recorded, a readiness/feasibility block and a continuation in flight each
+   read as themselves rather than borrowing a colour that means something else. */
+#view-next-flight[hidden]{display:none}#flight-stages{grid-template-columns:repeat(6,1fr);row-gap:18px}
+.badge.not_recorded,.badge.not_run,.badge.not_started{color:var(--muted);background:#f3f5f1}
+.badge.partial,.badge.blocked_readiness,.badge.blocked_feasibility,.badge.no_recent_writes{color:var(--amber);background:#fff2dc;border-color:#e6cd9f}
+.badge.in_progress,.badge.continuation_in_progress,.badge.writing{color:#176b4e;background:#eaf5ed;border-color:#c4ddce}
+.badge.writer_absent{color:var(--red);background:#fff0ed;border-color:#e8c8c3}
+#flight-state[data-state=alive]{color:var(--teal)}#flight-state[data-state=gone],#flight-state[data-state=failed]{color:var(--red)}#flight-state[data-state=unknown]{color:var(--amber)}#flight-state[data-state=not_launched],#flight-state[data-state=finished]{color:var(--muted)}
+#flight-calibration td small,#flight-production td small,#flight-parents td small{white-space:normal}
+@media(max-width:1050px){#flight-stages{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:700px){#flight-stages{grid-template-columns:1fr 1fr}}

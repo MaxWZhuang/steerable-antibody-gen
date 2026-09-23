@@ -70,6 +70,76 @@ too. The one case it cannot see is a replacement that reproduces all four
 identity fields exactly; nothing short of re-reading the whole file each poll
 would.
 
+## Next flight
+
+```powershell
+.venv/Scripts/python.exe scripts/her2_live_dashboard.py --port 8766 `
+  --audit outputs/her2_support_audit_20260919_r2 `
+  --replay outputs/her2_parent_replay_20260920 `
+  --next-flight outputs/her2_next_flight_20260922/production
+```
+
+Without `--next-flight` the tab says **Not configured** and the other three views are
+unchanged. The reader uses the standard library only, imports nothing from the
+experiment package, opens no `.pt` file — not even a parent checkpoint, which is
+observed by filename — and writes nothing in the run. The four tabs are deep
+linkable: `#campaign`, `#audit`, `#replay`, `#next-flight`. A URL without a
+fragment still opens the campaign view.
+
+What the tab claims, and what it refuses to:
+
+- **Twelve stages in their declared order** (`recover` → `verify`). A stage with no
+  record reads **Not recorded**, never *completed*. `partial`, `not_run`,
+  `blocked_readiness` and `blocked_feasibility` are four different answers and are
+  shown as themselves.
+- **Liveness is the OS write lock**, observed read-only: `held`, `released`,
+  `missing` and `inaccessible` are four different answers, and *unknown* is never
+  rendered as finished or as dead. The heartbeat is reported beside it as what it
+  is — a background tick that keeps advancing whether or not work does — with
+  `last_work_callback_at` as a separate, weaker-to-fake fact.
+- **Work evidence is each job's own journals.** A job that has not written one of
+  its own artifacts for longer than `--next-flight-quiet-seconds` (default 600)
+  reads **No recent writes**, with the idle time. That is deliberately not called a
+  stall: between two pilots the flight scores a full validation split and a bank,
+  which writes nothing in any job directory, and 600 s clears that quiet window.
+- **A missing queue is normal.** `queue.json` and `campaign_status.json` are
+  published only with a terminal supervisor status, so for the whole flight neither
+  exists. The production table is enumerated from the job directories on disk and
+  is labelled *recorded jobs* — never a queued count, and never "unlaunched".
+- **500 updates is not a qualification.** A pilot that finished its declared
+  updates is *measured*. Qualification is frozen once, in `calibration_outcome.json`,
+  and the coefficient-freeze card stays **Not frozen** until that document exists
+  however many pilots have landed. It is a separate card from the source freeze,
+  which says which code closure is running.
+- **Five pilot states stay apart:** `completed`, `stopped_by_gate` (a declared
+  scientific outcome), `incomplete`, `failed` (the machinery), and a directory
+  holding `status_u500.json` with no current `status.json` — a **continuation in
+  flight**, reusing the same directory.
+- **Calibration cost is the ledger plus what the ledger does not have yet.** The
+  ledger is flushed after each pilot and lags the pilot in flight; the live
+  per-pilot budget records carry that charge. Budget identities are matched to
+  ledger entry IDs and nested work-unit identities, including parent-baseline
+  overhead. Already charged work is excluded, and uncertainty debits also reduce
+  the remaining cap. An extension has its own budget identity.
+- **Selected-job detail** plots the journalled `weighted_total` / `task_loss` /
+  `preservation_loss` trace against the recorded update, and full-gate `D` against
+  the update with the verdict's **own** recorded threshold. The snapshot line that
+  follows a check is that same check and is never drawn twice; sentinel looks are
+  counted apart, because nothing stops on them. A missing value is `null` and
+  renders "—", never a zero.
+- **Complete needs all three:** the report's completion flag, an independent
+  verification that passed, and a `verify` stage recorded completed. A live PID, a
+  fresh heartbeat and a table of finished pilots are none of them.
+
+Only the selected job's journals are read, incrementally and one selection at a
+time, with the same replaced-journal detection the campaign view uses. A selection
+that is not one of the directories on disk is refused (404) rather than shown as
+an empty job.
+
+The inspector follows the active job by default. Selecting an earlier job pauses
+following; **Follow active** resumes it. A selection made during a refresh takes
+precedence over the earlier response. The `#next-flight` link survives reloads.
+
 ## Being told, rather than looking
 
 The page shows you what is happening while you are looking at it. `scripts/her2_watchdog.py`
@@ -112,6 +182,9 @@ Targeted verification:
 
 ```powershell
 .venv/Scripts/python.exe -m pytest src/smallAntibodyGen/tests/test_her2_dashboard.py -q
+.venv/Scripts/python.exe -m pytest src/smallAntibodyGen/tests/test_her2_support_dashboard.py -q
+.venv/Scripts/python.exe -m pytest src/smallAntibodyGen/tests/test_her2_replay_dashboard.py -q
+.venv/Scripts/python.exe -m pytest src/smallAntibodyGen/tests/test_her2_nf_dashboard.py -q
 .venv/Scripts/python.exe -m pytest src/smallAntibodyGen/tests/test_her2_guard.py -q
 .venv/Scripts/python.exe -m pytest src/smallAntibodyGen/tests/test_her2_watchdog.py -q
 node --check scripts/her2_dashboard/app.js

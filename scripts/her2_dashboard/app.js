@@ -26,12 +26,14 @@ function chart(target, data, field, options={}) {
   let svg=`<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(options.title)}">`;
   for(let i=0;i<5;i++) {const val=lo+(hi-lo)*i/4;svg+=`<line class="grid" x1="${left}" x2="${width-right}" y1="${y(val)}" y2="${y(val)}"/><text x="${left-9}" y="${y(val)+3}" text-anchor="end">${esc(tick(val))}</text>`;}
   for(let i=0;i<5;i++){const val=maxX*i/4;svg+=`<text x="${x(val)}" y="${height-18}" text-anchor="middle">${fmt(val)}</text>`;}
-  for(const b of snapshot?.budgets || []) if(b<maxX) svg+=`<line class="budget-line" x1="${x(b)}" x2="${x(b)}" y1="${top}" y2="${height-bottom}"/><text x="${x(b)-4}" y="${top-9}" text-anchor="end">${b}s</text>`;
+  // The campaign's budget guides belong to a campaign x-axis. A view whose x is
+  // something else passes its own guides (or none) rather than inheriting these.
+  for(const b of options.guides ?? (snapshot?.budgets || [])) if(b<maxX) svg+=`<line class="budget-line" x1="${x(b)}" x2="${x(b)}" y1="${top}" y2="${height-bottom}"/><text x="${x(b)-4}" y="${top-9}" text-anchor="end">${b}s</text>`;
   if(finite(options.threshold))svg+=`<line class="threshold" x1="${left}" x2="${width-right}" y1="${y(options.threshold)}" y2="${y(options.threshold)}"/><text class="threshold-label" x="${width-right}" y="${y(options.threshold)-7}" text-anchor="end">Stop above ${fmt(options.threshold,1)} nat/seq</text>`;
   svg+=`<polyline class="trace" points="${points.map(p=>`${x(p.x)},${y(p[field])}`).join(" ")}"/>`;
-  for(const p of points)svg+=`<circle class="hit" cx="${x(p.x)}" cy="${y(p[field])}" r="5"><title>Update ${p.update} · ${fmt(p.x,2)} GPU s · ${fmt(p[field],5)}</title></circle>`;
+  for(const p of points)svg+=`<circle class="hit" cx="${x(p.x)}" cy="${y(p[field])}" r="5"><title>Update ${p.update} · ${fmt(p.x,2)} ${esc(options.xUnit ?? "GPU s")} · ${fmt(p[field],5)}</title></circle>`;
   const end=points[points.length-1];
-  svg+=`<circle class="last" cx="${x(end.x)}" cy="${y(end[field])}" r="4"/><text x="${(width+left-right)/2}" y="${height-1}" text-anchor="middle">Training GPU seconds (monitoring excluded)</text></svg>`;
+  svg+=`<circle class="last" cx="${x(end.x)}" cy="${y(end[field])}" r="4"/><text x="${(width+left-right)/2}" y="${height-1}" text-anchor="middle">${esc(options.xLabel ?? "Training GPU seconds (monitoring excluded)")}</text></svg>`;
   container.innerHTML=svg;
 }
 
@@ -55,8 +57,10 @@ function renderOverview() {
   if(s.status==='stale')warnings.unshift(`The campaign heartbeat is ${duration(s.heartbeat_age_seconds)} old. These are the last saved records; continued execution is unconfirmed.`);
   if(s.error)warnings.unshift(typeof s.error==='string'?s.error:JSON.stringify(s.error));
   $("notice").hidden=!warnings.length;$("notice").textContent=warnings.join("\n");
-  $("connection").textContent=s.status==='stale'?"Records may be stale":"Live · 5s refresh";
-  $("connection-dot").className=`dot ${s.status==='stale'?'error':'live'}`;
+  if(!flightView) {
+    $("connection").textContent=s.status==='stale'?"Records may be stale":"Live · 5s refresh";
+    $("connection-dot").className=`dot ${s.status==='stale'?'error':'live'}`;
+  }
   $("updated").textContent=`Snapshot ${new Date(s.generated_at).toLocaleTimeString()}`;
   const log=$("logs"), atBottom=log.scrollHeight-log.scrollTop-log.clientHeight<40;
   log.textContent=s.log.length?s.log.join("\n"):"No log lines recorded for this phase yet.";
@@ -335,24 +339,326 @@ async function refreshReplay() {
   } finally {replayBusy=false;}
 }
 
+// ---------------------------------------------------------------------------
+// Next-flight view. Additive again: everything it renders comes from
+// /api/next-flight, values out of the run directory are written as DOM text, and
+// a value the flight did not record is "—" rather than a zero. It never reports
+// a stage that was not recorded as done, never calls a finished pilot qualified,
+// and never reads a missing queue as an unlaunched flight.
+// ---------------------------------------------------------------------------
+let flightView = false, flightBusy = false, flightSelected = null, flightDetail = null;
+let flightFollowing = true, flightRefreshPending = false;
+const flightStateLabel = {not_configured:"Not configured", no_run_directory:"No flight directory",
+  not_launched:"Never launched", alive:"Running · lock held", unknown:"Liveness unknown",
+  gone:"Writer gone", failed:"Supervisor failed", finished:"Session finished"};
+const flightStateBadge = {not_configured:"queued", no_run_directory:"queued",
+  not_launched:"queued", alive:"running", unknown:"unknown", gone:"interrupted",
+  failed:"failed", finished:"completed"};
+// A stage nobody recorded, a readiness block and a feasibility block are three
+// different things, and none of them is "not started yet".
+const flightLabel = {not_recorded:"Not recorded", completed:"Completed", partial:"Partial",
+  failed:"Failed", not_run:"Not run", blocked_readiness:"Blocked · readiness",
+  blocked_feasibility:"Blocked · feasibility", unknown:"Unknown", running:"Running",
+  in_progress:"In progress", continuation_in_progress:"Continuation running",
+  stopped_by_gate:"Stopped by gate", incomplete:"Incomplete", not_started:"Not started",
+  selected:"Selected", queued:"Queued"};
+const activityLabel = {writing:"Writing", preparing:"Preparing", no_recent_writes:"No recent writes",
+  finished:"Finished", unknown:"Unknown", writer_absent:"No writer"};
+const groupLabel = {calibration:"Calibration pilots", trajectories:"Production jobs",
+  parents:"Fresh parents"};
+const flightTag = status => `<span class="badge ${esc(status)}">${esc(flightLabel[status] || status)}</span>`;
+const size = value => Array.isArray(value) ? value.length
+  : (value && typeof value === "object" ? Object.keys(value).length : 0);
+const coefficientText = value => value && typeof value === "object"
+  ? Object.entries(value).map(([k, v]) => `${k}=${v}`).join(" · ") : "";
+
+function emptyRow(body, columns, text) {
+  const tr=document.createElement("tr"), td=document.createElement("td");
+  td.colSpan=columns;td.className="muted";td.textContent=text;
+  tr.appendChild(td);body.appendChild(tr);
+}
+
+function flightJobRow(body, row, columns) {
+  const tr=document.createElement("tr");
+  if(row.id===flightSelected)tr.className="selected";
+  const first=document.createElement("td"), button=document.createElement("button");
+  button.className="run-link";button.dataset.flight=row.id;button.textContent=row.name||row.id;
+  first.appendChild(button);
+  const coefficients=coefficientText(row.coefficients);
+  if(coefficients){const small=document.createElement("small");small.textContent=coefficients;first.appendChild(small);}
+  tr.appendChild(first);
+  const status=document.createElement("td");
+  status.innerHTML=flightTag(row.status);
+  const reason=row.stop_reason||row.status_note;
+  if(reason){const small=document.createElement("small");small.textContent=reason;status.appendChild(small);}
+  tr.appendChild(status);
+  cell(tr,activityLabel[row.activity]||row.activity||"—",
+       finite(row.idle_seconds)?`last own write ${duration(row.idle_seconds)} ago`:"");
+  cell(tr,finite(row.updates)?fmt(row.updates):"—",
+       finite(row.declared_updates)?`of ${fmt(row.declared_updates)} declared`:"");
+  if(columns===8)cell(tr,finite(row.latest_update?.weighted_total)?fmt(row.latest_update.weighted_total,3):"—");
+  cell(tr,finite(row.gate?.D)?fmt(row.gate.D,3):"—",
+       row.gate&&row.gate.passed===false?"gate breached":"");
+  if(columns===8)cell(tr,finite(row.gate?.threshold_nats_per_sequence)?fmt(row.gate.threshold_nats_per_sequence,2):"—");
+  cell(tr,(row.endpoints_reached||[]).join(", ")||"—");
+  body.appendChild(tr);
+}
+
+function flightRows(f) {
+  return [...(f.calibration_jobs||[]), ...((f.production||{}).jobs||[]),
+          ...(f.parents||[]).map(p=>({id:`parents/${p.parent}`, name:p.parent, group:"parents",
+                                      status:p.selected?"selected":"in_progress"}))];
+}
+
+function renderFlightSelect(f) {
+  const select=$("flight-select"), rows=flightRows(f);
+  const signature=rows.map(r=>`${r.id}:${r.status}`).join("|");
+  if(select.dataset.signature!==signature) {
+    select.textContent="";
+    for(const group of ["calibration","trajectories","parents"]) {
+      const items=rows.filter(r=>r.group===group);
+      if(!items.length)continue;
+      const optgroup=document.createElement("optgroup");
+      optgroup.label=groupLabel[group];
+      for(const item of items) {
+        const option=document.createElement("option");
+        option.value=item.id;
+        option.textContent=`${item.name} · ${flightLabel[item.status]||item.status}`;
+        optgroup.appendChild(option);
+      }
+      select.appendChild(optgroup);
+    }
+    select.dataset.signature=signature;
+  }
+  const desired=flightFollowing&&f.active_job ? f.active_job
+    : (rows.some(row=>row.id===flightSelected)?flightSelected:(rows[0]?.id||null));
+  if(desired!==flightSelected) {
+    flightSelected=desired;
+    flightDetail=null;
+    flightRefreshPending=!!desired;
+  }
+  select.value=flightSelected||"";
+  $("flight-follow").setAttribute("aria-pressed",String(flightFollowing));
+  $("flight-follow").textContent=flightFollowing?"Following active":"Follow active";
+}
+
+function renderFlightDetail(d) {
+  $("flight-job-title").textContent=d.id||d.parent||"";
+  const meta=$("flight-job-meta");meta.textContent="";
+  for(const [label,value] of [["Status",flightLabel[d.status]||d.status||"—"],
+      ["Updates",finite(d.updates)?fmt(d.updates):"—"],
+      ["Declared",finite(d.declared_updates)?fmt(d.declared_updates):"—"],
+      ["Coefficients",coefficientText(d.coefficients)||"—"],
+      ["Full gates",fmt((d.gates||[]).length)],
+      ["Sentinel looks",fmt((d.sentinels||[]).length)]]) {
+    const span=document.createElement("span"), strong=document.createElement("b");
+    span.textContent=`${label} `;strong.textContent=value;span.appendChild(strong);
+    meta.appendChild(span);
+  }
+  $("flight-job-note").textContent=d.status_note||d.note||d.granularity||"";
+  const gates=(d.gates||[]).map(p=>({...p,x:p.update}));
+  const last=gates.length?gates[gates.length-1]:null;
+  $("flight-drop").textContent=last?fmt(last.D,3):"—";
+  $("flight-gate-label").textContent=last
+    ? `${last.passed?"Passing":"Breach"} · threshold ${finite(last.threshold_nats_per_sequence)?fmt(last.threshold_nats_per_sequence,2):"not recorded"}`
+    : "No full gate yet";
+  chart("flight-gate-chart",gates,"D",{threshold:last?last.threshold_nats_per_sequence:null,
+    guides:[],xLabel:"Recorded update",xUnit:"updates",
+    title:"Full-gate drop versus recorded update"});
+  const metric=$("flight-metric").value, label=$("flight-metric").selectedOptions[0].textContent;
+  chart("flight-training-chart",(d.updates_trace||[]).map(p=>({...p,x:p.update})),metric,
+    {guides:[],xLabel:"Recorded update",xUnit:"updates",
+     title:`${label} versus recorded update`});
+  $("flight-trace-description").textContent=`Recorded updates · ${label.toLowerCase()}`;
+  $("flight-trace-note").textContent=finite(d.update_count)
+    ? `${fmt(d.update_count)} journalled updates. ${d.plot_stride>1?`First 100 + every ${d.plot_stride}th later update shown; no smoothing.`:"All journalled updates shown; no smoothing."}`
+    : "No update journal for this item.";
+  const exposures=(d.latest_update||{}).exposures||d.exposures||null;
+  $("flight-exposures").innerHTML=exposures
+    ? Object.entries(exposures).slice(0,6).map(([k,v])=>`<span>${esc(k)}<b>${finite(v)?fmt(v):esc(v)}</b></span>`).join("")
+    : "No update recorded";
+  $("flight-endpoints").textContent=(d.endpoints_reached||[]).join(", ")||"—";
+  const damaged=(d.unreadable_update_lines||0)+(d.unreadable_monitor_lines||0);
+  $("flight-journal").textContent=`${fmt(damaged)} unreadable · ${fmt(d.journal_resets||0)} reset`
+    +((d.pending_update_bytes||d.pending_monitor_bytes)?" · a final line is still being written":"");
+}
+
+function renderNextFlight(f) {
+  const present=!!f.present, live=f.liveness||{}, lock=f.lock||live.lock||{};
+  const state=f.state||(present?"unknown":"no_run_directory");
+  if(flightView) {
+    $("connection").textContent=state==="alive"?"Live · 5s refresh"
+      : state==="finished"?"Recorded results":state==="unknown"?"Status unknown":"Last recorded state";
+    $("connection-dot").className=`dot ${state==="alive"?"live":state==="finished"?"":"error"}`;
+  }
+  $("flight-status").outerHTML=`<span id="flight-status" class="badge ${esc(flightStateBadge[state]||"queued")}">${esc(flightStateLabel[state]||state)}</span>`;
+  $("flight-note").textContent=present
+    ? `${f.root||""}${live.heartbeat&&live.heartbeat.stage?` · heartbeat stage ${live.heartbeat.stage}`:""}`
+    : (state==="not_configured"
+       ? "This server has no next flight connected."
+       : "No flight run directory yet.");
+  $("flight-state").textContent=flightStateLabel[state]||state;
+  $("flight-state").dataset.state=state;
+  $("flight-state-detail").textContent=present
+    ? `Heartbeat ${finite(live.heartbeat_age_seconds)?`${duration(live.heartbeat_age_seconds)} ago`:"not recorded"} · ${live.recorded_status||f.active_stage||"awaiting stage"}`
+    : "Waiting for flight status";
+  const stages=f.stages||[];
+  $("flight-stages-count").textContent=present?`${fmt(f.stages_completed)} / ${fmt(f.stages_total)}`:"—";
+  $("flight-stages-detail").textContent=present
+    ? `${fmt(stages.filter(s=>s.status==="not_recorded").length)} stages awaiting results`
+    : "Waiting for stage results";
+  const cal=f.calibration||{};
+  $("flight-cost").textContent=finite(cal.combined_measured_seconds)?duration(cal.combined_measured_seconds):"—";
+  $("flight-cost-detail").textContent=cal.present
+    ? `${finite(cal.cap_gpu_hours)?`of ${fmt(cal.cap_gpu_hours,1)} GPU h cap · `:""}${duration(cal.live_measured_seconds)} from work in progress`
+    : "No calibration ledger or budget record yet";
+  const forecast=f.forecast;
+  $("flight-forecast").textContent=forecast&&finite(forecast.total_hours)?`${fmt(forecast.total_hours,1)} h`:"—";
+  $("flight-forecast-detail").textContent=forecast
+    ? `${finite(forecast.with_reserve_hours)?`${fmt(forecast.with_reserve_hours,1)} h with reserve`:""} · estimated total runtime`
+    : "No runtime forecast recorded";
+  const source=f.source_freeze;
+  $("flight-source").textContent=source?(String(source.snapshot_sha256||"").slice(0,10)||"Frozen"):"Not frozen";
+  $("flight-source-detail").textContent=source
+    ? `${fmt(source.file_count)} files · frozen ${source.frozen_at||"—"}`
+    : "No source snapshot recorded";
+  // The source closure and the coefficient freeze are different freezes. One says
+  // which code is running; the other is the only thing that qualifies a family.
+  const freeze=f.coefficient_freeze||{};
+  $("flight-freeze").textContent=freeze.present
+    ? (freeze.families?`${fmt(freeze.families.length)} frozen`:"Frozen"):"Not frozen";
+  $("flight-freeze-detail").textContent=freeze.present
+    ? ((freeze.families||[]).join(", ")||freeze.note||"")
+    : "Pilot qualification is still underway";
+  $("flight-stages").innerHTML=stages.map(s=>`<div class="stage ${s.status==='completed'?'done':''} ${live.heartbeat&&s.stage===live.heartbeat.stage?'active':''}"><b>${esc(s.stage)} ${flightTag(s.status)}</b><small>${esc(s.reason||"")}</small></div>`).join("");
+  renderFlightSelect(f);
+  const pilots=f.calibration_jobs||[], production=(f.production||{});
+  const jobs=production.jobs||[];
+  const calibrationBody=$("flight-calibration");calibrationBody.textContent="";
+  $("flight-calibration-label").textContent=pilots.length?`${fmt(pilots.length)} recorded`:"";
+  if(!pilots.length)emptyRow(calibrationBody,8,present?"No calibration pilot directory has been written yet.":"No flight run directory yet.");
+  for(const row of pilots)flightJobRow(calibrationBody,row,8);
+  $("flight-budget-note").textContent=cal.present
+    ? `Includes completed pilots and measured work in progress. ${finite(cal.remaining_seconds_under_cap)?`${duration(cal.remaining_seconds_under_cap)} remains under the calibration cap, including uncertainty charges.`:"No cap is recorded."}`
+    : "No calibration ledger or per-pilot budget record has been written yet.";
+  const parentsBody=$("flight-parents");parentsBody.textContent="";
+  const parents=f.parents||[];
+  $("flight-parents-label").textContent=parents.length?`${fmt(parents.length)} recorded`:"";
+  if(!parents.length)emptyRow(parentsBody,5,"No fresh-parent directory has been written yet.");
+  for(const row of parents) {
+    const tr=document.createElement("tr");
+    const first=document.createElement("td"), button=document.createElement("button");
+    button.className="run-link";button.dataset.flight=`parents/${row.parent}`;
+    button.textContent=row.parent;first.appendChild(button);tr.appendChild(first);
+    cell(tr,fmt(row.epochs_recorded),"one history record per epoch");
+    cell(tr,row.last_epoch?JSON.stringify(row.last_epoch).slice(0,90):"—");
+    cell(tr,(row.checkpoint_files||[]).length?`${fmt(row.checkpoint_files.length)} saved`:"—");
+    cell(tr,row.selected?"Recorded":"Not recorded");
+    parentsBody.appendChild(tr);
+  }
+  const productionBody=$("flight-production");productionBody.textContent="";
+  $("flight-production-label").textContent=jobs.length?`${fmt(jobs.length)} recorded job(s)`:"";
+  if(!jobs.length)emptyRow(productionBody,6,present?"No production job directory has been written yet.":"No flight run directory yet.");
+  for(const row of jobs)flightJobRow(productionBody,row,6);
+  $("flight-production-note").textContent=jobs.length
+    ? "Jobs appear as they begin. The full campaign is assessed at final verification."
+    : "Production follows calibration and coefficient selection.";
+  const terminal=f.terminal||{};
+  $("flight-complete").textContent=f.complete?"Complete":"Not complete";
+  const completion=$("flight-completion");completion.textContent="";
+  for(const [label,value] of [["report completion",terminal.report_completion],
+      ["verification passed",terminal.verification_passed],
+      ["verify stage",terminal.verify_stage]]) {
+    const span=document.createElement("span"), strong=document.createElement("b");
+    span.textContent=`${label} `;
+    strong.textContent=(value===undefined||value===null)?"not recorded":String(value);
+    span.appendChild(strong);completion.appendChild(span);
+  }
+  if(flightDetail)renderFlightDetail(flightDetail);
+  else {
+    $("flight-job-title").textContent=flightSelected||"No job selected";
+    $("flight-job-meta").textContent="";
+    $("flight-job-note").textContent=present?"Select a pilot, a production job or a fresh parent to read its recorded history.":"";
+    for(const id of ["flight-gate-chart","flight-training-chart"])$(id).innerHTML='<div class="empty-chart">No job selected.</div>';
+    $("flight-drop").textContent="—";$("flight-gate-label").textContent="No full gate yet";
+    $("flight-exposures").textContent="No update recorded";
+    $("flight-endpoints").textContent="—";$("flight-journal").textContent="—";
+  }
+  const problems=[...(f.warnings||[]),...(f.errors||[])];
+  $("flight-notice").hidden=!problems.length;$("flight-notice").textContent=problems.join("\n");
+  $("flight-updated").textContent=f.generated_at?`Snapshot ${new Date(f.generated_at).toLocaleTimeString()}`:"No snapshot yet";
+}
+
+async function refreshNextFlight() {
+  if(flightBusy){flightRefreshPending=true;return;}
+  flightBusy=true;flightRefreshPending=false;
+  const requested=flightSelected;
+  try {
+    const query=requested?`?select=${encodeURIComponent(requested)}`:"";
+    const response=await fetch(`/api/next-flight${query}`,{cache:"no-store",signal:AbortSignal.timeout(15000)});
+    if(response.status===404) {
+      // Either no flight directory was given to the server, or the selected job is
+      // not one of the directories on disk. A selection is dropped and asked again
+      // once; nothing is invented for a job that is not there.
+      if(requested) {
+        if(requested===flightSelected){flightSelected=null;flightDetail=null;}
+        flightRefreshPending=true;
+        return;
+      }
+      renderNextFlight({present:false,state:"not_configured",stages:[],
+                        generated_at:new Date().toISOString()});
+      return;
+    }
+    if(!response.ok)throw Error(`Next-flight request failed (${response.status})`);
+    const result=await response.json();
+    if(requested===flightSelected)flightDetail=result.detail||null;
+    else flightRefreshPending=true;
+    renderNextFlight(result);
+  } catch(err) {
+    $("flight-notice").hidden=false;$("flight-notice").textContent=`Next-flight refresh failed. Displayed values may be out of date. ${err.message}`;
+    if(flightView){$("connection").textContent="Refresh failed";$("connection-dot").className="dot error";}
+  } finally {
+    flightBusy=false;
+    if(flightRefreshPending&&flightView)setTimeout(refreshNextFlight,60);
+  }
+}
+
 function showView(view) {
   auditView = view === "audit";
   replayView = view === "replay";
-  $("campaign-heading").hidden = auditView || replayView;
-  $("view-campaign").hidden = auditView || replayView;
+  flightView = view === "next-flight";
+  $("campaign-heading").hidden = auditView || replayView || flightView;
+  $("view-campaign").hidden = auditView || replayView || flightView;
   $("view-audit").hidden = !auditView;
   $("view-replay").hidden = !replayView;
-  $("tab-campaign").setAttribute("aria-pressed", String(!auditView && !replayView));
+  $("view-next-flight").hidden = !flightView;
+  $("tab-campaign").setAttribute("aria-pressed", String(!auditView && !replayView && !flightView));
   $("tab-audit").setAttribute("aria-pressed", String(auditView));
   $("tab-replay").setAttribute("aria-pressed", String(replayView));
+  $("tab-next-flight").setAttribute("aria-pressed", String(flightView));
+  currentView = view;
+  // A URL that already names a view keeps naming the one on screen. A URL with no
+  // fragment is left alone, so every existing link still opens the campaign view.
+  if((location.hash || view !== "campaign") && location.hash.replace(/^#/,"") !== view)
+    location.hash = view;
   if(auditView)refreshAudit();
   if(replayView)refreshReplay();
+  if(flightView)refreshNextFlight();
 }
+
+// Deep links, for all four views alike: a reload or a shared URL lands on the
+// view it names, and an old URL with no fragment still lands on the campaign.
+const VIEWS = ["campaign", "audit", "replay", "next-flight"];
+let currentView = "campaign";
+const viewFromHash = () => {
+  const name = (location.hash || "").replace(/^#/, "");
+  return VIEWS.includes(name) ? name : "campaign";
+};
 
 function selectRun(id){following=false;selected=id;details=null;populateSelect();renderSelected();renderTable();for(const el of ['likelihood-chart','training-chart'])$(el).innerHTML='<div class="empty-chart">Loading trajectory…</div>';fetchDetail().catch(err=>{$('notice').hidden=false;$('notice').textContent=err.message;});}
 // The header button refreshes whatever is on screen. Wiring it to the campaign
 // unconditionally meant pressing Refresh on the audit tab reloaded the hidden view.
-$("refresh").addEventListener('click',()=>{replayView?refreshReplay():auditView?refreshAudit():refresh();});
+$("refresh").addEventListener('click',()=>{flightView?refreshNextFlight():replayView?refreshReplay():auditView?refreshAudit():refresh();});
 $("run-select").addEventListener('change',e=>selectRun(e.target.value));
 $("follow").addEventListener('click',()=>{following=!following;populateSelect();renderSelected();renderTable();fetchDetail().catch(()=>{});});
 $("metric").addEventListener('change',renderPlots);
@@ -360,6 +666,15 @@ $("stage-filter").addEventListener('change',()=>snapshot&&renderTable());
 $("show-queued").addEventListener('change',()=>snapshot&&renderTable());
 $("runs").addEventListener('click',e=>{const button=e.target.closest('[data-run]');if(button)selectRun(button.dataset.run);});
 for(const tab of document.querySelectorAll('[data-view]'))tab.addEventListener('click',()=>showView(tab.dataset.view));
+function selectFlight(id){if(!id)return;flightFollowing=false;flightSelected=id;flightDetail=null;refreshNextFlight();}
+$("flight-select").addEventListener('change',e=>selectFlight(e.target.value));
+$("flight-follow").addEventListener('click',()=>{flightFollowing=!flightFollowing;refreshNextFlight();});
+$("flight-metric").addEventListener('change',()=>{if(flightDetail)renderFlightDetail(flightDetail);});
+for(const id of ['flight-calibration','flight-production','flight-parents'])
+  $(id).addEventListener('click',e=>{const button=e.target.closest('[data-flight]');if(button)selectFlight(button.dataset.flight);});
+window.addEventListener('hashchange',()=>{const view=viewFromHash();if(view!==currentView)showView(view);});
+showView(viewFromHash());
 refresh();setInterval(refresh,5000);
 setInterval(()=>{if(auditView)refreshAudit();},5000);
 setInterval(()=>{if(replayView)refreshReplay();},5000);
+setInterval(()=>{if(flightView)refreshNextFlight();},5000);

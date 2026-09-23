@@ -54,6 +54,15 @@ her2 = [
     # release exercised by the native GPU and gradient-parity checks.
     "transformers==5.12.1",
     "safetensors>=0.4",
+    # HER2 next flight only. Two uses, both lazily imported inside functions so
+    # the rest of the package works without it: the trusted cross-check for
+    # threshold-grouped average precision (`her2_nf_metrics`), and the sparse
+    # three-class multinomial logistic fit with 190 main effects plus 16,245
+    # pairwise interaction terms (`her2_nf_coupling`). 1.9 is the floor because
+    # `LogisticRegression` dropped the `multi_class` argument there and is
+    # multinomial by default for three or more classes; the flight passes no
+    # such argument and relies on that behaviour.
+    "scikit-learn>=1.9",
 ]
 # Optional TensorBoard scalar logging (enabled per-run with `tensorboard: true`).
 # Imported lazily so the base install and non-logging runs never require it.
@@ -79,3 +88,8 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+markers = [
+    "her2_nf_native: explicit opt-in checks using the pinned HER2 weights and data",
+]
