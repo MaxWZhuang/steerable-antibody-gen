@@ -1,0 +1,415 @@
+{
+  "schema_version": "her2-generative-routes/1",
+  "campaign_id": "her2_generative_routes_dplm_train_20260929",
+  "protocol": "specs/her2_generative_routes/FLIGHT_SPEC.md",
+  "config_path": "configs/experiments/her2_generative_routes_dplm_train.json",
+  "run_root_leaf": "flight_dplm_train",
+  "opt_in_note": "EXPLICIT DPLM TRAINING PHASE. An independent, training-only phase that trains the two native DPLM routes (dplm_150m_masked, then dplm_650m_lora_masked) sequentially at the qualified 20,000 updates and route settings. It is NOT competition admission and NOT a complete flight: the training_phase block below is enforced in code (spec.training_phase), only the acquire/preflight/split/sources/profile/smoke/freeze/bakeoff/verify stages run, and route_gate, controls, priors, posttrain, decoding, confirmation_freeze, confirm and report are held. It does not touch configs/experiments/her2_generative_routes.json, her2_generative_routes_dplm.json or her2_generative_routes_joint.json, which are byte-for-byte unchanged; its revision id and run-root leaf differ from all of them, so a run of this config can never resume or overwrite another root. Nothing here has been run: this is prepared and pending an actual launch.",
+  "training_phase_note": "The block below is a closed schema compared in code against constants: no key may be added, removed or relaxed, and removing the block leaves the downstream sections (gates, decoding, posttrain, confirmation) absent, which fails production resolution. Checkpoint selection uses the HR17 TRAINING selector: the mean fixed-path high-minus-null log probability over the fixed ten HER2 sites, ranked by negative Spearman against the qualified pKD on the development panel. That is a different statistic from the legacy development metric the original routes were selected with, so the recipe-level comparison is intended and the numbers are not interchangeable. Observation-head diagnostics and the all-routes comparison of HR17 are DEFERRED; HR18 and an explicit checkpoint import/admission protocol must be frozen before any future joint selection. Nothing here claims all-five readiness or that admission has been obtained.",
+  "training_phase": {
+    "phase_id": "dplm_explicit_training",
+    "admission": "none",
+    "routes": ["dplm_150m_masked", "dplm_650m_lora_masked"],
+    "updates": 20000,
+    "milestones": [5000, 10000, 15000],
+    "stages": ["acquire", "preflight", "split", "sources", "profile", "smoke", "freeze", "bakeoff", "verify"],
+    "held_stages": ["route_gate", "controls", "priors", "posttrain", "decoding", "confirmation_freeze", "confirm", "report"],
+    "selection_metric": "hr17_fixed_path_high_minus_null_negative_spearman",
+    "head_diagnostics": "deferred",
+    "expected_split_sha256": "3955a5981c225e94ba2b08e97e90175b5a3b6cf35393adea9b018c5542fd5d49",
+    "expected_sequence_sha256": "a742b610f1ea120a8d669b2d240252cb11c185dd4574978cea13314b8a575b73"
+  },
+
+  "artifacts": {
+    "root": "F:/smallAntibodyGen/her2_generative_routes_20260927",
+    "root_note": "the SAME artifact volume as the other flights, read for its data and native package only. Run-stage writes land under runs/dplm_train_rev01/flight_dplm_train. Override with --artifact-root; it must be absolute.",
+    "acquisition_manifest": "data/acquisition_manifest.json",
+    "primary_acquisition_manifest": "data/primary_acquisition_manifest.json",
+    "primary_review_manifest": "data/primary_review_acquisition_manifest.json",
+    "primary_corrections_manifest": "data/primary_corrections_acquisition_manifest.json",
+    "dplm_acquisition_manifest": "data/dplm_acquisition_manifest.json",
+    "dplm_acquisition_note": "the DPLM weights, config and vocabulary enter the frozen external identity ONLY through this manifest. The acquire stage refuses a DPLM route whose manifest is absent, or whose files are not in the derived closure, or whose manifest digests differ from configs/experiments/dplm_pins.json.",
+    "dependency_manifest": "data/native_dependencies_install.json",
+    "external_sources": [],
+    "external_sources_extra": [],
+    "external_sources_note": "DERIVED from the acquisition manifests, exactly as in the other configs."
+  },
+
+  "dplm": {
+    "pins": "configs/experiments/dplm_pins.json",
+    "pins_note": "commit ids, file sizes and digests for both variants. The training identity folds in the pins digest, the base file digests, the LoRA settings, the optimizer policy and the diffusion settings, so changing any of them refuses a resume."
+  },
+
+  "roots": {
+    "her2_raw": "data/raw/her2_functional_20260918",
+    "paired_oas": "data/processed/oas_paired_all",
+    "cr9114_raw": "data/raw/cr9114_cr6261_landscape",
+    "historical": {
+      "next_flight": "outputs/her2_next_flight_20260922/production_03",
+      "parent_replay": "outputs/her2_parent_replay_20260920",
+      "posttrain": "outputs/her2_posttrain_20260918"
+    },
+    "historical_note": "read-only; the run root is checked for disjointness against every one of these before the first write."
+  },
+
+  "source": {
+    "entry_points": [
+      "scripts/her2_routes_flight.py",
+      "scripts/her2_routes_supervisor.py"
+    ],
+    "extra_files": [
+      "specs/her2_generative_routes/FLIGHT_SPEC.md",
+      "specs/her2_generative_routes/EVIDENCE_AND_RISKS.md",
+      "specs/her2_generative_routes/reference_math.py",
+      "scripts/her2_routes_runtime_probe.py",
+      "configs/experiments/dplm_pins.json"
+    ],
+    "extra_files_note": "the pins file is hashed into the repository snapshot as well as into every training identity.",
+    "rule": "as in the other configs: the freeze computes the transitive module-level AST import closure from these entry points, copies every file's bytes into the run root and records one aggregate content digest plus HEAD and the full dirty list."
+  },
+
+  "revisions": {
+    "current": "dplm_train_rev01",
+    "kind": "development",
+    "supersedes": null,
+    "reason": "the first development revision of the explicit DPLM training phase. It is independent of t1_rev01, dplm_rev01 and joint_rev01: nothing is resumed or transferred from any of them.",
+    "frozen_after": [],
+    "rule": "a development revision may be superseded by a new one if a round finds a real training-path bug; the old root is retained read-only and NEVER resumed."
+  },
+
+  "her2": {
+    "wild_type_core": "WGGDGFYAMD",
+    "core_start": 98,
+    "core_length": 10,
+    "assay": "alphabind_her2:affinity:HER2",
+    "note": "the offsets are asserted constants in her2_data; a disagreement fails in her2_data.load_scaffold."
+  },
+
+  "conditions": {
+    "assays": [
+      "alphabind_her2:affinity:HER2",
+      "engelhart2022_s1",
+      "li2023_s1_a",
+      "li2023_s1_b",
+      "adams2017_fluorescein",
+      "adams2017_expression",
+      "koenig2017_g6",
+      "koenig2017_expression",
+      "petersen2024_ha",
+      "cr9114_h3",
+      "cr9114_flub",
+      "her2_display"
+    ],
+    "assays_note": "PREFLIGHT ONLY: these names size the condition tables for the preflight native-evidence probes. The production vocabulary is DERIVED from the enrolled training partitions and pinned in condition_vocabulary.json by the sources stage.",
+    "bin_dropout": 0.10,
+    "assay_dropout": 0.25,
+    "minimum_bin_support": 30,
+    "rule": "three independent tables: family (never dropped), bin and assay (dropped independently). Same as the other configs."
+  },
+
+  "sources": {
+    "paths": {
+      "alphabind_her2_validation": {
+        "root": "artifact",
+        "logical": "data/alphabind/manuscript/data/alphaseq/validation/trastuzumab-scfv-cdr_validation_alphaseq.csv"
+      },
+      "engelhart2022_s1": {
+        "root": "artifact",
+        "logical": "data/flab/data/binding/engelhart2022dataset_scFv-SARS-CoV-2_affinity.csv.zip"
+      },
+      "li2023_s1_a": {
+        "root": "artifact",
+        "logical": "data/flab/data/binding/li2023machine_scFv-SARS-CoV-2_affinity1.csv.zip"
+      },
+      "li2023_s1_b": {
+        "root": "artifact",
+        "logical": "data/flab/data/binding/li2023machine_scFv-SARS-CoV-2_affinity2.csv.zip"
+      },
+      "adams2017_fluorescein": {
+        "root": "artifact",
+        "logical": "data/flab/data/binding/adams2017measuring_4420-fluorescein_kd-titeseq.csv"
+      },
+      "adams2017_expression": {
+        "root": "artifact",
+        "logical": "data/flab/data/expression/adams2017measuring_4420-fluorescein_exp_er.csv"
+      },
+      "koenig2017_g6": {
+        "root": "artifact",
+        "logical": "data/flab/data/binding/koenig2017mutational_kd_g6.csv"
+      },
+      "koenig2017_expression": {
+        "root": "artifact",
+        "logical": "data/flab/data/expression/koenig2017mutational_er_g6.csv"
+      },
+      "koenig2017_historical": {
+        "root": "artifact",
+        "logical": "data/primary/corrections/koenig/Koenig2017_g6_Kd.csv"
+      },
+      "petersen2024_ha": {
+        "root": "artifact",
+        "logical": "data/flab/data/binding/peterson2024integrated_ab_H1HA_kd.csv"
+      },
+      "cr9114": {
+        "root": "repository",
+        "logical": "data/raw/cr9114_cr6261_landscape/elife-71393-fig1-data1-v3.csv"
+      },
+      "cr9114_prepared": {
+        "root": "repository",
+        "logical": "data/processed/cr9114_5cjq_context/cr9114_5cjq.prepared.json"
+      },
+      "cr9114_whitelist": {
+        "root": "repository",
+        "logical": "data/processed/cr9114_preferences_20260916/eligible_non_test_records.csv"
+      },
+      "adams2017_primary": {
+        "root": "artifact",
+        "logical": "data/primary/adams2017"
+      },
+      "petersen2024_primary": {
+        "root": "artifact",
+        "logical": "data/primary/petersen2024/41467_2024_48072_MOESM6_ESM.xlsx"
+      },
+      "petersen2024_parents": {
+        "root": "artifact",
+        "logical": "data/primary/petersen2024_parent_export/data/whitehead/petersen/original/AntibodySequences2.csv"
+      },
+      "petersen2024_coding_parents": {
+        "root": "artifact",
+        "logical": "data/primary/corrections/petersen/wt.csv"
+      },
+      "petersen2024_pooled": {
+        "root": "artifact",
+        "logical": "data/primary/petersen2024/41467_2024_48072_MOESM9_ESM.xlsx"
+      },
+      "alphabind_aab_pp489": {
+        "root": "artifact",
+        "logicals": [
+          "data/alphabind/manuscript/data/alphaseq/fine-tuning/aab-pp489_fine-tuning_alphaseq.csv",
+          "data/alphabind/manuscript/data/alphaseq/validation/aab-pp489_validation_alphaseq.csv"
+        ]
+      },
+      "alphabind_pembrolizumab": {
+        "root": "artifact",
+        "logicals": [
+          "data/alphabind/manuscript/data/alphaseq/fine-tuning/pembrolizumab-scfv_fine-tuning_alphaseq.csv",
+          "data/alphabind/manuscript/data/alphaseq/validation/pembrolizumab-scfv_validation_alphaseq.csv"
+        ]
+      },
+      "alphabind_vhh72": {
+        "root": "artifact",
+        "logicals": [
+          "data/alphabind/manuscript/data/alphaseq/fine-tuning/vhh72_fine-tuning_alphaseq.csv",
+          "data/alphabind/manuscript/data/alphaseq/validation/vhh72_validation_alphaseq.csv"
+        ]
+      }
+    },
+    "paths_note": "identical to the other configs: the existing data artifacts are reused in place and none is copied or rewritten.",
+
+    "her2_display": {
+      "enrolled": true,
+      "split": "train",
+      "positives_only": false,
+      "note": "as in the other configs. The test split is never read."
+    },
+
+    "withheld": {
+      "parents": ["MIT_95_HL_scFV"],
+      "studies": ["koenig2017_g6_phage"],
+      "note": "declared before any fit, identical to the other configs."
+    },
+    "li_targets": ["MIT_Target"],
+    "cr9114_pins": {
+      "eligible": 50540,
+      "eligible_train": 38790,
+      "eligible_development": 11750,
+      "protected": 14996,
+      "eligible_file_sha256": "82fdd8f3d361cdf292544829e5888963e315d3c743b604ea0c56f7ad3a80263f",
+      "protected_sorted_newline_sha256": "3de5df07f586e92605ab45d2887e4adba6c5417f800a6a9a0bb2eb9dca0597dc",
+      "read_columns": ["genotype", "split"],
+      "note": "identical to the other configs."
+    },
+    "not_enrolled": {
+      "alphabind_her2_full": "as in the other configs.",
+      "absci_release": "as in the other configs.",
+      "sabdab_libraseq": "as in the other configs."
+    }
+  },
+
+  "split": {
+    "seed": 20260927,
+    "novel_separation": 3,
+    "purge_radius": 2,
+    "test_target": 100,
+    "development_target": 100,
+    "batch_size": 50,
+    "batch_separation": 3,
+    "minimum_reserved": 100,
+    "assumed_rho": 0.5,
+    "ambition_target": 0.05,
+    "algorithm": "four seeded batches of fifty over the eligible candidates, TEST first: batches 1-2 are the reserved test, batches 3-4 are development. Every member of a batch is at least batch_separation edits from every member of every EARLIER batch, not merely from the earlier batch seeds. Then every remaining eligible core within purge_radius of any held-out core is excluded from training.",
+    "amendment_withdrawn": "an earlier revision enlarged the reserved panel to 'every remaining eligible core' with a declared minimum of 200. WITHDRAWN as arithmetically wrong. SE = (1 - rho^2)/sqrt(n-1) is 0.0754 at n=100 and 0.0419 at n=322; the 95% HALF-WIDTH is 1.96 times that, i.e. 0.148 and 0.082. The +0.05 ambition is unresolvable for a single Spearman at BOTH sizes, so the enlargement bought nothing it claimed to buy -- while the radius-2 purge around a larger held-out set removes novel adaptation cores the audited 100/100 design retains (1,934 after the radius exclusion at the audit seed). The panel is the plan's 100 test + 100 development and is not enlarged again.",
+    "novelty_population": "the FULL old display library -- train, validation and the test SEQUENCES via her2_data.test_sequences, whose usecols read cannot return a bin. The test outcomes stay sealed permanently. Novelty against the training split alone is not novelty to a parent that was selected on the validation split.",
+    "primary_endpoint": "the PAIRED per-core difference against the frozen control, bootstrapped over cores. The arms see identical cores, so the between-arm variance is far smaller than either arm's own sampling variance and the single-correlation half-width above does NOT bound it; its width is measured. Secondary: each arm's absolute Spearman with its interval, reported beside the arithmetic that says +0.05 is out of reach for a single correlation at this n.",
+    "batch_caveat": "the algorithm has no radius cap and audited batch diameters were 6-10 edits. Batches are not biological families and not bootstrap units; every batched result is reported beside its measured diameter."
+  },
+
+  "routes": {
+    "enabled": ["dplm_150m_masked", "dplm_650m_lora_masked"],
+    "enabled_note": "the two native DPLM routes ONLY, trained sequentially in this order. The route blocks are the qualified ones, copied unchanged from the DPLM opt-in and joint configs. Both routes are subject to the profile stage's spill signals; a route that does not fit stops the flight at a feasibility gate rather than being shrunk to fit.",
+    "dplm_150m_masked": {
+      "variant": "dplm_150m",
+      "activation_checkpointing": true,
+      "dropout": 0.1,
+      "base_dtype": "fp32",
+      "updates": 20000,
+      "seed": 20260927,
+      "max_positions": 512,
+      "milestones": [5000, 10000, 15000],
+      "optimizer": {
+        "name": "adafactor",
+        "relative_step": false,
+        "scale_parameter": false,
+        "warmup_init": false,
+        "beta1": null,
+        "eps": [1e-30, 1e-3],
+        "clip_threshold": 1.0,
+        "decay_rate": -0.8,
+        "weight_decay": 0.0
+      },
+      "objective": {"reconstruction": "diffusion"},
+      "diffusion": {
+        "num_timesteps": 500,
+        "weighting": "constant",
+        "decode_steps": 20,
+        "decoding_strategy": "reparam-uncond-deterministic-linear"
+      },
+      "gate_generation_strategy": "diffusion_reparam",
+      "why": "full fine-tuning of the pretrained 150M DPLM. Adafactor (transformers.optimization.Adafactor with fixed-LR options, factored second moments and no first moment) is what brings the persistent state under the card: fp32 weights + gradients + factored moments is roughly 1.2 GiB of persistent state before activations. That is arithmetic, not a measurement, and the WDDM-reported budget is not physical capacity; whether this route fits this GPU is decided by the profile stage. Reconstruction is trained with sampled-timestep absorbing-state corruption (T=500) as DPLM was; the functional, local and head tasks keep their masked-window semantics.",
+      "compute_note": "the profile forecast covers TRAINING only and says so in its per-route 'excludes' list."
+    },
+    "dplm_650m_lora_masked": {
+      "variant": "dplm_650m",
+      "activation_checkpointing": true,
+      "dropout": 0.1,
+      "base_dtype": "auto",
+      "updates": 20000,
+      "seed": 20260927,
+      "max_positions": 512,
+      "milestones": [5000, 10000, 15000],
+      "lora": {"rank": 16, "alpha": 32, "dropout": 0.1},
+      "optimizer": {
+        "name": "adamw",
+        "learning_rate": 0.0001,
+        "betas": [0.9, 0.999],
+        "weight_decay": 0.01
+      },
+      "objective": {"reconstruction": "diffusion"},
+      "diffusion": {
+        "num_timesteps": 500,
+        "weighting": "constant",
+        "decode_steps": 20,
+        "decoding_strategy": "reparam-uncond-deterministic-linear"
+      },
+      "gate_generation_strategy": "diffusion_reparam",
+      "why": "the pretrained 650M DPLM with a FROZEN base and rank-16 LoRA on Q, K, V, the attention output and both FFN projections of every layer (six exact module paths per layer). The base rests in fp16 on CUDA (fp32 on CPU) and every operation computes in fp32; LoRA factors, the condition tables and the observation heads are fp32 and trainable. Roughly 1.3 GiB of resting base is arithmetic, not a measurement; this route may fail the profile's spill signals on this card. That outcome is reported; the route is not shrunk.",
+      "compute_note": "as for dplm_150m_masked."
+    },
+    "excluded": {
+      "three_original_routes": "not enabled: their checkpoints are not imported or admitted here.",
+      "iglm_13m": "its native interface is single-chain, and the plan itself requires justifying any paired extension. Recorded as excluded with the reason rather than dropped."
+    }
+  },
+
+  "curriculum": {
+    "shares": {
+      "paired_reconstruction": 0.25,
+      "measured_local_effects": 0.28125,
+      "whole_window_generation": 0.28125,
+      "observation_heads": 0.1875
+    },
+    "family_mix": {"her2": 0.50, "other_functional": 0.25, "paired_replay": 0.25},
+    "her2_head_display_probability": 0.5,
+    "weights": {"reconstruction": 1.0, "local_effect": 1.0, "whole_window": 1.0, "heads": 0.5},
+    "mask_fraction": 0.15,
+    "max_contrast_sites": 2,
+    "max_contrasts_per_background": 4096,
+    "max_contrasts_per_context": 32,
+    "max_quartets_per_background": 512,
+    "local_quartet_probability": 0.25,
+    "contrast_refresh_updates": 2500,
+    "max_query_sites": 48,
+    "masked_progressive_probability": 0.5,
+    "preference_weight": 1.0,
+    "local_reconstruction_weight": 0.25,
+    "interaction_weight": 0.5,
+    "max_joint_per_update": 1,
+    "oas_rows": 200000,
+    "oas_splits": ["train", "val"],
+    "kappa": 2.0,
+    "status": "identical to the joint config's values (they are sweep centres). mask_fraction still governs the masked-window views of every task; the DPLM routes replace it with sampled-timestep corruption for the RECONSTRUCTION task only, through routes.<route>.objective.reconstruction."
+  },
+
+  "optimization": {
+    "learning_rate": 0.00003,
+    "betas": [0.9, 0.999],
+    "weight_decay": 0.01,
+    "gradient_clip": 1.0,
+    "warmup": 500,
+    "microbatch": 4,
+    "accumulation": 16,
+    "effective_batch": 64,
+    "eval_every": 250,
+    "save_every": 100,
+    "plateau_delta": 0.001,
+    "plateau_patience_evaluations": 4,
+    "selection_metric": "negative Spearman of the mean fixed-path high-minus-null log probability (fixed ten HER2 sites, same construct, order, targets, affinity family and HER2 assay; only the bin differs) against the qualified development pKD (HR17 training selector; not the legacy development metric)",
+    "plateau_factor": 0.3,
+    "max_plateau_reductions": 2,
+    "shape_note": "microbatch and accumulation are DECLARED here and overridden by whatever the profile stage accepted (services.selected_shapes). The 150M route inherits learning_rate; the 650M LoRA route names its own in routes.<route>.optimizer.",
+    "exposure_note": "row presentations, student forwards and denoiser forwards are separate counters."
+  },
+
+  "smoke": {
+    "updates": 6,
+    "trajectory_tolerance": 0.0001,
+    "rule": "a miniature end-to-end run against the production curriculum stream, with the resumed trajectory compared step for step. The terminal step runs the full HR17 selection evaluation, so the native selector path is exercised."
+  },
+
+  "profile": {
+    "probe_lr": 0.00001,
+    "probe_seed": 7,
+    "microbatches": [1, 2, 4],
+    "steps": 4,
+    "min_free_vram_mib": 256,
+    "max_peak_mib": 2300,
+    "max_per_row_slowdown": 1.5,
+    "energy_microbatches": [1, 2, 4, 8],
+    "acceptance_note": "a microbatch is accepted only when every profiled task accepted it, judged on the NVML framebuffer reading, the allocator peak and the per-row step time."
+  },
+
+  "runtime": {
+    "cpu_threads": 4,
+    "deterministic_algorithms": true,
+    "determinism_note": "strict CUDA resume reproducibility, CUBLAS_WORKSPACE_CONFIG=:4096:8 set before torch import. Not verified for the DPLM routes on CUDA.",
+    "reserve_hours": 4.0,
+    "soft_cap_hours": 24.0,
+    "target_hours": 240.0,
+    "drop_order": [],
+    "scope_rule": "no component is dropped to meet a runtime target; the measured cost is reported.",
+    "no_deadline": "a forecast is reported whether or not it fits, and an incomplete flight is never relabelled complete."
+  },
+
+  "storage": {
+    "min_free_bytes": 42949672960,
+    "bytes_per_checkpoint": 800000000,
+    "note": "sized for the largest DPLM checkpoint: the 150M full state (fp32 weights, about 0.6 GB) plus its factored Adafactor state. The 650M LoRA checkpoint holds only adapters, condition tables and heads plus AdamW moments, well under this. Neither figure has been measured on a real run."
+  },
+
+  "tolerances": {
+    "sum_log_probability_atol": 0.00005,
+    "sum_log_probability_rtol": 0.000002,
+    "conditional_sum_atol": 0.00001,
+    "sinkhorn_tolerance": 0.000001,
+    "basis": "the repository's own measured figures from her2_policy; not widened here."
+  }
+}

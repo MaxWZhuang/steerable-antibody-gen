@@ -1,0 +1,162 @@
+{
+  "schema_version": "her2-generative-routes-sources/1",
+  "campaign_id": "her2_generative_routes_20260927",
+  "purpose": "the assay qualification record: primary citation, units, direction, censoring and what each source may and may not teach. The loader paths live in the flight config; this file is the scientific half, and her2_routes_sources.SOURCES is checked against it by test_her2_routes_sources.",
+
+  "analysis_scale": {
+    "affinity": "pKD = -log10(KD/M), higher is stronger",
+    "conversion_from_log10_nm": "pKD = 9 - log10(KD/nM), derived in her2_routes_sources.pkd_from_log10_nm and written in exactly one place",
+    "enrichment": "study-internal enrichment ratio, higher is more enriched. Never converted to an affinity.",
+    "display": "sorted binding bin index at one concentration, higher is stronger. NOT a KD.",
+    "unit_conversion_is_not_calibration": "converting log10(KD/nM) to pKD is arithmetic. It does not put two assays on one scale, and no objective pairs measurements across assays."
+  },
+
+  "sources": {
+    "alphabind_her2_validation": {
+      "primary": "A-Alpha-Bio/alphabind @15d2582fb0d5c39fb0d479120cf109cbc0a6a554",
+      "target": "HER2",
+      "family": "affinity",
+      "kind": "point",
+      "measured_column": "alphaseq_affinity",
+      "units": "log10(KD/nM)",
+      "never_an_outcome": "predicted_affinity is a model output. It is retained as metadata and is never used as a measurement.",
+      "construct": "VH(120) + linker(15) + VL(107) + terminal R = 243; VL starts at index 135",
+      "compatibility": "the complete VL, the complete linker and every heavy position OUTSIDE the ten-residue HCDR3 window must match the parent. Core-only inclusion is refused: a row with a different framework is a different antibody.",
+      "parent_derivation": "the modal 15-mer linker and modal 107-mer VL among length-243 terminal-R rows, each required to hold a declared majority share. Derived from the release, never invented.",
+      "audited_counts": {"rows": 3681, "length_243_compatible": 3668, "unique_ten_cores": 3619},
+      "audited_counts_provenance": "Codex's inspection of the acquired release. The loader recomputes all three and records its own figures; these are what the recomputation is compared against."
+    },
+    "alphabind_her2_full": {
+      "enrolled": false,
+      "reason": "7,540 rows of which 88 are length-compatible over 39 cores, from a differently composed subset. Merging them into the specified CDR population is the composition change that would invalidate a frozen split.",
+      "status": "available_not_enrolled",
+      "amendment_path": "the exclusion closure covers these identities, so a later amendment can enrol them without re-freezing the split."
+    },
+    "alphabind_non_her2": {
+      "files": ["aab-pp489", "pembrolizumab-scfv", "vhh72"],
+      "phases": ["fine-tuning", "validation"],
+      "orientation": "respect each release's own scFv orientation; vhh72 is a NANOBODY and is encoded heavy-only under the explicit contract asserted in her2_routes_serial.ablang_positions. No light chain is invented.",
+      "role": "E15 functional transfer and broader capability training, so repeated selection does not land on the small HER2 development panel"
+    },
+    "engelhart2022_s1": {
+      "primary": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9606274/",
+      "via": "Graylab/FLAb @e05e3f0135783ffb7de412df6a1467e7a0031911",
+      "target": "SARS-CoV-2 S1",
+      "measured_column": "Pred_affinity",
+      "units": "log10(KD/nM)",
+      "column_name_trap": "despite the name, Pred_affinity is the MEASURED assay-calibrated AlphaSeq readout, not a trained model's prediction. This is recorded here because the name invites the opposite reading."
+    },
+    "li2023_s1": {
+      "primary": "Li et al. 2023 (MIT Lincoln Laboratory AlphaSeq datasets 1 and 2), via FLAb",
+      "primary_release_pin": "72218839adc6abfe26aae1fde35d5d7b390a0459",
+      "license": "CC-BY-NC-SA-4.0; the licence files are acquired alongside the data",
+      "target": "SARS-CoV-2 S1",
+      "files": {"affinity1": {"preamble_lines": 0}, "affinity2": {"preamble_lines": 6}},
+      "primary_bytes_identical": "the FLAb copies already present are byte-identical to the primary release CSVs (735,720,622 and 1,122,796,984 bytes), so the primary acquisition downloaded no duplicate of a gigabyte.",
+      "preamble_rule": "the second file's 6 preamble lines are ASSERTED before they are skipped, by reading exactly preamble+1 lines: no preamble line may begin with the header's first field, and the row after the skip must equal the first file's header exactly. The earlier implementation parsed the whole release with the wrong preamble and then re-read it -- two full passes over a gigabyte to establish a fact about seven lines.",
+      "retained": ["Target", "Assay", "Replicate", "POI"],
+      "targets": "four targets at 314,925 rows each -- MIT_Target plus AlphaNeg1, AlphaNeg2, AlphaNeg3 -- over 1,259,700 measurement rows and 104,972 POIs. Only MIT_Target is enrolled for affinity; the negative controls are counted and are the only basis a later specificity panel could rest on.",
+      "parents": {
+        "AAYL49": "MIT_14_HL_scFV",
+        "AAYL50": "MIT_14_HL_scFV",
+        "AAYL51": "MIT_91_LH_scFV",
+        "AAYL52": "MIT_95_HL_scFV",
+        "poi_counts": {"AAYL49": 26454, "AAYL50": 26224, "AAYL51": 22473, "AAYL52": 29818},
+        "rule": "explicit family parents, taken from the release's own MIT_* parent-control rows which carry the full HC/LC and all six CDRs. A MODAL parent across the pooled release assigns one background to all four families and turns every 51/52 variant into a many-site mutant of the wrong molecule. AAYL49 and AAYL50 share MIT_14 and are therefore not independent heldout families; the POIs carry 0-3 substitutions against their own family's parent.",
+        "no_mutation_dependent_region": "the editable region is the declared common region, not the set of positions a given row happens to mutate. Local contrasts use the union of differences; whole-window tasks use the declared region."
+      },
+      "streaming": "read in chunks with usecols; sequences are stored once per POI and measurements as arrays, and a compact re-readable cache is written under the artifact root. Holding 1.26 million Observation objects is the shape that does not fit.",
+      "closure": "Engelhart 2022 and the FIRST Li release are the SAME original study. The de-duplication key is the canonical STUDY, never the publication alias, and when both are configured the curated Engelhart summary is superseded by the primary with the supersession recorded. A genuine replicate of one construct remains two observations of one construct."
+    },
+    "adams2017_fluorescein": {
+      "primary": "https://elifesciences.org/articles/23156",
+      "target": "fluorescein",
+      "measured_column": "Kd (Tite-Seq) [M]",
+      "detection_window_molar": [3.1622776601683795e-10, 1e-05],
+      "censoring": "doubly censored. In pKD = -log10(KD/M) a KD below the window is TIGHTER binding and is right-censored at pKD >= 9.5; a KD above the window is left-censored at pKD <= 5.",
+      "format_qualification": "FLAb's format column reads Fab. The primary Tite-Seq experiment was scFv. Both are recorded and the disagreement is carried rather than resolved.",
+      "expression_join": "joined to the expression table by COMPLETE sequence identity only. No outcome is used as a join input.",
+      "primary": "jbkinney/16_titeseq @54130c8fc6081bbfa8301c41e1afcfa6a5d79590: data/replicate_1.csv, replicate_2.csv, replicate_3.csv, README.md, figure_5_landscape.py, KD_fit_log_poiss.py",
+      "primary_replicates": "three biological replicate tables, enrolled as three observations of one construct rather than an averaged point. The curated FLAb summary is SUPERSEDED for measurement purposes when the primary is enrolled, and retained only as the source of the fixed 112-residue light chain the replicate files do not carry.",
+      "sigma_units": "fit_KD_sigma is a standard deviation in NATURAL-log KD (KD_fit_log_poiss.py lines 337-339). It is divided by ln(10) to become a sigma in pKD; carrying it unconverted overstates every Adams uncertainty by 2.303x.",
+      "construct": "the full 117-residue wild-type heavy chain with positions 27:37 and 99:109 replaced by the row's translated windows. WT CDR1 is TFSDYWMNWV and WT CDR3 is GSYYGMDYWG, both asserted against the backbone at load time; the constant flanks are validated across the curated records before the two windows are filled.",
+      "expression_normaliser": "per replicate, the MEDIAN expression of that replicate's wild-type-synonymous rows -- the synonymous-DNA copies of the parent, the one construct present in every replicate by design. The column is a ratio of sorted counts with a long tail, which is why the median and not the mean.",
+      "double_count_guard": "the curated summary and the replicate tables map to one canonical study, so the closure keeps one observation per (construct, assay, replicate) across both."
+    },
+    "koenig2017_g6": {
+      "primary": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5278476/",
+      "target": "VEGF",
+      "family": "enrichment",
+      "kind": "enrichment",
+      "curation_mapping": "the FLAb release names four columns KD. The primary experiment is deep mutational PHAGE ENRICHMENT, not 4,275 physical titrations, so the numbers are enrichment-derived pseudo-KD.",
+      "trains": "NOTHING, until the mapping is qualified. The binding numbers are QUARANTINED with a count.",
+      "quarantine": "the mapping from enrichment to the pseudo-KD column AND ITS DIRECTION are unestablished by anything in the acquired files. A ranking loss on an unsigned quantity trains the reverse of the truth half the time, which is worse than not training on it. An earlier revision enrolled the column with invented higher-is-better semantics; that is withdrawn.",
+      "direction_evidence": {
+        "pkd_vs_qualified_expression_spearman": -0.499,
+        "top_curated_pkd_mutants": ["H102F>N", "H102F>P", "H99F>D"],
+        "reading": "consistent with EITHER direction -- an enrichment ratio that rises with binding and an inverted pseudo-KD produce the same picture. Caution, not proof, and it does not qualify an ordering.",
+        "resolves_it": "the primary release's own enrichment-to-KD calibration, or a declared sign convention in the source. Neither is in the acquired files."
+      },
+      "what_does_train": "koenig2017_expression -- the qualified expression enrichment ratio, whose direction the source declares. It is a different functional readout and is never converted into an affinity.",
+      "never": "an interval likelihood on a KD scale, and never a relabelling of pseudo-KD as a numeric affinity. That another curation labelled these columns KD is evidence about that curation, not about the experiment.",
+      "internal_check": "the four transforms are checked against one another and the residual recorded. Agreeing derived columns are still derived."
+    },
+    "petersen2024_ha": {
+      "primary": "https://www.nature.com/articles/s41467-024-48072-z",
+      "target": "H1 HA",
+      "flab_columns": ["heavy", "light", "KD", "fitness"],
+      "flab_units": "KD in nM",
+      "originals": {
+        "MOESM3": "Supplementary Data 1: plasmid, geneblock and primer source sequences. Needed to resolve a Variant specification.",
+        "MOESM4": "Supplementary Data 2",
+        "MOESM6": "Supplementary Data 4: processed sequence-binding data. Sheets README, all_barcodes_4A8_CC121, 4A8_CC121_combined, all_barcodes_222-1C06, all_barcodes_319-345, topbinHA_rep2.",
+        "MOESM9": "source data. Figure1c is explicitly Kd(nM); Figure4c carries Variant/Kd/Replicate; Supplementary Figure 7 carries the original confidence bounds."
+      },
+      "parent_export": "data/primary/petersen2024_parent_export/data/whitehead/petersen/original/AntibodySequences2.csv -- an author export credited to the Whitehead group, Antibody/Chain/Sequence, verified to match the sequence-derived consensus of the release exactly. Without it a Variant specification cannot be resolved and the row has no construct.",
+      "variant_grammar": "parent>VH:mutations|parent>VL:mutations, protein indices 1-based and validated against the stated original residue, with silent DNA-level changes encoded in the same field and ignored for the protein construct. Resolved only when the named parent's sequence is available; otherwise the row is reported unresolved rather than attached to a guessed background.",
+      "barcode_sheets": ["all_barcodes_222-1C06", "all_barcodes_319-345"],
+      "join": "545 of the 547 curated unique (heavy, light) pairs join to a resolved variant. The two that do not are reported, not dropped silently. When the primary sheets are enrolled the curated FLAb table is superseded for measurement purposes, with the supersession recorded.",
+      "preserved": ["target study", "original barcode", "replicate", "raw units"],
+      "interval_qualification": "some confidence bounds are zero, inverted, or do not enclose the estimate. Each is preserved raw and REJECTED for interval training with its reason. No valid interval is invented.",
+      "counting": "a barcode or a replicate is not a unique sequence.",
+      "no_universal_limit": "this release carries KD values above 1000 nM (2490 among them), so 1000 is not a censoring limit here or anywhere else in this campaign.",
+      "excel_reader": "standard-library zip + XML. openpyxl is absent and is not needed."
+    },
+    "cr9114": {
+      "primary": "Phillips et al., eLife 2021, doi:10.7554/eLife.71393, Figure 1 source data 1 v3, CC BY 4.0",
+      "partitions_enrolled": ["h3", "fluB"],
+      "partition_forbidden": "h1",
+      "reserved_columns": ["h1_repa", "h1_repb", "h1_repc", "h1_mean", "h1_sem"],
+      "guard": "the loader takes an explicit usecols and REFUSES a request naming any reserved column. The raw release is one CSV with h1_*, h3_* and fluB_* side by side, so a loader that read everything and filtered afterwards would have materialised the reserved partition first.",
+      "floor_pkd": 6.0,
+      "floor_semantics": "the reported H3/fluB floor is LEFT-censoring in pKD. A row whose every replicate sits at the floor is 'no tighter than the floor', not a measured weak affinity. A row with SOME replicates at the floor has its mean taken over the above-floor replicates only: averaging a censored value into an exact point states a number the assay did not produce. The H1 partition's floor is 7.0 in the existing pilot code; the two are different numbers and are not shared.",
+      "reserved_identities": "the OPERATIVE protection is the complement of the pinned eligibility whitelist: data/processed/cr9114_preferences_20260916/eligible_non_test_records.csv, 50,540 eligible (38,790 train / 11,750 development), read for the genotype and split columns only, sha256 82fdd8f3d361cdf292544829e5888963e315d3c743b604ea0c56f7ad3a80263f. Its 14,996-genotype complement is protected, sha256 3de5df07f586e92605ab45d2887e4adba6c5417f800a6a9a0bb2eb9dca0597dc. The pilot's seeded block re-derivation is retained as a SECONDARY record: it cannot see the eligibility rejects, and the legacy sequence-only split alone excludes only 12,288.",
+      "selection_bias": "the whitelist was itself selected on H1 assay eligibility. Any transfer claim from this population inherits that selection, and it is disclosed rather than corrected.",
+      "complement_of_eligible": "RESOLVED by the whitelist complement. Eligibility is defined by H1 replicate support, which this campaign cannot read, so the complement -- the union of the historical reserved block and the eligibility rejects -- is protected in full, which is the direction that cannot leak.",
+      "targets": "H3 and influenza B are different antigens and are never pooled with each other or with H1. They receive separate assay identities, separate observation scales and separate bin thresholds.",
+      "sequence_mapping": "REQUIRED, not optional: manifest.decoded_sequence and edit_space.sites (sequence_index, allowed_residues, site_id) from data/processed/cr9114_5cjq_context/cr9114_5cjq.prepared.json. Bit i of a genotype selects the somatic residue at site i. There is no fallback -- a loader that invents heavy='A' with one edit site maps all 65,536 genotypes onto one construct and every downstream count then describes that single construct."
+    },
+    "her2_display": {
+      "primary": "the pinned Buzz HER2 release",
+      "rows": {"train": 367042, "val": 78652, "test": 78652},
+      "labels": "sorted binding bins (low/mid/high) at 100 nM, NOT KD",
+      "test_split": "sealed permanently. It is never opened, in any round, and only test_sequences() is ever called on it. The plan's fallback of using it as development evidence is withdrawn: her2_data.load_split refuses it without a final SelectionUnlock, and the plan elsewhere declares it sealed, so the fallback was internally contradictory."
+    },
+    "paired_oas": {
+      "records": 2513626,
+      "role": "paired reconstruction and prior retention. No outcome at all.",
+      "qualification": "call it PROXY replay unless p-IgGen's original pretraining provenance is established. Upstream pretraining overlap for both backbones is UNRESOLVED: the local 1.94M-record probe finds zero hits for the wild-type core and also fails to find trastuzumab itself, so the negative is underpowered."
+    }
+  },
+
+  "global_rules": {
+    "blank_is_missing": "a blank outcome cell is a missing number, never a negative. An unmeasured mutant, antigen swap or light-chain swap is not a nonbinder. Inherited from the AbSci audit rule in her2_data.classify_outcome.",
+    "no_universal_censoring_threshold": "censoring limits come only from a source's declared detection window. No numeric value -- 1000 included -- is treated as a universal assay limit.",
+    "replicates_are_not_sequences": "a replicate identifier does not create an independent sequence count. The exposure ledger counts constructs, measurement presentations and supervised targets separately.",
+    "targets_stay_distinct": "HER2, S1, H1 HA, H3 HA, influenza B HA, fluorescein, VEGF and PD-1 are different antigens. Nothing pools them, and a MAGMA-seq row is not automatically H1.",
+    "missing_means_missing": "a source whose semantics cannot be established is reported as unresolved. Missing assay semantics NEVER licenses converting arbitrary numbers into an ordering, and an unresolved DIRECTION is quarantined with a count rather than given a default sign.",
+    "one_study_one_weight": "the de-duplication key is the canonical STUDY, not the publication alias. Where a curated summary and the primary release of the same study are both available, the primary is enrolled and the curated one is recorded as superseded; enrolling both counts one experiment twice in every mixture share and every threshold fit, and the key cannot see it because the two arrive with different replicate structure.",
+    "assay_identity": "study:family:target[:sub-assay]. The study so a curated summary and its primary tables are one assay; the family so an affinity and an expression readout of one study do not collide; the target so two antigens in one release get separate scales and separate bin thresholds; the sub-assay where a source declares one. Derived from the enrolled training partitions and pinned, never hand-listed.",
+    "train_only_thresholds": "bin thresholds are fitted over the TRAINING rows of a (family, assay, parent) population and then applied to every row of it. Fitting over all observations puts the held-out rows' own values into the definition of the bin they are later conditioned on."
+  }
+}

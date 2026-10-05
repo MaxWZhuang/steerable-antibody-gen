@@ -1,0 +1,70 @@
+{
+  "schema": "her2-routes-dplm-pins/1",
+  "provenance": "Read from the Hugging Face model API for airkingbd/dplm_150m and airkingbd/dplm_650m (recorded under build-inputs/research/*-blobs.json in the build workspace). The commit ids are the API 'sha'. pytorch_model.bin digests are the LFS sha256 the API reports; config.json digests are the sha256 of the pinned bytes; every git_blob_sha1 is the API 'blobId'. Both variants list the SAME vocab.txt blob id (6b946952cc35537226f07fd70957ee2f848880d2), which is how 'same vocabulary bytes' is established.",
+  "vocab_sha256_note": "vocab.txt is pinned by its git blob id, its 93-byte size and its sha256 (recomputed independently from the actual 93 bytes); the loader additionally requires the parsed token list to equal dplm_policy.DPLM_VOCAB entry for entry. A mismatch fails closed.",
+  "upstream": "ByteDance DPLM (Apache-2.0): byprot/models/dplm/dplm.py, modules/dplm_modeling_esm.py, models/utils.py. Rotary theta 10000 is the original ESM value and the transformers EsmConfig default; it is not written in the pinned config.json.",
+  "variants": {
+    "dplm_150m": {
+      "repo": "airkingbd/dplm_150m",
+      "revision": "49b7125a5d28c6418fcc2f3c4fe799352ac1488b",
+      "logical_dir": "models/dplm_150m",
+      "files": {
+        "config.json": {
+          "bytes": 792,
+          "sha256": "36480be9ea79156026ce374ceb9573e0edde62dfccd22d32b107e4de0fd7f03c",
+          "git_blob_sha1": "4910cb02f1840e9ac577026f601829604af58c74"
+        },
+        "vocab.txt": {
+          "bytes": 93,
+          "sha256": "0b82cc0a7c7cf9e567b1e5892d793285b9fbae822c964ca48696f7db44598e03",
+          "git_blob_sha1": "6b946952cc35537226f07fd70957ee2f848880d2"
+        },
+        "pytorch_model.bin": {
+          "bytes": 595359662,
+          "sha256": "ea4eaa99536b60ed76f945f71a1a5e604f08447ec3def5104a93ca6001a59961"
+        }
+      },
+      "architecture": {
+        "hidden_size": 640,
+        "num_hidden_layers": 30,
+        "num_attention_heads": 20,
+        "intermediate_size": 2560,
+        "vocab_size": 33,
+        "max_position_embeddings": 1026,
+        "layer_norm_eps": 1e-05,
+        "rope_theta": 10000.0
+      }
+    },
+    "dplm_650m": {
+      "repo": "airkingbd/dplm_650m",
+      "revision": "7a7e651baa667d094aba05e9dc1cf52a3332110a",
+      "logical_dir": "models/dplm_650m",
+      "files": {
+        "config.json": {
+          "bytes": 793,
+          "sha256": "ecc4ec5f5d741d99d0653da16ca95a188c4065941393ed6e3d69336ca33db557",
+          "git_blob_sha1": "625574d625a4178ca6966e9545fee56026c0b634"
+        },
+        "vocab.txt": {
+          "bytes": 93,
+          "sha256": "0b82cc0a7c7cf9e567b1e5892d793285b9fbae822c964ca48696f7db44598e03",
+          "git_blob_sha1": "6b946952cc35537226f07fd70957ee2f848880d2"
+        },
+        "pytorch_model.bin": {
+          "bytes": 2609617722,
+          "sha256": "db4e54343a89e7600f41c3aacbc593db1b0caee82ec28cab25ff2ae090eba39c"
+        }
+      },
+      "architecture": {
+        "hidden_size": 1280,
+        "num_hidden_layers": 33,
+        "num_attention_heads": 20,
+        "intermediate_size": 5120,
+        "vocab_size": 33,
+        "max_position_embeddings": 1026,
+        "layer_norm_eps": 1e-05,
+        "rope_theta": 10000.0
+      }
+    }
+  }
+}

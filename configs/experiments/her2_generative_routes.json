@@ -1,0 +1,475 @@
+{
+  "schema_version": "her2-generative-routes/1",
+  "campaign_id": "her2_generative_routes_20260927",
+  "protocol": "specs/her2_generative_routes/FLIGHT_SPEC.md",
+  "config_path": "configs/experiments/her2_generative_routes.json",
+  "run_root_leaf": "flight",
+
+  "artifacts": {
+    "root": "F:/smallAntibodyGen/her2_generative_routes_20260927",
+    "root_note": "all new substantial data, weights, caches, temp, checkpoints and logs live here. The repository volume's datasets are read in place and never copied. Override with --artifact-root; it must be absolute, because the detached supervisor does not inherit the launcher's working directory.",
+    "acquisition_manifest": "data/acquisition_manifest.json",
+    "primary_acquisition_manifest": "data/primary_acquisition_manifest.json",
+    "primary_review_manifest": "data/primary_review_acquisition_manifest.json",
+    "primary_corrections_manifest": "data/primary_corrections_acquisition_manifest.json",
+    "primary_review_note": "17 pinned primary files, 11,041,198 bytes: the three Adams replicate tables with their fit scripts, the Petersen author parent export, the two AlphaSeq primary releases and their CC-BY-NC-SA-4.0 licences. Held under a separate pin from the first primary manifest because it was retrieved separately, and merging the two would leave neither verifiable alone. The AlphaSeq primary CSVs are byte-identical to the FLAb copies already present (Li1: 735,720,622 bytes, sha1 633b88dc992f4fce1168b52b77aa24ee5f98ed9c75cca1e7fd4806ca8f0a3f5; Li2: 1,122,796,984 bytes, sha 41cb0ca229ce3ce080a6d9b911e72fa5c08633496d3e2cb0d575ef96689d5780), so nothing was downloaded twice.",
+    "dependency_manifest": "data/native_dependencies_install.json",
+    "external_sources": [],
+    "external_sources_extra": [],
+    "external_sources_note": "DERIVED, not listed. her2_routes_spec.external_closure reads all three acquisition manifests, normalises their paths to logical names under the artifact root (the primary review manifest records absolute ones), and selects every pinned native package module, the native weights and hyperparameters, the locally stored p-IgGen release and every primary source file. The earlier hand-written list named ablang2/__init__.py; the pinned package is at upstream/ablang2/ablang2/__init__.py, so the acquisition verification failed against its own note that the closure was three paths. external_sources_extra adds a path the derivation would not select; it is empty because nothing currently needs one."
+  },
+
+  "roots": {
+    "her2_raw": "data/raw/her2_functional_20260918",
+    "paired_oas": "data/processed/oas_paired_all",
+    "cr9114_raw": "data/raw/cr9114_cr6261_landscape",
+    "historical": {
+      "next_flight": "outputs/her2_next_flight_20260922/production_03",
+      "parent_replay": "outputs/her2_parent_replay_20260920",
+      "posttrain": "outputs/her2_posttrain_20260918"
+    },
+    "historical_note": "read-only. The run root is checked for disjointness against every one of these before the first write: Services.stream_seed-style helpers write into the run root, and a follow-up aimed at a landed flight has already broken a manifest once."
+  },
+
+  "source": {
+    "entry_points": [
+      "scripts/her2_routes_flight.py",
+      "scripts/her2_routes_supervisor.py"
+    ],
+    "extra_files": [
+      "specs/her2_generative_routes/FLIGHT_SPEC.md",
+      "specs/her2_generative_routes/EVIDENCE_AND_RISKS.md",
+      "specs/her2_generative_routes/reference_math.py",
+      "scripts/her2_routes_runtime_probe.py"
+    ],
+    "extra_files_note": "the runtime probe is hashed into the freeze because it produces recorded numbers. It is not an entry point: its imports are already inside the flight script's transitive closure, so listing it there would add nothing to the walk and would make the probe an import root of the production identity.",
+    "rule": "the freeze computes the transitive module-level AST import closure from these entry points, copies every file's bytes into the run root and records one aggregate content digest plus HEAD and the full dirty list. Function-level imports ARE included because the walk is syntactic, so a lazily imported eval module is frozen too. her2_replay_spec.run_freeze is untouched and still requires a clean tree; this flight is authorized to build and train and NOT to commit, so its identity is content-addressed."
+  },
+
+  "revisions": {
+    "current": "rev01",
+    "kind": "development",
+    "supersedes": null,
+    "reason": "the first declared development revision. Its numbers may be read for learning curves and for selection.",
+    "frozen_after": [],
+    "rule": "a development revision may be superseded by a new one if a round finds a real training-path bug; the old root is retained read-only and NEVER resumed. The confirmation revision is frozen last, after architecture, objectives, mix, decoding and checkpoint selection are all frozen, and nothing in its closure is edited afterwards."
+  },
+
+  "her2": {
+    "wild_type_core": "WGGDGFYAMD",
+    "core_start": 98,
+    "core_length": 10,
+    "assay": "alphabind_her2:affinity:HER2",
+    "note": "the offsets are asserted constants in her2_data; they are re-declared here only so the config is self-describing, and a disagreement fails in her2_data.load_scaffold."
+  },
+
+  "conditions": {
+    "assays": [
+      "alphabind_her2:affinity:HER2",
+      "engelhart2022_s1",
+      "li2023_s1_a",
+      "li2023_s1_b",
+      "adams2017_fluorescein",
+      "adams2017_expression",
+      "koenig2017_g6",
+      "koenig2017_expression",
+      "petersen2024_ha",
+      "cr9114_h3",
+      "cr9114_flub",
+      "her2_display"
+    ],
+    "assays_note": "PREFLIGHT ONLY. These names size the condition tables for the preflight native-evidence probes, whose models are discarded. The production vocabulary is DERIVED from the enrolled training partitions by her2_routes_sources.derive_assay_vocabulary as study:family:target[:sub-assay], pinned in condition_vocabulary.json by the sources stage, and a later run whose derivation disagrees is refused rather than resized. A hand-written list is a second source of truth about what the files contain: the Li releases carry a per-row Assay column and CR9114 carries two antigens, so the identities the stream produces are a property of the data.",
+    "bin_dropout": 0.10,
+    "assay_dropout": 0.25,
+    "minimum_bin_support": 30,
+    "rule": "three independent tables. The family (display / affinity / enrichment) is NEVER dropped, so display_high and affinity_high cannot collapse onto one another. The bin and the assay are dropped independently at the two rates above; assay dropout is what creates a trained route for an unseen study, and an untrained per-assay embedding is refused rather than used as one.",
+    "threshold_rule": "bin thresholds are thirds of the TRAIN-ONLY qualified distribution of one (family, assay, parent) population. Train-only is load-bearing: a threshold fitted over every observation puts the held-out rows' own values into the definition of the bin those rows are later conditioned on. The parent is part of the population because a scan's 'high' third is high relative to its own background."
+  },
+
+  "sources": {
+    "paths": {
+      "alphabind_her2_validation": {
+        "root": "artifact",
+        "logical": "data/alphabind/manuscript/data/alphaseq/validation/trastuzumab-scfv-cdr_validation_alphaseq.csv"
+      },
+      "engelhart2022_s1": {
+        "root": "artifact",
+        "logical": "data/flab/data/binding/engelhart2022dataset_scFv-SARS-CoV-2_affinity.csv.zip"
+      },
+      "li2023_s1_a": {
+        "root": "artifact",
+        "logical": "data/flab/data/binding/li2023machine_scFv-SARS-CoV-2_affinity1.csv.zip"
+      },
+      "li2023_s1_b": {
+        "root": "artifact",
+        "logical": "data/flab/data/binding/li2023machine_scFv-SARS-CoV-2_affinity2.csv.zip"
+      },
+      "adams2017_fluorescein": {
+        "root": "artifact",
+        "logical": "data/flab/data/binding/adams2017measuring_4420-fluorescein_kd-titeseq.csv"
+      },
+      "adams2017_expression": {
+        "root": "artifact",
+        "logical": "data/flab/data/expression/adams2017measuring_4420-fluorescein_exp_er.csv"
+      },
+      "koenig2017_g6": {
+        "root": "artifact",
+        "logical": "data/flab/data/binding/koenig2017mutational_kd_g6.csv"
+      },
+      "koenig2017_expression": {
+        "root": "artifact",
+        "logical": "data/flab/data/expression/koenig2017mutational_er_g6.csv"
+      },
+      "koenig2017_historical": {
+        "root": "artifact",
+        "logical": "data/primary/corrections/koenig/Koenig2017_g6_Kd.csv"
+      },
+      "petersen2024_ha": {
+        "root": "artifact",
+        "logical": "data/flab/data/binding/peterson2024integrated_ab_H1HA_kd.csv"
+      },
+      "cr9114": {
+        "root": "repository",
+        "logical": "data/raw/cr9114_cr6261_landscape/elife-71393-fig1-data1-v3.csv"
+      },
+      "cr9114_prepared": {
+        "root": "repository",
+        "logical": "data/processed/cr9114_5cjq_context/cr9114_5cjq.prepared.json"
+      },
+      "cr9114_whitelist": {
+        "root": "repository",
+        "logical": "data/processed/cr9114_preferences_20260916/eligible_non_test_records.csv"
+      },
+      "adams2017_primary": {
+        "root": "artifact",
+        "logical": "data/primary/adams2017"
+      },
+      "petersen2024_primary": {
+        "root": "artifact",
+        "logical": "data/primary/petersen2024/41467_2024_48072_MOESM6_ESM.xlsx"
+      },
+      "petersen2024_parents": {
+        "root": "artifact",
+        "logical": "data/primary/petersen2024_parent_export/data/whitehead/petersen/original/AntibodySequences2.csv"
+      },
+      "petersen2024_coding_parents": {
+        "root": "artifact",
+        "logical": "data/primary/corrections/petersen/wt.csv"
+      },
+      "petersen2024_pooled": {
+        "root": "artifact",
+        "logical": "data/primary/petersen2024/41467_2024_48072_MOESM9_ESM.xlsx"
+      },
+      "alphabind_aab_pp489": {
+        "root": "artifact",
+        "logicals": [
+          "data/alphabind/manuscript/data/alphaseq/fine-tuning/aab-pp489_fine-tuning_alphaseq.csv",
+          "data/alphabind/manuscript/data/alphaseq/validation/aab-pp489_validation_alphaseq.csv"
+        ]
+      },
+      "alphabind_pembrolizumab": {
+        "root": "artifact",
+        "logicals": [
+          "data/alphabind/manuscript/data/alphaseq/fine-tuning/pembrolizumab-scfv_fine-tuning_alphaseq.csv",
+          "data/alphabind/manuscript/data/alphaseq/validation/pembrolizumab-scfv_validation_alphaseq.csv"
+        ]
+      },
+      "alphabind_vhh72": {
+        "root": "artifact",
+        "logicals": [
+          "data/alphabind/manuscript/data/alphaseq/fine-tuning/vhh72_fine-tuning_alphaseq.csv",
+          "data/alphabind/manuscript/data/alphaseq/validation/vhh72_validation_alphaseq.csv"
+        ]
+      }
+    },
+    "paths_note": "a source declared with 'logicals' is a LIST of members that are one population measured in two batches -- the non-HER2 AlphaSeq releases ship a fine-tuning file and a validation file of the same library. services.source_members resolves those; services.source_paths skips them, because a multi-member source has no one path.",
+
+    "her2_display": {
+      "enrolled": true,
+      "split": "train",
+      "positives_only": false,
+      "note": "all 367,042 sorted-bin training rows, held as arrays and materialised per drawn microbatch. A positives-only objective sees 120,504 rows and cannot learn the low-versus-mid ordering at all; positives_only=true is the matched control arm, not a cheaper option. The test split is never read: her2_data.load_split refuses it without a verified selection unlock and this campaign mints none."
+    },
+
+    "withheld": {
+      "parents": ["MIT_95_HL_scFV"],
+      "studies": ["koenig2017_g6_phage"],
+      "note": "Declared before any fit. MIT_95 is a withheld parent within the observed HR2 target and Assay2, which also measures MIT_91. This supports a background-transfer comparison without confounding a new assay and target. VHH72 remains enrolled for heavy-only coverage. Koenig is a withheld study: its historical fitness comparison qualifies positive log binding enrichment, not physical KD. Its two unseen assay identities use trained assay dropout; assay-specific separation is not identifiable there."
+    },
+    "li_targets": ["MIT_Target"],
+    "li_targets_note": "the primary AlphaSeq release carries 1,259,700 measurement rows over four targets at 314,925 each: MIT_Target plus AlphaNeg1-3. Only the measured target is enrolled for affinity training. The three negative controls are counted in the inventory and are the only basis on which a later specificity panel could be supported; enrolling them as affinity rows would pool a target with its own negative controls.",
+    "cr9114_pins": {
+      "eligible": 50540,
+      "eligible_train": 38790,
+      "eligible_development": 11750,
+      "protected": 14996,
+      "eligible_file_sha256": "82fdd8f3d361cdf292544829e5888963e315d3c743b604ea0c56f7ad3a80263f",
+      "protected_sorted_newline_sha256": "3de5df07f586e92605ab45d2887e4adba6c5417f800a6a9a0bb2eb9dca0597dc",
+      "read_columns": ["genotype", "split"],
+      "note": "the whitelist is an explicit identity list read for two columns. Its complement -- 14,996 genotypes -- is protected: it is the union of the historical reserved block and the eligibility rejects, and separating them would need the H1 replicate columns this campaign never reads. The legacy sequence-only split alone excludes only 12,288, which is not conservative enough. The whitelist was itself selected on H1 eligibility, and that selection bias is disclosed in every transfer claim from this population."
+    },
+    "not_enrolled": {
+      "alphabind_her2_full": "88 length-compatible rows over 39 cores from a differently composed subset. Merging them into the specified CDR population is the composition change that would invalidate a frozen split. The exclusion closure covers them so a later amendment can enrol them without re-freezing.",
+      "absci_release": "38 verified-compatible cores total; diagnostic only, never a reserved population.",
+      "sabdab_libraseq": "not acquired. Teacher provenance would have to be retained, and no structural teacher is distilled without clearing its shuffled and position-only controls first."
+    }
+  },
+
+  "split": {
+    "seed": 20260927,
+    "novel_separation": 3,
+    "purge_radius": 2,
+    "test_target": 100,
+    "development_target": 100,
+    "batch_size": 50,
+    "batch_separation": 3,
+    "minimum_reserved": 100,
+    "assumed_rho": 0.5,
+    "ambition_target": 0.05,
+    "algorithm": "four seeded batches of fifty over the eligible candidates, TEST first: batches 1-2 are the reserved test, batches 3-4 are development. Every member of a batch is at least batch_separation edits from every member of every EARLIER batch, not merely from the earlier batch seeds. Then every remaining eligible core within purge_radius of any held-out core is excluded from training.",
+    "amendment_withdrawn": "an earlier revision enlarged the reserved panel to 'every remaining eligible core' with a declared minimum of 200. WITHDRAWN as arithmetically wrong. SE = (1 - rho^2)/sqrt(n-1) is 0.0754 at n=100 and 0.0419 at n=322; the 95% HALF-WIDTH is 1.96 times that, i.e. 0.148 and 0.082. The +0.05 ambition is unresolvable for a single Spearman at BOTH sizes, so the enlargement bought nothing it claimed to buy -- while the radius-2 purge around a larger held-out set removes novel adaptation cores the audited 100/100 design retains (1,934 after the radius exclusion at the audit seed). The panel is the plan's 100 test + 100 development and is not enlarged again.",
+    "novelty_population": "the FULL old display library -- train, validation and the test SEQUENCES via her2_data.test_sequences, whose usecols read cannot return a bin. The test outcomes stay sealed permanently. Novelty against the training split alone is not novelty to a parent that was selected on the validation split.",
+    "primary_endpoint": "the PAIRED per-core difference against the frozen control, bootstrapped over cores. The arms see identical cores, so the between-arm variance is far smaller than either arm's own sampling variance and the single-correlation half-width above does NOT bound it; its width is measured. Secondary: each arm's absolute Spearman with its interval, reported beside the arithmetic that says +0.05 is out of reach for a single correlation at this n.",
+    "batch_caveat": "the algorithm has no radius cap and audited batch diameters were 6-10 edits. Batches are not biological families and not bootstrap units; every batched result is reported beside its measured diameter."
+  },
+
+  "routes": {
+    "enabled": ["ablang2_masked_editor", "piggen_causal_infiller", "dwjs_energy"],
+    "ablang2_masked_editor": {
+      "activation_checkpointing": true,
+      "updates": 20000,
+      "seed": 20260927,
+      "max_positions": 512,
+      "milestones": [5000, 10000, 15000],
+      "why": "native paired masks and bidirectional context; infilling a short window in fixed paired context IS its pretraining objective, and it has twice p-IgGen's parameters. RECORDED PREDICTION: this route wins the bake-off."
+    },
+    "piggen_causal_infiller": {
+      "updates": 20000,
+      "seed": 20260927,
+      "max_positions": 400,
+      "milestones": [5000, 10000, 15000],
+      "why": "already here and already tooled, and an autoregressive comparison with the same information. It must learn a new serialisation from scratch, which is the reason for the recorded prediction above."
+    },
+    "dwjs_energy": {
+      "window": 10,
+      "denoiser_updates": 4000,
+      "energy_updates": 8000,
+      "walk_steps": 100,
+      "profile_walk_steps": [10, 50, 100],
+      "microbatch": 8,
+      "sigma": 1.0,
+      "sigma_note": "ONE declared noise level, shared by the denoiser's smoothing and the noisy space the energy is trained in. The pinned _noise_ebm computes a sigma_ebm/sigma_denoiser renormalisation through self.renorm_noise_factor, and the released _base.py -- now read -- does not define that attribute: it defines sample_noise = sigma * randn_like and nothing else. Rather than guess the ratio, this route carries matched noise, which is the only setting in which E(noisy real) and E(noisy fake) are energies of the same density. Recorded in her2_routes_energy.AMENDMENTS.",
+      "scale": 1.0,
+      "reg_l2_norm": 1.0,
+      "context_width": 64,
+      "seed": 20260927,
+      "why": "a direct HER2 HCDR3 precedent and a different model of useful-sequence density. The denoiser trains first and is FROZEN -- including its own independent context tower -- while the energy trains, which is the pinned upstream contract. The Langevin walk noises its seed before the chain and returns a DETACHED sample, both as upstream does; back-propagating through a retained chain is a different objective. No normalised discrete likelihood is claimed, so cross-route comparison uses ranking and raw-generation endpoints."
+    },
+    "excluded": {
+      "dplm_150m": "measured exclusion: weights + gradients + two Adam moments at fp32 is 150e6 x 16 B = 2,289 MiB against about 2.3 GiB of usable VRAM, before activations. It would fit only under an 8-bit optimiser or LoRA, which changes the comparison.",
+      "iglm_13m": "its native interface is single-chain, and the plan itself requires justifying any paired extension. Recorded as excluded with the reason rather than dropped."
+    }
+  },
+
+  "curriculum": {
+    "shares": {
+      "paired_reconstruction": 0.25,
+      "measured_local_effects": 0.28125,
+      "whole_window_generation": 0.28125,
+      "observation_heads": 0.1875
+    },
+    "family_mix": {"her2": 0.50, "other_functional": 0.25, "paired_replay": 0.25},
+    "joint_mixture_amendment": "Unlabelled replay can only train reconstruction. A 20% reconstruction share with 25% replay is impossible. Retain 25% replay and the 3:3:2 relative functional-task allocation, giving 25/28.125/28.125/18.75 percent tasks, sampled jointly per microbatch. Realized presentations and forwards are counted separately.",
+    "her2_head_display_probability": 0.5,
+    "weights": {"reconstruction": 1.0, "local_effect": 1.0, "whole_window": 1.0, "heads": 0.5},
+    "mask_fraction": 0.15,
+    "max_contrast_sites": 2,
+    "max_contrasts_per_background": 4096,
+    "max_contrasts_per_context": 32,
+    "max_quartets_per_background": 512,
+    "local_quartet_probability": 0.25,
+    "contrast_refresh_updates": 2500,
+    "contrast_refresh_note": "The bounded pair/quartet reservoirs are rebuilt with a predetermined epoch seed every 2500 updates, exposing additional measured contexts without fabricating measurements. Caps currently apply per assay/target/chain-length group; their historical configuration names are retained as aliases. Quartet anchor probes are randomized and bounded at 512 per anchor. Local batches count endpoint rows, so one quartet replaces two pairs.",
+    "max_query_sites": 48,
+    "masked_progressive_probability": 0.5,
+    "region_sampling": "One uniformly drawn declared tile per row presentation. All tiles remain eligible. Half the masked-editor whole-window views reveal a random nonempty prefix and mask the remainder; half mask the complete tile. Evaluation reports the declared-order sequential joint, not simultaneous masked marginals.",
+    "preference_weight": 1.0,
+    "local_reconstruction_weight": 0.25,
+    "interaction_weight": 0.5,
+    "max_joint_per_update": 1,
+    "contrast_rule": "masked-context neighbour indexing inside one (study, assay, target, chain lengths) group: for every varying column the constructs are bucketed by their residues at the other varying columns, and every pair in a bucket differs at that column alone. That is the exact single-substitution neighbour graph over EVERY measured background, which is where the contextual signal lives -- an earlier revision anchored on one modal wild type and discarded every background more than two substitutions from it, which deletes exactly the measurement this campaign exists to learn and skipped whole families that measured no exact wild type. Quartets are four-cycles of that graph anchored at a reference background, with a per-background probe budget. No all-pairs table exists: in a single-parent scan almost every pair of single mutants is already at distance two, so the complete pair table is quadratic in its OUTPUT. Every cap is a reservoir sample and the dropped count is reported.",
+    "objective_rule": "preference_weight scales the whole-window conditional preference (softplus of the assigned-bin minus contrast-bin window log-probability difference, same row, same targets). local_reconstruction_weight retains the alternatives' likelihood beside the absolute log-odds fit, without which the fit can be satisfied by moving both conditionals apart. interaction_weight scales the coupled-quartet joint term, capped at max_joint_per_update quartets because each one costs 1 + 20 scored rows. max_query_sites tiles a region wider than the query budget into declared tiles with the full construct visible in each.",
+    "oas_rows": 200000,
+    "oas_splits": ["train", "val"],
+    "kappa": 2.0,
+    "status": "sweep centres, not literature-derived optima. Amended from measured development learning curves and from the recorded per-task GRADIENT fractions, never from a borrowed token percentage. A task with 30% of the updates and 3% of the gradient is not contributing 30%."
+  },
+
+  "optimization": {
+    "learning_rate": 0.00003,
+    "betas": [0.9, 0.999],
+    "weight_decay": 0.01,
+    "gradient_clip": 1.0,
+    "warmup": 500,
+    "microbatch": 4,
+    "accumulation": 16,
+    "effective_batch": 64,
+    "eval_every": 250,
+    "save_every": 100,
+    "save_every_note": "the LAST checkpoint's cadence. A full Adam state per update is hundreds of megabytes of I/O per step and dominates a small model's step time; writing it once per interval bounds the replayed work to that interval instead. Best is written on improvement and the declared milestones are separate.",
+    "plateau_delta": 0.001,
+    "plateau_patience_evaluations": 4,
+    "selection_metric": "negative development affinity Spearman under the high-affinity condition",
+    "plateau_factor": 0.3,
+    "max_plateau_reductions": 2,
+    "shape_note": "microbatch and accumulation are DECLARED here and OVERRIDDEN by whatever the profile stage accepted. services.selected_shapes is the one place either is read and it records which it used; an earlier revision had the profile choose a microbatch and the loop read the config's, so the measurement and the run could disagree with nothing saying so.",
+    "exposure_note": "20,000 updates x 64 effective batch = 1,280,000 ROW PRESENTATIONS. That is one of six counters and is not an 'exposure' total: a local contrast and a preference pair each consume two student forwards, so the forward count is strictly larger, and additional masks of one row create additional supervised targets and no additional measurements. The forecast multiplies each counter separately from a measured forwards-per-row ratio."
+  },
+
+  "smoke": {
+    "updates": 6,
+    "trajectory_tolerance": 0.0001,
+    "rule": "a miniature end-to-end run against the PRODUCTION curriculum stream and the production objectives, so all four tasks and all three families are exercised. It asserts that the resumed trajectory matches the uninterrupted one step for step, not only that it reaches the same step count: a resume that re-seeded its masking reaches a similar place by a different path. The tolerance is above float32 reduction noise and far below any real divergence."
+  },
+
+  "profile": {
+    "probe_lr": 0.00001,
+    "probe_seed": 7,
+    "microbatches": [1, 2, 4],
+    "steps": 4,
+    "min_free_vram_mib": 256,
+    "max_peak_mib": 2300,
+    "max_per_row_slowdown": 1.5,
+    "energy_microbatches": [1, 2, 4, 8],
+    "acceptance_note": "a microbatch is accepted only when EVERY profiled task accepted it, and the profiled computation is the real objective set with the heads -- a coupled contrast with a sequentially revealed joint, a head batch over a full unmasked paired construct, and the widest common region any enrolled source declares. An earlier profiler measured masked_nll on a ten-site HER2 window, which is the cheapest thing the loop ever runs.",
+    "three_signal_rule": "driver free VRAM AND allocator peak AND per-row step time. On this box CUDA spills to system RAM instead of raising -- a 5.6 GB configuration once returned ok=True on a 4 GB card -- so the absence of an OutOfMemoryError is not evidence that a configuration fits. 4,096 MiB total with about 1.7 GiB already occupied leaves about 2.3 GiB, which is where max_peak_mib comes from."
+  },
+
+  "gates": {
+    "delta": 0.05,
+    "margins": {"backbone": 0.02, "distance": 0.02, "generation": 0.0},
+    "generation_draws": 512,
+    "retention_rows": 128,
+    "local_pairs": 256,
+    "readout_tolerance": 0.25,
+    "generation_endpoint": "the mean independently assessed predicted quality of the route's own raw draws minus the same for its frozen zero-shot backbone, with novelty and duplicate rates beside it. The assessor is the inherited additive site model fitted on the display training split -- independent in parameters and objective, NOT in data, which is stated wherever it is used. The earlier endpoint was the negated development NLL against a threshold of zero; a positive loss negated is always below zero, so that gate could never pass.",
+    "criterion": "G1 is Pareto and predeclared: a route advances only if it beats its own frozen zero-shot backbone AND the -Hamming distance-only control on a ranking endpoint AND a raw-generation endpoint, and is not dominated by more than delta by the best discriminative comparator. 'Beat every discriminative comparator simultaneously' is the wrong gate for a generator -- a CNN can out-rank a decoder without the decoder being bad, and a classifier has no raw-generation distribution to compare. SPR-152 is reported beside this decision and never gated on."
+  },
+
+  "controls": {
+    "updates": 4000,
+    "arms": ["reconstruction_only", "head_only", "outcome_permuted", "background_permuted",
+             "local_only"],
+    "must_not_match": ["reconstruction_only", "head_only", "outcome_permuted",
+                       "background_permuted"],
+    "margins": {"control": 0.02, "distance_stratified": 0.02},
+    "rule": "matched ROW exposure across arms, with the forward counts reported rather than matched: an arm without local contrasts legitimately makes fewer two-forward calls, and hiding that inside a matched-exposure claim would be false. G2 can end the campaign with a reported distance or shortcut artefact, which is a legitimate outcome."
+  },
+
+  "priors": {
+    "teachers": {
+      "functional_selection": {
+        "available": true,
+        "why": "a FITTED predictor of the measured outcome from the window's residues: additive site terms plus a low-rank learned interaction, trained by gradient descent on the eligible measured training rows with its own early stop on a training holdout. Not a neighbour average, and not a flag."
+      },
+      "neighbour_mean": {
+        "available": true,
+        "why": "the plan names it, and it is run to report its measured DEGENERACY rather than to be skipped on an argument: every panel core is at least the declared novelty separation from the whole old display library, so a radius-2 neighbour query returns nothing and the score collapses to the bank mean -- one constant for every candidate, with no ranking at all. The empty-query count and the distinct-score count are the evidence."
+      },
+      "structural_esmif1": {
+        "available": false,
+        "checkpoint": null,
+        "allow_read": false,
+        "reason": "OBTAINABLE, not absent: a 1.7 GB ESM-IF1 checkpoint exists in the user-profile torch cache and this campaign may read it explicitly but may never download into that cache. It is not enrolled by default because a structural teacher enters only after its shuffled and position-only controls pass on development, like every other teacher here. Set checkpoint and allow_read to qualify it; her2_routes_teachers.structural_teacher_provenance returns its measured state rather than a generic unavailable flag."
+      },
+      "abmap_representation": {
+        "available": false,
+        "reason": "not acquired. Its default 100 mutation augmentations per candidate make 5,000 candidates cost 505,000 backbone evaluations, which the forecast would have to carry. Agreement with a teacher is not independent biological validation."
+      }
+    },
+    "radius": 2,
+    "shuffle_seed": 20260927,
+    "qualification_margin": 0.02,
+    "teacher_updates": 400,
+    "teacher_learning_rate": 0.01,
+    "teacher_rank": 16,
+    "distillation_updates": 200,
+    "distillation_batch": 16,
+    "distillation_learning_rate": 0.00001,
+    "distillation_temperature": 0.5,
+    "rescore_weight": 1.0,
+    "rule": "every teacher is FITTED on the measured training rows, QUALIFIED on the development panel against both a shuffled-outcome teacher at matched exposure and a position-only projection of itself, and only then does the student take an optimizer step under it. An earlier revision set distilled = qualified and performed no update, so the flag was the distillation. Both uses of a qualified teacher run and are reported separately -- distillation moves the student's weights, rescoring does not -- because one number for 'the teacher helped' cannot say which mechanism produced it."
+  },
+
+  "posttrain": {
+    "methods": ["conditional_fit", "numeric_margin_match", "local_ipo", "local_dpo"],
+    "updates": 400,
+    "pairs_per_batch": 8,
+    "pairs_per_method": 2048,
+    "reuse_cap": 3,
+    "learning_rate": 0.000001,
+    "tau": 0.1,
+    "beta": 0.1,
+    "winner_likelihood": 0.1,
+    "seed": 20260927,
+    "execution_note": "each arm starts from the SAME selected bake-off checkpoint with its OWN frozen reference and its OWN pair bank under the declared reuse cap, takes real optimizer steps, and is scored on development before and after. parameter_movement records how far the weights actually moved, because a loss history alone does not distinguish an arm that optimised from one that drew pairs and returned its design -- which is what the earlier stage did.",
+    "rule": "the reference is frozen after mid-training and never refreshed. Conditional supervised fitting on measured values is the FIRST arm because the measured failure is quantitative; the preference arms are compared against it, not against nothing. Model-generated candidates do not acquire measured affinities by being generated, and the pair pool refuses one."
+  },
+
+  "decoding": {
+    "strategies": ["declared", "random", "easy_first", "hard_first", "remask"],
+    "draws": 100000,
+    "draw_prefixes": [10000, 100000],
+    "remask_rounds": 2,
+    "remask_fraction": 0.3,
+    "planner_weights": [0.0, 0.5],
+    "cluster_radius": 1,
+    "cluster_separation": 3,
+    "seed": 20260927,
+    "confidence_note": "easy_first and hard_first read the model's own conditional ENTROPY at every step. An earlier implementation passed rng.random() as the confidence, which made the two a single random order under two labels and the comparison between them a comparison of two seeds. The autoregressive route expands each draw over its remaining coordinates in one forward, because an AR decoder's conditional depends on the pointer it is given and cannot be read off a single pass.",
+    "bank_note": "the nearest-training bank and the frozen training medoids come from the eligible measured ADAPTATION bank -- training partition, closure-filtered. The earlier stage used the development panel for both, so 'distance to training' was distance to the held-out panel and the frozen medoids were that panel's own members.",
+    "scale_note": "100,000 draws and a 367,042-row library. The greedy clustering and the nearest-training query are deletion-key hash operations, exact at the declared radius; the pairwise forms are quadratic and do not finish inside a stage.",
+    "reporting_functional": "the fixed declared-order joint, temperature 1, fixed length, no filtering, no deduplication. A declared mixture of orders is also a distribution and is reported under its own name; an average of log probabilities is not a distribution and is named differently. Ranking across windows uses the MEAN log probability, never the raw sum.",
+    "clustering_rule": "one global assignment, built once from the pooled unassigned unique raw candidates of every preregistered arm at the maximum draw count, sorted lexicographically, greedily assigned at radius one, then reused for every arm and every nested draw prefix. Rebuilding per sample count changes the measurement."
+  },
+
+  "confirmation": {
+    "seeds": [20260927, 20260928, 20260929],
+    "updates": 20000,
+    "bootstrap_seed": 20260927,
+    "neighbourhood_radius": 2,
+    "learning_curve": true,
+    "learning_curve_updates": 2000,
+    "learning_curve_note": "E13 trains four nested data fractions inside the REPORT stage, so its cost -- four fits of learning_curve_updates each -- is NOT in the profile forecast, which covers the declared per-route schedules only. Set learning_curve to false to skip it and the panel reports the configuration fact that blocked it rather than a placeholder. It is first in the drop order for that reason.",
+    "recipe_note": "the confirmation seeds train the FROZEN RECIPE that services.frozen_recipe assembles from the selections made: the route the gate chose, the control arm that survived, the teacher decisions, the post-training method its own development comparison selected, the decoding strategy the decoding stage ranked first, and the best-step rule. Its digest is written to frozen_recipe.json and the reserved-opening guard is bound to that digest, which verify re-checks. An earlier revision retrained the basic curriculum and ignored all six.",
+    "endpoint_note": "the reserved endpoint is the bootstrapped difference of SPEARMAN correlations over sequence neighbourhoods, not the bootstrapped mean of raw log-score differences: an arbitrary additive offset in one arm's scores moves the latter and moves no ordering. Neighbourhoods are the bootstrap unit and selection batches are explicitly not -- their measured diameters were 6-10 edits and they were built by a separation rule, not by proximity. Seed variation is reported separately from the within-seed interval.",
+    "rule": "three seeds of the frozen recipe under the confirmation revision, with identical definitions. Seed variation is kept separate from the within-seed row bootstrap. The reserved test is opened ONCE, only if every gate held and the reserved panel meets its declared minimum; otherwise the endpoint is reported as underpowered with its actual n."
+  },
+
+  "runtime": {
+    "cpu_threads": 4,
+    "deterministic_algorithms": true,
+    "determinism_note": "Strict CUDA resume reproducibility, with CUBLAS_WORKSPACE_CONFIG=:4096:8 set before torch import. The GPU probe exposed nondeterministic p-IgGen gradient reductions even before the interruption; do not loosen the resume tolerance to conceal them.",
+    "reserve_hours": 4.0,
+    "soft_cap_hours": 24.0,
+    "target_hours": 240.0,
+    "drop_order": [],
+    "scope_rule": "No component is dropped to meet a runtime target. The user withdrew the overnight deadline and explicitly requires the complete campaign. Report the measured cost and retain all supported components.",
+    "extension_rule": "extend a branch in 5,000-update increments while the declared development metric improves by more than the declared plateau delta; two learning-rate reductions maximum; best checkpoint kept. The soft cap is per route and is extensible by a recorded amendment. There is no overnight deadline.",
+    "no_deadline": "the user withdrew the overnight assumption. A forecast is reported whether or not it fits, and an incomplete flight is never relabelled complete."
+  },
+
+  "storage": {
+    "min_free_bytes": 42949672960,
+    "bytes_per_checkpoint": 400000000,
+    "note": "40 GiB against the checkpoint and bank budget, leaving room for the transient second copy an atomic write needs. The milestone policy computes its own disk cost: hundreds of full optimizer copies is how a volume fills at the last trajectory and loses it."
+  },
+
+  "tolerances": {
+    "sum_log_probability_atol": 0.00005,
+    "sum_log_probability_rtol": 0.000002,
+    "conditional_sum_atol": 0.00001,
+    "sinkhorn_tolerance": 0.000001,
+    "basis": "the sum-log-probability tolerances are the repository's own MEASURED figures from her2_policy, taken over 10,000 native draws. They are not widened here; a residual above them is a numerical investigation and a recorded amendment."
+  }
+}
