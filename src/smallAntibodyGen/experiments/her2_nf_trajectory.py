@@ -93,11 +93,13 @@ NO_SCALER_REASON = ("this protocol trains entirely in float32, with no autocast 
 def capture_rng_state():
     """Every generator that can affect a continued run, in one serializable block."""
     import torch
+    # initialized-only: asking an uninitialized CUDA runtime for its RNG state creates the context
+    cuda = torch.cuda.is_initialized()
     return {"python": random.getstate(),
             "numpy": np.random.get_state(legacy=True),
             "torch_cpu": torch.get_rng_state(),
-            "torch_cuda": (torch.cuda.get_rng_state_all() if torch.cuda.is_available() else []),
-            "cuda_devices": (torch.cuda.device_count() if torch.cuda.is_available() else 0)}
+            "torch_cuda": (torch.cuda.get_rng_state_all() if cuda else []),
+            "cuda_devices": (torch.cuda.device_count() if cuda else 0)}
 
 
 def restore_rng_state(state):

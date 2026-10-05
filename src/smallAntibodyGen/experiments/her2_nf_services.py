@@ -1312,7 +1312,8 @@ class FlightServices:
     def run_one_trajectory(self, *, trajectory, directory, block, regime, seed, task,
                            preservation, coefficients, updates, endpoints, checkpoints,
                            parent_seed, bank_rows=None, monitor_rows=None, pairing_seed=None,
-                           namespace=None, max_horizon=None, heartbeat=None, budget=None):
+                           namespace=None, max_horizon=None, heartbeat=None, budget=None,
+                           reuse_saved_arrays=True):
         """Wire one arm's callbacks and hand them to the resumable loop.
 
         ``bank_rows``/``monitor_rows``/``namespace`` exist for the miniature
@@ -1357,7 +1358,8 @@ class FlightServices:
                 block=block, regime=regime, seed=seed, population=population,
                 pairing_seed=resolved_pairing_seed, batch_rows=batch_rows, horizon=horizon,
                 replay_rows=int(bank_rows if bank_rows is not None
-                                else self.config["banks"]["replay_rows"]))
+                                else self.config["banks"]["replay_rows"]),
+                reuse_saved_arrays=reuse_saved_arrays)
             reference = self._reference_cache(
                 parent_policy, population, key=f"{block}:{regime}:{parent_seed}",
                 seed=(parent_seed if block != "B" else None),
@@ -1368,7 +1370,8 @@ class FlightServices:
                             else self.config["banks"]["replay_rows"])
             teacher_rows = bank_rows if preservation == "fkl" else 0
             replay_bank = self._replay_bank(parent_policy, parent_seed, regime,
-                                            teacher_rows=teacher_rows or None, rows=bank_rows)
+                                            teacher_rows=teacher_rows or None, rows=bank_rows,
+                                            reuse_saved_arrays=reuse_saved_arrays)
             development = self._development_bank(parent_seed, parent_policy, regime=regime,
                                                  rows=monitor_rows)
             self._development_teacher(parent_seed, parent_policy, development)
@@ -1430,7 +1433,7 @@ class FlightServices:
                 "parent_policy": parent_policy, "population": population}
 
     def _streams_for(self, *, block, regime, seed, population, pairing_seed, batch_rows,
-                     horizon, replay_rows):
+                     horizon, replay_rows, reuse_saved_arrays=True):
         """The ordered task stream and the replay order for one arm.
 
         For a Block-A parent both are the completed campaign's **saved** arrays,
@@ -1439,12 +1442,22 @@ class FlightServices:
         bank in. Re-deriving them and observing that the digests agree is a check
         on the derivation rule, not a reuse of the arrays, and the saved replay
         order was not being read at all.
+
+        ``reuse_saved_arrays=False`` re-derives the task stream instead of
+        loading it. It exists for PAIRED arms that must share one execution
+        path: the saved-stream branch is gated on ``replay_rows == 100_000``, so
+        an arm with a different bank size would otherwise take the derived
+        branch while its partner took the saved one, and the pair would differ
+        in two things instead of one. The derived and saved arrays agree by
+        construction -- that is what the preflight parity gate checks -- so this
+        changes the source, not the numbers.
         """
         from . import her2_nf_reuse as reuse
         exposures = int(batch_rows) * int(horizon)
         record = self.historical_root() / "streams" / f"seed{int(seed)}" / "task_stream.complete.json"
         inherited_pairing = int(self.config["block_a"]["pairing"]["seed_base"]) + int(seed)
-        reuse_production = (block == "A" and regime == "original_split"
+        reuse_production = (bool(reuse_saved_arrays)
+                            and block == "A" and regime == "original_split"
                             and int(pairing_seed) == inherited_pairing
                             and int(replay_rows) == 100_000)
         if reuse_production and record.is_file():
@@ -1521,7 +1534,8 @@ class FlightServices:
             selection_index=selection_index, selection_labels=selection_labels,
             source_sha256=self._snapshot_digest(), after_update=after_update)
 
-    def _replay_bank(self, parent_policy, seed, regime, *, teacher_rows=None, rows=None):
+    def _replay_bank(self, parent_policy, seed, regime, *, teacher_rows=None, rows=None,
+                     reuse_saved_arrays=True):
         """The parent's replay bank, with the teacher cache built only when it is used.
 
         For a Block-A parent this is the completed campaign's **saved** 100k
@@ -1537,9 +1551,16 @@ class FlightServices:
         bank and the 160 MB teacher cache are built apart.
         """
         count = int(rows if rows is not None else self.config["banks"]["replay_rows"])
-        key = f"replay:{regime}:{seed}:{count}:{_state_digest(parent_policy)}"
+        # The cache key carries the reuse decision: a freshly drawn 100k bank and
+        # the saved 100k bank are different arrays for the same (regime, seed,
+        # rows), and serving one where the other was asked for would silently
+        # pair an arm with its partner's draws.
+        key = (f"replay:{regime}:{seed}:{count}:{_state_digest(parent_policy)}"
+               f":{'saved' if reuse_saved_arrays else 'fresh'}")
         if key not in self._cache:
-            self._cache[key] = self._resolve_replay_bank(parent_policy, seed, regime, rows=count)
+            self._cache[key] = self._resolve_replay_bank(
+                parent_policy, seed, regime, rows=count,
+                reuse_saved_arrays=reuse_saved_arrays)
         block = self._cache[key]
         # Rebuilt when a later arm needs MORE rows than the first one did: a
         # cache covering the monitor prefix would index out of range under a
@@ -1566,12 +1587,21 @@ class FlightServices:
             block["teacher_rows"] = take
         return block
 
-    def _resolve_replay_bank(self, parent_policy, seed, regime, *, rows):
-        """Saved first, persisted second, freshly drawn only as a last resort."""
+    def _resolve_replay_bank(self, parent_policy, seed, regime, *, rows,
+                             reuse_saved_arrays=True):
+        """Saved first, persisted second, freshly drawn only as a last resort.
+
+        ``reuse_saved_arrays=False`` skips the saved shortcut and draws (or
+        reloads) a bank of exactly ``rows`` through the ordinary path. A paired
+        fixed-bank control needs this: without it the control would read the
+        completed campaign's saved bank while its partner read a newly drawn
+        one, confounding "rows are reused" with "which draws".
+        """
         from . import her2_nf_reuse as reuse
         digest = _state_digest(parent_policy)
         parent_id = f"parent::{regime}::seed{seed}"
-        if regime == "original_split" and rows == int(self.config["banks"]["replay_rows"]):
+        if (reuse_saved_arrays and regime == "original_split"
+                and rows == int(self.config["banks"]["replay_rows"])):
             directory = (self.historical_root() / "banks" / f"seed{int(seed)}" / "replay")
             if (directory / "bank.complete.json").is_file():
                 saved = reuse.load_replay_bank(self.historical_root(), seed, role="replay",
