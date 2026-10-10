@@ -471,7 +471,7 @@ def _load_model(model, state, meta, *, strict, path):
 
 
 def save(path, *, model, heads, optimizer, scheduler, state, identity, extra=None):
-    """Atomic write of the whole state. ``.tmp`` then replace, never in place."""
+    """Atomic write of the whole state. An exclusive temporary then replace, never in place."""
     model_state, model_format = _model_payload(model)
     payload = {"schema_version": CHECKPOINT_SCHEMA, "step": int(state.step),
                "model": model_state,
@@ -495,9 +495,10 @@ def save(path, *, model, heads, optimizer, scheduler, state, identity, extra=Non
         payload.update(dict(extra))
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_suffix(target.suffix + ".tmp")
-    torch.save(payload, temporary)
-    temporary.replace(target)
+    # An exclusively created temporary, never ``<name>.tmp``: a hard link or symbolic link planted
+    # at a fixed temporary name would be written through, truncating a file in another flight.
+    with paths.atomic_open(target, "wb") as stream:
+        torch.save(payload, stream)
     return target
 
 

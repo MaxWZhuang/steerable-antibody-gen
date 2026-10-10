@@ -37,6 +37,7 @@ import hashlib
 import json
 import os
 import re
+import tempfile
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -305,14 +306,52 @@ def array_record(array, *, logical, order):
 # atomic LF writers
 # ---------------------------------------------------------------------------
 
+def exclusive_temporary(path, *, suffix=".tmp"):
+    """A fresh, empty temporary file beside ``path``: ``(open descriptor, Path)``.
+
+    Created exclusively (``O_EXCL``) under a random name, so it can never be a link that was
+    already sitting there. A fixed ``<name>.tmp`` opened for writing follows a hard link or a
+    symbolic link planted at that name and truncates whatever it points at, so an atomic write
+    into a run directory could destroy a file in a finished flight. The caller writes through the
+    descriptor, renames the temporary over ``path`` and removes it if anything failed first.
+    """
+    path = Path(path)
+    descriptor, name = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".",
+                                        suffix=suffix)
+    return descriptor, Path(name)
+
+
+@contextmanager
+def atomic_open(path, mode, **options):
+    """Open an exclusive temporary beside ``path``; rename it over ``path`` on a clean exit.
+
+    The one place that owns the descriptor, the rename and the clean-up, so no writer repeats
+    them. On ANY failure ``path`` is left as it was and the temporary is removed. The raw
+    descriptor is closed by hand if wrapping it fails (``MemoryError``, ``KeyboardInterrupt``):
+    on Windows an open handle also blocks the removal, which would leave the temporary behind
+    and mask the original error with a ``PermissionError``.
+    """
+    path = Path(path)
+    descriptor, temporary = exclusive_temporary(path)
+    try:
+        try:
+            stream = os.fdopen(descriptor, mode, **options)
+        except BaseException:
+            os.close(descriptor)               # ownership never transferred; the handle is still ours
+            raise
+        with stream:
+            yield stream
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)      # only our own file, and only if the rename did not run
+
+
 def write_text(path, text):
     """Write UTF-8 text with literal LF newlines, atomically. Returns its sha256."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    with temporary.open("w", encoding="utf-8", newline="\n") as stream:
+    with atomic_open(path, "w", encoding="utf-8", newline="\n") as stream:
         stream.write(text)
-    os.replace(temporary, path)
     return sha256_file(path)
 
 
@@ -333,10 +372,8 @@ def write_arrays(path, arrays):
     """Atomically write a ``.npz`` of named arrays; returns the container sha256."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp.npz")
-    with temporary.open("wb") as stream:
+    with atomic_open(path, "wb") as stream:
         np.savez(stream, **{str(name): np.asarray(value) for name, value in arrays.items()})
-    os.replace(temporary, path)
     return sha256_file(path)
 
 
