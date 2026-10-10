@@ -25,6 +25,10 @@ import argparse
 import sys
 from pathlib import Path
 
+# An admission flight must not write into a source tree it imports from: bytecode would land in
+# a ``__pycache__`` that the run-root scan and the source-cache check do not cover. Set before
+# any project import (tests/test_her2_routes_entry_scripts.py enforces it for every entry script).
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
