@@ -145,10 +145,15 @@ def test_the_repository_records_only_the_narrowing_migration():
     """
     A guard on the real file: supersessions are meant to be rare and explained.
     If this list grows, somebody is using the mechanism to avoid re-freezing.
+
+    The cap is 4: the three migrations the repository narrowing forced, plus the 2026-10-08 fix to
+    ``her2_support_paths`` (atomic writers followed a link planted at their fixed temporary name).
+    The fourth is a bug fix to a shared helper whose bytes-on-disk output is unchanged, recorded with
+    its reason; it is not a campaign being re-frozen to dodge verification.
     """
     root = Path(__file__).resolve().parents[3]
     table = support.load_source_supersessions(root)
-    assert len(table) <= 3, f"unexpected supersessions: {sorted(k[0] for k in table)}"
+    assert len(table) <= 4, f"unexpected supersessions: {sorted(k[0] for k in table)}"
     for (logical, _), record in table.items():
         assert record["reason"], f"{logical} is superseded without a reason"
         assert record["commit"], f"{logical} is superseded without naming a commit"

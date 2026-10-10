@@ -23,6 +23,13 @@
       "current_sha256": "d2d7d22715fab51bf6c8af73a6692ffb3c2af4af3466b89929ac45c036461dd9",
       "commit": "cf5084f247dd06ad4718ebd403af87433507252c",
       "reason": "The repository was narrowed to code alone, so reference/ stopped being tracked. Both campaign freezes required every evidence file to be tracked and equal to HEAD, which no longer had a legal solution, so evidence authentication moved to committed digest manifests and these files changed after the campaigns were already frozen. The artifacts they attest to are unmodified; only the code that produced them moved."
+    },
+    {
+      "file": "src/smallAntibodyGen/experiments/her2_support_paths.py",
+      "superseded_sha256": "a9b0543329ee3d54e2c7d51f7faefc4fb435f838de182543ffeb0164a2677812",
+      "current_sha256": "6f4dcf5a131ec01ec91b8b059361440aa54541249a7916ee5c386c7d3125dc1d",
+      "commit": "01ec69c2ec37dfc8442d5d01de80893d87809e40",
+      "reason": "A reviewed bug fix to a shared helper, not a re-freeze avoided. paths.write_text and paths.write_arrays opened a fixed '<name>.tmp' for writing, so a hard link or symbolic link planted at that name was written through and truncated whatever it pointed at; under the 2026 admission phase a stage record could destroy a pinned, finished flight's best.pt. They now create their temporary exclusively (paths.exclusive_temporary and paths.atomic_open, standard-library tempfile only) and rename it into place. The bytes they write are unchanged (write_json's canonical LF text, write_arrays' container contents), so nothing the support audit measured or published changes; only the name of a transient temporary file does."
     }
   ]
 }
