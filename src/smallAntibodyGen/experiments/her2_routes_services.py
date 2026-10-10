@@ -33,6 +33,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from . import her2_routes_admission as admission
 from . import her2_routes_capabilities as capabilities
 from . import her2_routes_checkpoints as checkpoints
 from . import her2_routes_controls as controls
@@ -384,9 +385,16 @@ class FlightServices:
         site is how one reader would be redirected while another kept writing to the shared
         directory.
         """
-        if self._source_cache is not None:
-            return self._source_cache
-        return self.context.artifact("cache/sources")
+        root = (self._source_cache if self._source_cache is not None
+                else self.context.artifact("cache/sources"))
+        if spec.ADMISSION_PHASE_KEY in self.config:
+            # The one place an admission flight writes OUTSIDE its run root: a cache miss rewrites
+            # ``rows.tsv`` / ``index.json`` in place. A cache that resolves into a pinned origin, or
+            # holds a link, a junction or a multiply-linked table, is refused before any reader sees
+            # it, so a clean run root alone is not mistaken for a safe flight.
+            admission.require_disjoint(root, spec.admission_pins(self.config))
+            admission.require_clean_tree(root, label="the source cache")
+        return root
 
     @property
     def condition_spec(self):
@@ -1320,6 +1328,7 @@ class FlightServices:
                                 "batch, plus a fixed-order rescoring of each window "
                                 "(reported by the decoding stage's own accounting)"]
                                if self.is_dplm(route) else [])]}
+        out = self.forecast_imports(out)
         total = sum(block["hours"] for block in out.values())
         return {"per_route": out, "total_hours": total,
                 "reserve_hours": float(self.config["runtime"]["reserve_hours"]),
@@ -1329,6 +1338,30 @@ class FlightServices:
                 "basis": ("measured per-row costs on this box times the declared schedule. It is "
                           "reported whether or not it fits, and it never relabels an incomplete "
                           "flight as complete.")}
+
+    def forecast_imports(self, per_route):
+        """Count an admitted route as an IMPORT: zero hours here, its would-be cost kept beside it.
+
+        Forecasting a finished route's full training schedule would put days of GPU time into the
+        total of a flight that trains none of it. A config without the admission phase is returned
+        unchanged.
+        """
+        policy = self.admission_policy()
+        if policy is None:
+            return per_route
+        out = {}
+        for route, block in per_route.items():
+            if route not in policy["admitted_routes"]:
+                out[route] = block
+                continue
+            out[route] = {"imported": True, "hours": 0.0, "seconds": 0.0, "optimizer_updates": 0,
+                          "row_presentations": 0, "student_forwards": 0,
+                          "microbatch": block.get("microbatch"),
+                          "hours_if_trained_here": block.get("hours"),
+                          "basis": ("admitted from a finished flight: its checkpoint is verified "
+                                    "and copied, and no update runs in this flight"),
+                          "excludes": ["the origin flight's training time"]}
+        return out
 
     # -- collation ---------------------------------------------------------
     def collate(self, route, views):
@@ -1346,23 +1379,137 @@ class FlightServices:
                              sampler_rng=np.random.default_rng([int(seed), 2]),
                              decode_rng=np.random.default_rng([int(seed), 3]))
 
-    def training_identity(self, route, *, arm, seed, schedule_sha256=None):
-        """The identity a checkpoint is bound to. A resume against another is refused."""
+    def training_identity(self, route, *, arm, seed, schedule_sha256=None, pinned=None):
+        """The identity a checkpoint is bound to. A resume against another is refused.
+
+        ``pinned`` is an admission pin (``her2_routes_admission``) and is ``None`` everywhere
+        except the admission phase's scoring of an imported checkpoint. It replaces EXACTLY the
+        three fields in ``admission.OVERRIDDEN_IDENTITY_FIELDS`` with the origin flight's pinned
+        values; route, arm, seed, vocabulary, split, schedule and native base stay this root's own.
+        """
         marker = self.context.path(spec.EXTERNAL_MARKER)
         snapshot = self.context.path(spec.FREEZE_MARKER)
         vocabulary = self.context.path("condition_vocabulary.json")
         split = self.context.path(spec.SPLIT_FREEZE)
+        fields = {"config_sha256": paths.sha256_file(self.context.config_path),
+                  "snapshot_sha256": (paths.read_json(snapshot)["snapshot_sha256"]
+                                      if snapshot.is_file() else None),
+                  "external_sha256": (paths.read_json(marker)["external_sha256"]
+                                      if marker.is_file() else None)}
+        if pinned is not None:
+            fields.update(admission.pinned_identity_fields(pinned))
         return checkpoints.training_identity(
-            route=route, arm=arm, seed=int(seed),
-            config_sha256=paths.sha256_file(self.context.config_path),
-            snapshot_sha256=(paths.read_json(snapshot)["snapshot_sha256"]
-                             if snapshot.is_file() else None),
-            external_sha256=(paths.read_json(marker)["external_sha256"]
-                             if marker.is_file() else None),
+            route=route, arm=arm, seed=int(seed), **fields,
             condition_sha256=(paths.sha256_file(vocabulary) if vocabulary.is_file() else None),
             split_sha256=(paths.digest_document(paths.read_json(split))
                           if split.is_file() else None),
             schedule_sha256=schedule_sha256, native_sha256=self.native_identity(route))
+
+    # -- admission (opt-in; see her2_routes_admission) ---------------------
+    def admission_policy(self):
+        """The admission-phase policy of this flight's config, or ``None``. Cached."""
+        if "admission_policy" not in self._cache:
+            phase = spec.active_phase(self.config)
+            self._cache["admission_policy"] = phase if spec.is_admission_phase(phase) else None
+        return self._cache["admission_policy"]
+
+    def admitted_pin(self, route, checkpoint):
+        """The pin for ``checkpoint`` iff it is exactly this root's admitted ``best.pt`` of ``route``.
+
+        ``None`` for every other path, route or config, which is what keeps the foreign-identity
+        branch unreachable for anything that was not admitted: another file in the same directory,
+        the same bytes under another name, and every route of a flight without the phase.
+        """
+        policy = self.admission_policy()
+        if policy is None or checkpoint is None or route not in policy["admitted_routes"]:
+            return None
+        target = self.context.path("bakeoff", route, "best.pt")
+        if Path(checkpoint).resolve() != target.resolve():
+            return None
+        return spec.admission_pins(self.config)[route]
+
+    def require_admitted_load(self, route, checkpoint, pin, payload):
+        """Re-verify an admitted checkpoint against its committed pin. Run on EVERY load."""
+        problems = admission.loadable_problems(route, checkpoint, pin, live_config=self.config)
+        problems.extend(admission.record_payload_problems(
+            Path(checkpoint).parent / admission.ADMISSION_FILE, payload))
+        if int(payload.get("step", -1)) != int(pin["checkpoint_step"]):
+            problems.append(f"the payload is step {payload.get('step')!r}, the pin says "
+                            f"{pin['checkpoint_step']}")
+        require(not problems,
+                f"{checkpoint} is not the admitted {route} checkpoint: " + "; ".join(problems))
+
+    def bakeoff_record(self, route):
+        """What the gate needs of a route's bakeoff: ``best`` and whether it was trained here."""
+        directory = self.context.path("bakeoff", route)
+        marker = directory / admission.ADMISSION_FILE
+        if marker.is_file():
+            record = admission.read_record(marker)
+            pin = spec.admission_pins(self.config).get(route)
+            require(pin is not None and record.get("pin") == dict(pin),
+                    f"{marker}: the record's embedded pin differs from the pin committed in the "
+                    "config")
+            return {"best": record["best"], "admitted": True, "trained": False}
+        return paths.read_json(directory / "run.json")
+
+    def require_not_admitted(self, directory):
+        """The guard every training entry point passes through before it writes anything.
+
+        Training into a directory that holds an admitted checkpoint would overwrite it. Under the
+        admission phase the directory is ALSO resolved and checked against EVERY pinned origin
+        flight: a junction at ``bakeoff/<route>`` (or at its ``density_only`` child) that points
+        into a finished flight has no ``admission.json`` to find, so the marker check alone lets
+        the trainer write progress and checkpoints into that flight. The same check protects
+        ``admit_route``; this is the one for the routes that are trained here.
+        """
+        directory = Path(directory)
+        marker = directory / admission.ADMISSION_FILE
+        require(not marker.exists(),
+                f"{directory} holds an admitted checkpoint ({admission.ADMISSION_FILE}); "
+                "admission never trains over or removes it")
+        if spec.ADMISSION_PHASE_KEY in self.config:
+            admission.require_disjoint(directory, spec.admission_pins(self.config))
+
+    def admit_route(self, route, pin):
+        """Verify one finished route against its pin, copy its ``best.pt`` and write the record.
+
+        Order matters: the origin flight (config, markers, external table, vocabulary, split,
+        checkpoint bytes) is compared with this root first; the checkpoint's own stored identity
+        is then compared with the identity this root would expect for it (this root's live values
+        plus the three pinned ones, never the checkpoint's own claim); only then is anything
+        written. The origin flight is only read, and a destination that is, sits in or contains it
+        is refused first.
+        """
+        directory = self.context.path("bakeoff", route)
+        # The run root AND the resolved bakeoff directory, each against EVERY pinned origin (plus
+        # the pin handed in): a junction at ``bakeoff/<route>`` that points into the origin passes
+        # the first check, lets ``copy_verified`` accept the origin's own file as already copied,
+        # and would then write the record into a finished flight; one that points into ANOTHER
+        # route's origin passes a check made against this route's pin alone.
+        every_pin = {**spec.admission_pins(self.config), route: pin}
+        admission.require_disjoint(self.context.run_root, every_pin)
+        admission.require_disjoint(directory, every_pin)
+        problems = admission.origin_problems(pin, route, live=admission.live_values(self.context))
+        require(not problems, f"{route} cannot be admitted: " + "; ".join(problems))
+        source = admission.origin_checkpoint_path(pin, route)
+        payload = torch.load(str(source), map_location="cpu", mmap=True, weights_only=False)
+        expected = self.training_identity(route, arm=pin["arm"], seed=pin["seed"],
+                                          schedule_sha256=pin["schedule_sha256"], pinned=pin)
+        checkpoints.require_identity(payload["identity"], expected, path=source)
+        require(int(payload["step"]) == int(pin["checkpoint_step"]),
+                f"{source} is step {payload['step']}, the pin says {pin['checkpoint_step']}")
+        best = {"best_step": payload.get("best_step"), "best_metric": payload.get("best_metric")}
+        destination = admission.copy_verified(source, directory / "best.pt",
+                                              sha256=pin["checkpoint_sha256"],
+                                              nbytes=pin["checkpoint_bytes"])
+        record = admission.build_record(route, pin, origin_root=pin["origin_flight"],
+                                        destination=destination, best=best)
+        record_path = directory / admission.ADMISSION_FILE
+        admission.write_record(record_path, record)
+        return {"route": route, "admitted": True, "trained": False, "selected_on": "development",
+                "rule": "best", "selector": pin["selector"], "step": int(pin["checkpoint_step"]),
+                "best": best, "checkpoint": str(destination), "sha256": pin["checkpoint_sha256"],
+                "record": str(record_path), "origin_flight": pin["origin_flight"]}
 
     def cadence(self, *, milestones=()):
         storage = self.config["storage"]
@@ -1402,6 +1549,7 @@ class FlightServices:
         """
         capabilities.require_token_likelihood(route, "FlightServices.train")
         directory = Path(directory)
+        self.require_not_admitted(directory)
         policy = spec.training_phase(self.config)
         if policy is not None:
             # Central: nothing under the phase trains with the legacy selector or none at all,
@@ -2611,8 +2759,7 @@ class FlightServices:
         freeze["old_library_note"] = ("sequences only. The old display TEST split's outcomes are "
                                       "sealed permanently; reading its sequences for a novelty "
                                       "check opens nothing.")
-        if persist:
-            paths.write_json(record_path, freeze)
+        self.persist_split_freeze(record_path, freeze, existing=existing, persist=persist)
         self._cache["split"] = result
         self._cache["closure"] = split_lib.ExclusionClosure.build(
             reserved_windows=result.reserved,
@@ -2628,6 +2775,23 @@ class FlightServices:
                 "compatible_windows": len(windows),
                 "unique_windows": len(set(windows)),
                 "old_library": dict(library_parts)}
+
+    @staticmethod
+    def persist_split_freeze(record_path, freeze, *, existing, persist=True):
+        """Write the freeze record the FIRST time only. ``True`` if it wrote.
+
+        A second freeze that agrees with the record on disk comes back stamped ``reconfirmed``
+        (``freeze_split``), and rewriting it with that stamp changes the record's digest, which every
+        checkpoint identity binds (``split_sha256``). ``split()`` re-derives the split in every FRESH
+        process (a resume, or a stage launched separately), so rewriting here silently moved the
+        digest of a pinned split and orphaned every checkpoint written under it, with the split's
+        content untouched. The stamp survives in the returned record; the file keeps its bytes.
+        A record that DISAGREES never reaches this point: ``freeze_split`` refuses it first.
+        """
+        if not persist or existing is not None:
+            return False
+        paths.write_json(record_path, freeze)
+        return True
 
     def split(self):
         if "split" not in self._cache:
@@ -3276,12 +3440,24 @@ class FlightServices:
         """Train every enabled route to its declared budget. One record per route."""
         # Under the DPLM training phase the pinned split is verified here too, before the first
         # update of either route, so a direct call cannot skip the stage-level check.
-        policy = spec.training_phase(self.config)
-        spec.verify_training_phase_split(self.context, policy)
+        phase = spec.active_phase(self.config)
+        admission_policy = phase if spec.is_admission_phase(phase) else None
+        policy = None if admission_policy is not None else phase
+        spec.verify_training_phase_split(self.context, phase)
+        pins = spec.admission_pins(self.config) if admission_policy is not None else {}
+        if admission_policy is not None:
+            # A direct call must not skip the stage-level check (see _require_admission_ready).
+            admission.require_clean_run_root(self.context.run_root)
         records, remaining = {}, []
         for route in self.config["routes"]["enabled"]:
             block = self.config["routes"][route]
             directory = self.context.path("bakeoff", route)
+            if admission_policy is not None:
+                if route in admission_policy["admitted_routes"]:
+                    # Imported, not trained: the pinned best.pt of a finished flight.
+                    records[route] = self.admit_route(route, pins[route])
+                    continue
+                self.require_not_admitted(directory)
             if route == ROUTE_ENERGY:
                 # The energy route's budget is two named phases, so its terminality
                 # is the sum of both rather than a single ``updates`` figure.
@@ -3322,6 +3498,11 @@ class FlightServices:
                                         "policy_sha256": policy["policy_sha256"],
                                         "admission": policy["admission"],
                                         "selection_metric": policy["selection_metric"]}
+        if admission_policy is not None:
+            result["admission_phase"] = {"phase_id": admission_policy["phase_id"],
+                                         "policy_sha256": admission_policy["policy_sha256"],
+                                         "pins_sha256": admission_policy["pins_sha256"],
+                                         "admission": admission_policy["admission"]}
         return result
 
     def energy_context(self, summaries, *, answer_free=False, rng=None, requested_bin=None):
@@ -3560,6 +3741,7 @@ class FlightServices:
         from ..models.her2_routes_energy import onehot_window
         from .her2_routes_serial import canonical_index
         directory = Path(directory)
+        self.require_not_admitted(directory)
         stop = (None if stop_after_updates is None
                 else data_lib.positive_integer(stop_after_updates, "stop_after_updates"))
         # 1. Resolve and bind everything the run depends on. No model, directory or state yet.
@@ -3960,7 +4142,19 @@ class FlightServices:
             if payload is None:
                 payload = torch.load(str(checkpoint), map_location="cpu", weights_only=False)
             trained = payload["identity"]
-            if binding is None:
+            pin = self.admitted_pin(route, checkpoint)
+            if pin is not None:
+                # An imported checkpoint: arm, seed and schedule come from the committed pin, NOT
+                # from the payload, and three identity fields come from the origin flight. The
+                # file's hash, the step and the live route block are re-verified every time.
+                require(arm is None or str(arm) == str(pin["arm"]),
+                        f"{checkpoint} is admitted as the {pin['arm']!r} arm but the {arm!r} arm was "
+                        "requested; scoring one arm's weights under the other's name is refused")
+                self.require_admitted_load(route, checkpoint, pin, payload)
+                expected = self.training_identity(
+                    route, arm=pin["arm"], seed=pin["seed"],
+                    schedule_sha256=pin["schedule_sha256"], pinned=pin)
+            elif binding is None:
                 expected = self.training_identity(
                     route, arm=trained["arm"] if arm is None else arm, seed=int(trained["seed"]),
                     schedule_sha256=trained.get("schedule_sha256"))
@@ -4203,7 +4397,7 @@ class FlightServices:
         from . import her2_routes_controls as controls_lib
         from . import her2_routes_eval as eval_lib
         directory = self.context.path("bakeoff", route)
-        record = paths.read_json(directory / "run.json")
+        record = self.bakeoff_record(route)
         panel = self.development_panel_outcomes()
         checkpoint = self.require_checkpoint(
             directory / "best.pt", stage="route_gate", route=route,

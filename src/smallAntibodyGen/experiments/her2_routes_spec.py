@@ -103,7 +103,20 @@ class RoutesContext:
         return self.artifact_root / "runs" / self.revision
 
     def path(self, *parts):
-        return self.run_root.joinpath(*[str(part) for part in parts])
+        """A path under the run root. Every run-root write is built here.
+
+        Under the admission phase the RESOLVED path is checked against EVERY pinned origin flight,
+        so a junction or symbolic link anywhere inside the run root (``stages``, ``bakeoff``,
+        ``bakeoff/<route>``, ``density_only``) that points into a finished flight is refused where
+        the path is made, before any stage record, checkpoint or marker is written through it. An
+        exclusive temporary protects against a link at the FILENAME; only this protects against a
+        redirected parent DIRECTORY. A flight without the phase pays nothing.
+        """
+        target = self.run_root.joinpath(*[str(part) for part in parts])
+        if ADMISSION_PHASE_KEY in self.config:
+            from . import her2_routes_admission as admission
+            admission.require_disjoint(target, admission_pins(self.config))
+        return target
 
     def artifact(self, logical):
         return paths.resolve_under(self.artifact_root, str(logical))
@@ -149,6 +162,16 @@ def resolve_context(repository_root, *, config_path, run_root=None, artifact_roo
     for name, logical in dict(config["roots"].get("historical") or {}).items():
         protected[f"historical_{name}"] = repository_root / logical
     paths.require_disjoint_run_root(root, protected)
+    if ADMISSION_PHASE_KEY in config:
+        # An admission flight READS finished flights. A run root that is, or contains, one of them
+        # is refused here, before ``acquire`` or anything else can write a marker into it.
+        from . import her2_routes_admission as admission
+        admission.require_disjoint(root, admission_pins(config))
+        if ensure:
+            # A write-capable context only: refuse a run root that holds a link, a junction or a
+            # multiply-linked file BEFORE the lock, its owner journal or any marker can be written
+            # through one. The read-only form (status) writes nothing and stays usable on any root.
+            admission.require_clean_run_root(root)
     return context.ensure() if ensure else context
 
 
@@ -642,6 +665,8 @@ def training_phase(config):
     """
     if TRAINING_PHASE_KEY not in config:
         return None
+    require(ADMISSION_PHASE_KEY not in config,
+            f"a config cannot carry both {TRAINING_PHASE_KEY} and {ADMISSION_PHASE_KEY}")
     block = config[TRAINING_PHASE_KEY]
     require(isinstance(block, dict) and block,
             f"{TRAINING_PHASE_KEY} must be a nonempty mapping (found {block!r})")
@@ -695,27 +720,149 @@ def verify_training_phase_split(context, policy=None):
     return {"split_sha256": observed, "sequence_sha256": document["sequence_sha256"]}
 
 
+# ---------------------------------------------------------------------------
+# the ADMISSION phase: route_gate on routes that finished in other flights
+# ---------------------------------------------------------------------------
+#
+# The five-way hold is lifted by implementing HR-17, HR-18 and a checkpoint policy, none of which
+# this is. A config with no ``competition`` block and fewer than five routes does not trip that
+# hold at all, so without THIS phase a four-route config would be free to run every stage after
+# ``route_gate`` -- selection, controls, post-training, decoding, the one-shot reserved opening --
+# on checkpoints it did not train. The phase is therefore a closed declaration held in CODE, like
+# the training phase: the config's ``admission_phase`` block is compared with it and can neither
+# relax nor extend it, and the owner's gate thresholds are part of it (a four-route config with
+# looser margins is refused, not merely hashed differently).
+ADMISSION_PHASE_KEY = "admission_phase"
+ADMISSION_PINS_KEY = "admission"
+PHASE_ADMITTED_GATE = "admitted_route_gate"
+PHASE_KIND_ADMISSION = "admission"
+ADMISSION_GATE_ONLY = "route_gate_only"
+ADMISSION_RULE = "best"
+ADMISSION_PHASE_ROUTES = ("ablang2_masked_editor", "piggen_causal_infiller", "dwjs_energy",
+                          "dplm_150m_masked")
+#: Finished elsewhere and imported at their own ``best.pt``.
+ADMISSION_ADMITTED_ROUTES = ("ablang2_masked_editor", "piggen_causal_infiller",
+                             "dplm_150m_masked")
+#: dWJS's finished checkpoint predates energy contract v2 and is refused for scoring, so it is
+#: retrained inside this flight's bakeoff. It can never be admitted.
+ADMISSION_TRAINED_ROUTES = ("dwjs_energy",)
+ADMISSION_PHASE_STAGES = ("acquire", "preflight", "split", "sources", "profile", "smoke", "freeze",
+                          "bakeoff", "route_gate")
+ADMISSION_PHASE_HELD_STAGES = ("controls", "priors", "posttrain", "decoding",
+                               "confirmation_freeze", "confirm", "report", "verify")
+#: The owner's G1 numbers (delta 0.05, margins 0.02 / 0.02 / 0.0), unmodified. ``gate_decision``
+#: accepts any finite value, so the config cannot be trusted to keep them.
+ADMISSION_GATE_LOCK = {"delta": 0.05, "readout_tolerance": 0.25, "generation_draws": 512,
+                       "retention_rows": 128, "local_pairs": 256,
+                       "margins": {"backbone": 0.02, "distance": 0.02, "generation": 0.0}}
+
+
+def admission_phase_declaration():
+    """The complete admission declaration. The config block must equal this exactly."""
+    return {"phase_id": PHASE_ADMITTED_GATE, "kind": PHASE_KIND_ADMISSION,
+            "admission": ADMISSION_GATE_ONLY, "routes": list(ADMISSION_PHASE_ROUTES),
+            "admitted_routes": list(ADMISSION_ADMITTED_ROUTES),
+            "trained_routes": list(ADMISSION_TRAINED_ROUTES), "rule": ADMISSION_RULE,
+            "stages": list(ADMISSION_PHASE_STAGES),
+            "held_stages": list(ADMISSION_PHASE_HELD_STAGES),
+            "gates": json.loads(json.dumps(ADMISSION_GATE_LOCK)),
+            "expected_split_sha256": TRAINING_PHASE_SPLIT_SHA256,
+            "expected_sequence_sha256": TRAINING_PHASE_SEQUENCE_SHA256}
+
+
+def is_admission_phase(policy):
+    """True for the policy :func:`admission_phase` returns; False for ``None`` or the training one."""
+    return bool(policy) and policy.get("kind") == PHASE_KIND_ADMISSION
+
+
+def admission_pins(config):
+    """The validated per-route pins of a config, a closed schema (see ``her2_routes_admission``)."""
+    from . import her2_routes_admission as admission
+    return admission.parse_pins(config.get(ADMISSION_PINS_KEY), routes=ADMISSION_ADMITTED_ROUTES)
+
+
+def admission_phase(config):
+    """``None`` for a config with no admission key; else the validated declaration plus digests.
+
+    Presence, not truthiness, decides. The block is a closed schema compared with the code's
+    declaration, the enabled routes must be exactly the four in order, the gate numbers must equal
+    the owner's (the live ``gates`` block is checked, not only the declaration), the pins must
+    parse, and the config may carry neither a ``competition`` block nor a training phase: this
+    phase cannot be grafted onto the five-way config to clear its hold, and it does not clear it.
+    """
+    if ADMISSION_PHASE_KEY not in config:
+        return None
+    require(TRAINING_PHASE_KEY not in config,
+            f"a config cannot carry both {TRAINING_PHASE_KEY} and {ADMISSION_PHASE_KEY}")
+    block = config[ADMISSION_PHASE_KEY]
+    require(isinstance(block, dict) and block,
+            f"{ADMISSION_PHASE_KEY} must be a nonempty mapping (found {block!r})")
+    declared = admission_phase_declaration()
+    require(set(block) == set(declared),
+            f"{ADMISSION_PHASE_KEY} keys differ from the closed schema: missing "
+            f"{sorted(set(declared) - set(block))}, unexpected {sorted(set(block) - set(declared))}")
+    for key, value in declared.items():
+        require(paths.canonical_json(block[key]) == paths.canonical_json(value),
+                f"{ADMISSION_PHASE_KEY}.{key} is {block[key]!r}; the code fixes it at {value!r}. "
+                "The phase's routes, stages, held stages, gate numbers and split pin cannot be "
+                "relaxed by a config.")
+    routes = dict(config.get("routes") or {})
+    require(list(routes.get("enabled") or ()) == list(ADMISSION_PHASE_ROUTES),
+            f"routes.enabled must be exactly {list(ADMISSION_PHASE_ROUTES)} in that order")
+    for route in ADMISSION_PHASE_ROUTES:
+        require(isinstance(routes.get(route), dict), f"routes.{route} block is missing")
+    require("competition" not in config,
+            f"{ADMISSION_PHASE_KEY} cannot be combined with a competition config: it is not "
+            "competition admission and does not clear the joint hold")
+    require(str((config.get("revisions") or {}).get("kind")) == REVISION_DEVELOPMENT,
+            f"{ADMISSION_PHASE_KEY} runs under a development revision")
+    gates = config.get("gates")
+    require(isinstance(gates, dict),
+            f"the config has no gates block, and {ADMISSION_PHASE_KEY} locks the owner's gates")
+    for key, value in ADMISSION_GATE_LOCK.items():
+        require(paths.canonical_json(gates.get(key)) == paths.canonical_json(value),
+                f"gates.{key} is {gates.get(key)!r}; {ADMISSION_PHASE_KEY} locks it at {value!r}")
+    pins = admission_pins(config)
+    return dict(declared, policy_sha256=paths.digest_document(declared),
+                pins_sha256=paths.digest_document(pins))
+
+
+def active_phase(config):
+    """The training phase, the admission phase, or ``None``. A config may carry at most one."""
+    require(not (TRAINING_PHASE_KEY in config and ADMISSION_PHASE_KEY in config),
+            f"a config cannot carry both {TRAINING_PHASE_KEY} and {ADMISSION_PHASE_KEY}")
+    if ADMISSION_PHASE_KEY in config:
+        return admission_phase(config)
+    return training_phase(config)
+
+
 #: Config sections a legacy flight resolves against. A training phase needs only the first two.
 DOWNSTREAM_KEYS = ("gates", "decoding", "posttrain", "confirmation")
+#: The admission phase scores generation, so it also needs the gates and the decoding strategies.
+ADMISSION_REQUIRED_KEYS = ("routes", "curriculum", "gates", "decoding")
 
 
 def resolved_protocol(context, *, snapshot, external, split, profile, forecast, revision):
     """Every field production runs against, with the unresolved ones named."""
     config = context.config
     unresolved = []
+    phase_key = ADMISSION_PHASE_KEY if ADMISSION_PHASE_KEY in config else TRAINING_PHASE_KEY
     try:
-        policy = training_phase(config)
+        policy = active_phase(config)
     except ValueError as error:
         policy = None
-        unresolved.append("training_phase.invalid")
+        unresolved.append(f"{phase_key}.invalid")
         phase_error = str(error)
     else:
         phase_error = None
     for name, value in (("split", split), ("profile", profile), ("forecast", forecast)):
         if not value:
             unresolved.append(name)
-    required = ("routes", "curriculum") if policy is not None else (
-        "routes", "curriculum", *DOWNSTREAM_KEYS)
+    if is_admission_phase(policy):
+        required = ADMISSION_REQUIRED_KEYS
+    else:
+        required = ("routes", "curriculum") if policy is not None else (
+            "routes", "curriculum", *DOWNSTREAM_KEYS)
     for key in required:
         if not config.get(key):
             unresolved.append(f"config.{key}")
@@ -732,9 +879,11 @@ def resolved_protocol(context, *, snapshot, external, split, profile, forecast, 
         if policy is None or key in config:
             document[key] = dict(config.get(key) or {})
     if policy is not None:
-        document[TRAINING_PHASE_KEY] = dict(policy)
+        document[phase_key] = dict(policy)
+        if is_admission_phase(policy):
+            document[ADMISSION_PINS_KEY] = admission_pins(config)
     if phase_error is not None:
-        document["training_phase_error"] = phase_error
+        document[f"{phase_key}_error"] = phase_error
     document["unresolved"] = sorted(set(unresolved))
     document["rule"] = ("production runs against a filled protocol. An unresolved field is a "
                         "readiness gate, not a default.")

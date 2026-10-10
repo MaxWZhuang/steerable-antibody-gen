@@ -93,12 +93,15 @@ STRICT_PREREQUISITES = {
 #: not a complete flight and never reads as one.
 STATUS_COMPLETED = "completed"
 STATUS_TRAINING_PHASE_COMPLETED = "training_phase_completed"
-SUCCESS_STATUSES = (STATUS_COMPLETED, STATUS_TRAINING_PHASE_COMPLETED)
+#: Likewise for the admission phase: a finished route_gate on admitted routes is not a flight.
+STATUS_ADMISSION_PHASE_COMPLETED = "admission_phase_completed"
+SUCCESS_STATUSES = (STATUS_COMPLETED, STATUS_TRAINING_PHASE_COMPLETED,
+                    STATUS_ADMISSION_PHASE_COMPLETED)
 
 
 def phase_policy(config):
-    """The validated training-phase declaration for ``config``, or ``None`` for a legacy config."""
-    return spec.training_phase(config)
+    """The validated phase declaration (training or admission) for ``config``, else ``None``."""
+    return spec.active_phase(config)
 
 
 def stages_for(config):
@@ -115,7 +118,13 @@ def require_stage_allowed(context, stage):
     A legacy config has no phase and every stage is allowed, exactly as before.
     """
     policy = phase_policy(context.config)
-    if policy is not None:
+    if policy is not None and spec.is_admission_phase(policy):
+        require(str(stage) not in policy["held_stages"] and str(stage) in policy["stages"],
+                f"stage {stage!r} is held by the {policy['phase_id']} admission phase "
+                f"({policy['policy_sha256']}): this flight admits finished checkpoints and runs "
+                "route_gate only. Controls, priors, post-training, decoding, confirmation, the "
+                "report and verify stay held, and a finished phase is never a complete flight")
+    elif policy is not None:
         require(str(stage) not in policy["held_stages"] and str(stage) in policy["stages"],
                 f"stage {stage!r} is held by the {policy['phase_id']} training phase "
                 f"({policy['policy_sha256']}): it is training-only, not competition admission, and "
@@ -531,6 +540,7 @@ def stage_profile(context, services, **_):
     scheduled task, so the accepted microbatch is a statement about the configuration
     that runs and ``selected_shapes`` reads it back.
     """
+    _require_admission_ready(context)
     profiles, schedule = profile_routes(context, services)
     paths.write_json(context.path(spec.PROFILE_JSON), _plain(profiles))
     unfit = [route for route, block in profiles.items() if block["chosen_microbatch"] is None]
@@ -554,6 +564,7 @@ def stage_profile(context, services, **_):
 
 def stage_smoke(context, services, **_):
     _require_phase_split(context)
+    _require_admission_ready(context)
     results ={route: services.smoke(route, directory=context.path("smoke", route))
                for route in context.config["routes"]["enabled"]}
     paths.write_json(context.path("smoke.json"), _plain(results))
@@ -579,9 +590,45 @@ def _require_phase_split(context):
     return policy
 
 
+def _require_admission_ready(context):
+    """Under the admission phase, refuse an incompatible origin BEFORE any GPU time is spent.
+
+    Every admitted route's origin flight is compared with this root's own vocabulary, split and
+    external table, and its pinned files, config blocks and checkpoint are re-hashed. A legacy or
+    training-phase config has no admission phase and this returns ``None`` without reading
+    anything. Needs the stages up to ``sources`` to have run (vocabulary, split, external table).
+    """
+    try:
+        policy = phase_policy(context.config)
+    except ValueError:
+        return None   # an invalid phase is reported by the phase guards, not here
+    if not spec.is_admission_phase(policy):
+        return None
+    from . import her2_routes_admission as admission
+    try:
+        pins = spec.admission_pins(context.config)
+        admission.require_disjoint(context.run_root, pins)
+        # Before anything that needs the stage files, and before the snapshot copy: a redirected
+        # ``source_snapshot`` or ``stages`` directory is found here, not after a write went through.
+        admission.require_clean_run_root(context.run_root)
+        live = admission.live_values(context)
+    except ValueError as error:
+        raise ReadinessGate(f"admission phase: {error}") from error
+    problems = {route: admission.origin_problems(pin, route, live=live)
+                for route, pin in pins.items()}
+    problems = {route: found for route, found in problems.items() if found}
+    if problems:
+        raise ReadinessGate(
+            "admission phase: an origin flight is not compatible with this one, so nothing was "
+            "admitted and no GPU time was spent: "
+            + "; ".join(f"{route}: {found}" for route, found in sorted(problems.items())))
+    return policy
+
+
 def stage_freeze(context, services, **_):
     """Snapshot the repository closure, bind the external table, resolve the protocol."""
     _require_phase_split(context)
+    _require_admission_ready(context)
     snapshot = spec.source_snapshot(context)
     external = spec.verify_external_sources(context, label="freeze")
     revision = spec.write_revision_marker(
@@ -613,6 +660,7 @@ def _guarded(context, stage, body, *, selection_frozen=False):
     spec.require_revision_discipline(context, stage=stage, selection_frozen=selection_frozen)
     # Under a training phase the pinned split is re-verified before any production update.
     _require_phase_split(context)
+    _require_admission_ready(context)
     return body()
 
 
@@ -627,7 +675,17 @@ def stage_bakeoff(context, services, *, heartbeat=None, **_):
                          "not every route reached a terminal status; the flight remains in "
                          "progress")}
     policy = phase_policy(context.config)
-    if policy is not None:
+    if spec.is_admission_phase(policy):
+        # Says in so many words which routes were imported and which were trained, because
+        # ``status`` and the route lists alone would read the same as an all-trained bakeoff.
+        record["admission_phase"] = {
+            "phase_id": policy["phase_id"], "policy_sha256": policy["policy_sha256"],
+            "pins_sha256": policy["pins_sha256"], "admission": policy["admission"],
+            "admitted": sorted(route for route, block in result["routes"].items()
+                               if block.get("admitted")),
+            "trained": sorted(route for route, block in result["routes"].items()
+                              if not block.get("admitted"))}
+    elif policy is not None:
         record["training_phase"] = {"phase_id": policy["phase_id"],
                                     "policy_sha256": policy["policy_sha256"],
                                     "admission": policy["admission"],
@@ -940,6 +998,10 @@ def verify(context, services=None):
         policy = phase_policy(context.config)
     except ValueError as error:
         phase_problem = str(error)
+    if spec.is_admission_phase(policy):
+        # verify asserts a COMPLETE flight and is held here; a direct call must not reach the
+        # training-phase checks below, which read keys an admission policy does not have.
+        require_stage_allowed(context, "verify")
     verified = (VERIFIED_STAGES if policy is None else
                 tuple(stage for stage in policy["stages"] if stage != "verify"))
     summary = stage_summary(context, verified)
@@ -1046,7 +1108,44 @@ def stage_identity(context, stage):
             None if upstream is None else
             paths.sha256_text(paths.canonical_json(
                 {key: upstream.get(key) for key in ("status", "completed", "remaining")})))
+        policy = phase_policy(context.config)
+        if spec.is_admission_phase(policy):
+            # Status, completed and remaining are the same whichever checkpoint bytes a bakeoff
+            # holds, and a reused route_gate record is returned BEFORE any guard or load runs.
+            # Under the admission phase the identity therefore binds the full manifest of selected
+            # checkpoints, and reads the real freeze marker: the legacy name above does not exist
+            # on disk, so every legacy identity carries a null here. That quirk is preserved for
+            # every other config (a changed key would make a finished flight's stages unreusable)
+            # and for the pre-freeze stages of this one (resume would rerun them).
+            frozen = context.path(spec.FREEZE_MARKER)
+            identity["snapshot_sha256"] = (paths.read_json(frozen)["snapshot_sha256"]
+                                           if frozen.is_file() else None)
+            identity["admitted_manifest_sha256"] = _admitted_manifest(context, policy)
     return identity
+
+
+def _admitted_manifest(context, policy):
+    """Digest of every selected ``best.pt`` (length and SHA-256) of the admission phase's routes.
+
+    A missing file is recorded as absent rather than skipped, so removing a checkpoint changes the
+    digest as surely as swapping one does. An ADMITTED route's ``admission.json`` is bound as well
+    (its own bytes, or absent): a stage returned as reusable skips every guard, so without this a
+    deleted or edited record would leave a completed bakeoff and route_gate standing on evidence
+    that no longer exists.
+    """
+    from . import her2_routes_admission as admission
+    files = {}
+    for route in policy["routes"]:
+        target = context.path("bakeoff", route, "best.pt")
+        entry = ({"bytes": int(target.stat().st_size),
+                  "sha256": admission.DIGESTS.sha256(target)} if target.is_file() else None)
+        if route in policy["admitted_routes"]:
+            record = context.path("bakeoff", route, admission.ADMISSION_FILE)
+            entry = {"checkpoint": entry,
+                     "record_sha256": paths.sha256_file(record) if record.is_file() else None}
+        files[route] = entry
+    return paths.digest_document({"policy_sha256": policy["policy_sha256"],
+                                  "pins_sha256": policy["pins_sha256"], "files": files})
 
 
 def stage_is_reusable(context, stage):
@@ -1155,7 +1254,18 @@ def run_all(context, services, *, stages=None, heartbeat=None, **kwargs):
                           "the verify stage against the required stage list; a launch, a running "
                           "worker and a partial stage list are three different facts."),
                 "finished_at": paths.utc_now()}
-    if policy is not None:
+    if spec.is_admission_phase(policy):
+        # The same discipline for the admission phase: a finished route_gate on admitted routes is
+        # a different fact from a complete flight, and it has its own words.
+        document["scope"] = "admission_phase"
+        document["admission_phase"] = {"phase_id": policy["phase_id"],
+                                       "policy_sha256": policy["policy_sha256"],
+                                       "pins_sha256": policy["pins_sha256"],
+                                       "admission": policy["admission"],
+                                       "held_stages": list(policy["held_stages"])}
+        document["admission_phase_completed"] = document["all_required_completed"]
+        document["complete_flight"] = False
+    elif policy is not None:
         # ``all_required_completed`` ranges over the PHASE's stages here. That is a completed
         # training phase, which is a different fact from a complete flight.
         document["scope"] = "training_phase"
@@ -1198,8 +1308,10 @@ def supervise(context, services, *, stages=None, heartbeat_seconds=15.0, owner=N
                              status="failed", failure=failure, document=None)
                     raise
                 beat.beat(force=True, phase="restarting", attempt=attempts, error=failure)
-        status = ((STATUS_TRAINING_PHASE_COMPLETED if document.get("scope") == "training_phase"
-                   else STATUS_COMPLETED) if document["all_required_completed"]
+        phase_status = {"training_phase": STATUS_TRAINING_PHASE_COMPLETED,
+                        "admission_phase": STATUS_ADMISSION_PHASE_COMPLETED}
+        status = (phase_status.get(document.get("scope"), STATUS_COMPLETED)
+                  if document["all_required_completed"]
                   else "stopped" if document["blocked"] else "incomplete")
         beat.beat(force=True, phase="finished", status=status)
         return _publish(context, stages=stages, started=started, owner=lock.owner,

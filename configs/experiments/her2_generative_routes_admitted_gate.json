@@ -1,0 +1,612 @@
+{
+  "schema_version": "her2-generative-routes/1",
+  "campaign_id": "her2_generative_routes_admitted_gate_20261006",
+  "protocol": "specs/her2_generative_routes/FLIGHT_SPEC.md",
+  "config_path": "configs/experiments/her2_generative_routes_admitted_gate.json",
+  "run_root_leaf": "flight_admitted_gate",
+  "opt_in_note": "ADMISSION-PHASE config: runs route_gate on three routes that FINISHED in other flights (ablang2_masked_editor and piggen_causal_infiller from t1_rev01, dplm_150m_masked from dplm_train_rev01), each at its own best.pt, and retrains dwjs_energy under energy contract v2 because its finished checkpoint predates that contract and is refused. It is NOT competition admission and does not clear the five-way hold: controls, priors, post-training, decoding, confirmation, the report and verify are held in code, and a finished phase is never a complete flight. dplm_650m_lora_masked is tabled. Every number this produces is selected on the development panel.",
+  "artifacts": {
+    "root": "F:/smallAntibodyGen/her2_generative_routes_20260927",
+    "root_note": "all new substantial data, weights, caches, temp, checkpoints and logs live here. The repository volume's datasets are read in place and never copied. Override with --artifact-root; it must be absolute, because the detached supervisor does not inherit the launcher's working directory.",
+    "acquisition_manifest": "data/acquisition_manifest.json",
+    "primary_acquisition_manifest": "data/primary_acquisition_manifest.json",
+    "primary_review_manifest": "data/primary_review_acquisition_manifest.json",
+    "primary_corrections_manifest": "data/primary_corrections_acquisition_manifest.json",
+    "dplm_acquisition_manifest": "data/dplm_acquisition_manifest.json",
+    "dplm_acquisition_note": "the DPLM weights, config and vocabulary enter the frozen external identity ONLY through this manifest (written by scripts/her2_routes_verify_dplm.py --write-manifest after the pinned files are placed). The acquire stage refuses a DPLM route whose manifest is absent, or whose files are not in the derived closure, or whose manifest digests differ from configs/experiments/dplm_pins.json.",
+    "primary_review_note": "17 pinned primary files, 11,041,198 bytes: the three Adams replicate tables with their fit scripts, the Petersen author parent export, the two AlphaSeq primary releases and their CC-BY-NC-SA-4.0 licences. Held under a separate pin from the first primary manifest because it was retrieved separately, and merging the two would leave neither verifiable alone. The AlphaSeq primary CSVs are byte-identical to the FLAb copies already present (Li1: 735,720,622 bytes, sha1 633b88dc992f4fce1168b52b77aa24ee5f98ed9c75cca1e7fd4806ca8f0a3f5; Li2: 1,122,796,984 bytes, sha 41cb0ca229ce3ce080a6d9b911e72fa5c08633496d3e2cb0d575ef96689d5780), so nothing was downloaded twice.",
+    "dependency_manifest": "data/native_dependencies_install.json",
+    "external_sources": [],
+    "external_sources_extra": [],
+    "external_sources_note": "DERIVED, not listed. her2_routes_spec.external_closure reads all the acquisition manifests, normalises their paths to logical names under the artifact root (the primary review manifest records absolute ones), and selects every pinned native package module, the native weights and hyperparameters (including models/dplm_150m/* and models/dplm_650m/*), the locally stored p-IgGen release and every primary source file. external_sources_extra adds a path the derivation would not select; it is empty because nothing currently needs one."
+  },
+  "dplm": {
+    "pins": "configs/experiments/dplm_pins.json",
+    "pins_note": "commit ids, file sizes and digests for both variants. The training identity folds in the pins digest, the base file digests, the LoRA settings, the optimizer policy and the diffusion settings, so changing any of them refuses a resume."
+  },
+  "roots": {
+    "her2_raw": "data/raw/her2_functional_20260918",
+    "paired_oas": "data/processed/oas_paired_all",
+    "cr9114_raw": "data/raw/cr9114_cr6261_landscape",
+    "historical": {
+      "next_flight": "outputs/her2_next_flight_20260922/production_03",
+      "parent_replay": "outputs/her2_parent_replay_20260920",
+      "posttrain": "outputs/her2_posttrain_20260918"
+    },
+    "historical_note": "read-only. The run root is checked for disjointness against every one of these before the first write: Services.stream_seed-style helpers write into the run root, and a follow-up aimed at a landed flight has already broken a manifest once."
+  },
+  "source": {
+    "entry_points": [
+      "scripts/her2_routes_flight.py",
+      "scripts/her2_routes_supervisor.py",
+      "scripts/her2_routes_qualify_dplm.py"
+    ],
+    "extra_files": [
+      "specs/her2_generative_routes/FLIGHT_SPEC.md",
+      "specs/her2_generative_routes/EVIDENCE_AND_RISKS.md",
+      "specs/her2_generative_routes/reference_math.py",
+      "scripts/her2_routes_runtime_probe.py",
+      "configs/experiments/dplm_pins.json"
+    ],
+    "extra_files_note": "the runtime probe is hashed into the freeze because it produces recorded numbers. It is not an entry point: its imports are already inside the flight script's transitive closure. The pins file is hashed into the repository snapshot as well as into every training identity. The qualification script IS an entry point here so that a qualification run's source snapshot covers the qualification module it executed.",
+    "rule": "the freeze computes the transitive module-level AST import closure from these entry points, copies every file's bytes into the run root and records one aggregate content digest plus HEAD and the full dirty list. Function-level imports ARE included because the walk is syntactic, so a lazily imported eval module is frozen too. her2_replay_spec.run_freeze is untouched and still requires a clean tree; this flight is authorized to build and train and NOT to commit, so its identity is content-addressed."
+  },
+  "revisions": {
+    "current": "admitted_gate_rev02",
+    "kind": "development",
+    "supersedes": "admitted_gate_rev01",
+    "frozen_after": [],
+    "reason": "the second revision of the admission phase: route_gate on finished routes. admitted_gate_rev01 was stopped after a fresh process re-stamped its frozen split record (the content was unchanged, the digest moved, so its dWJS checkpoints and the admitted routes could not share one split); that is fixed in FlightServices.persist_split_freeze and the rev01 root is retained read-only and never resumed. Independent of t1_rev01, dplm_train_rev01 and joint_rev01: their run roots are only read.",
+    "rule": "a development revision may be superseded by a new one if a round finds a real training-path bug; the old root is retained read-only and NEVER resumed. The confirmation revision is frozen last, after architecture, objectives, mix, decoding and checkpoint selection are all frozen, and nothing in its closure is edited afterwards."
+  },
+  "her2": {
+    "wild_type_core": "WGGDGFYAMD",
+    "core_start": 98,
+    "core_length": 10,
+    "assay": "alphabind_her2:affinity:HER2",
+    "note": "the offsets are asserted constants in her2_data; they are re-declared here only so the config is self-describing, and a disagreement fails in her2_data.load_scaffold."
+  },
+  "conditions": {
+    "assays": [
+      "alphabind_her2:affinity:HER2",
+      "engelhart2022_s1",
+      "li2023_s1_a",
+      "li2023_s1_b",
+      "adams2017_fluorescein",
+      "adams2017_expression",
+      "koenig2017_g6",
+      "koenig2017_expression",
+      "petersen2024_ha",
+      "cr9114_h3",
+      "cr9114_flub",
+      "her2_display"
+    ],
+    "assays_note": "PREFLIGHT ONLY. These names size the condition tables for the preflight native-evidence probes, whose models are discarded. The production vocabulary is DERIVED from the enrolled training partitions by her2_routes_sources.derive_assay_vocabulary as study:family:target[:sub-assay], pinned in condition_vocabulary.json by the sources stage, and a later run whose derivation disagrees is refused rather than resized. A hand-written list is a second source of truth about what the files contain: the Li releases carry a per-row Assay column and CR9114 carries two antigens, so the identities the stream produces are a property of the data.",
+    "bin_dropout": 0.1,
+    "assay_dropout": 0.25,
+    "minimum_bin_support": 30,
+    "rule": "three independent tables. The family (display / affinity / enrichment) is NEVER dropped, so display_high and affinity_high cannot collapse onto one another. The bin and the assay are dropped independently at the two rates above; assay dropout is what creates a trained route for an unseen study, and an untrained per-assay embedding is refused rather than used as one.",
+    "threshold_rule": "bin thresholds are thirds of the TRAIN-ONLY qualified distribution of one (family, assay, parent) population. Train-only is load-bearing: a threshold fitted over every observation puts the held-out rows' own values into the definition of the bin those rows are later conditioned on. The parent is part of the population because a scan's 'high' third is high relative to its own background."
+  },
+  "sources": {
+    "paths": {
+      "alphabind_her2_validation": {
+        "root": "artifact",
+        "logical": "data/alphabind/manuscript/data/alphaseq/validation/trastuzumab-scfv-cdr_validation_alphaseq.csv"
+      },
+      "engelhart2022_s1": {
+        "root": "artifact",
+        "logical": "data/flab/data/binding/engelhart2022dataset_scFv-SARS-CoV-2_affinity.csv.zip"
+      },
+      "li2023_s1_a": {
+        "root": "artifact",
+        "logical": "data/flab/data/binding/li2023machine_scFv-SARS-CoV-2_affinity1.csv.zip"
+      },
+      "li2023_s1_b": {
+        "root": "artifact",
+        "logical": "data/flab/data/binding/li2023machine_scFv-SARS-CoV-2_affinity2.csv.zip"
+      },
+      "adams2017_fluorescein": {
+        "root": "artifact",
+        "logical": "data/flab/data/binding/adams2017measuring_4420-fluorescein_kd-titeseq.csv"
+      },
+      "adams2017_expression": {
+        "root": "artifact",
+        "logical": "data/flab/data/expression/adams2017measuring_4420-fluorescein_exp_er.csv"
+      },
+      "koenig2017_g6": {
+        "root": "artifact",
+        "logical": "data/flab/data/binding/koenig2017mutational_kd_g6.csv"
+      },
+      "koenig2017_expression": {
+        "root": "artifact",
+        "logical": "data/flab/data/expression/koenig2017mutational_er_g6.csv"
+      },
+      "koenig2017_historical": {
+        "root": "artifact",
+        "logical": "data/primary/corrections/koenig/Koenig2017_g6_Kd.csv"
+      },
+      "petersen2024_ha": {
+        "root": "artifact",
+        "logical": "data/flab/data/binding/peterson2024integrated_ab_H1HA_kd.csv"
+      },
+      "cr9114": {
+        "root": "repository",
+        "logical": "data/raw/cr9114_cr6261_landscape/elife-71393-fig1-data1-v3.csv"
+      },
+      "cr9114_prepared": {
+        "root": "repository",
+        "logical": "data/processed/cr9114_5cjq_context/cr9114_5cjq.prepared.json"
+      },
+      "cr9114_whitelist": {
+        "root": "repository",
+        "logical": "data/processed/cr9114_preferences_20260916/eligible_non_test_records.csv"
+      },
+      "adams2017_primary": {
+        "root": "artifact",
+        "logical": "data/primary/adams2017"
+      },
+      "petersen2024_primary": {
+        "root": "artifact",
+        "logical": "data/primary/petersen2024/41467_2024_48072_MOESM6_ESM.xlsx"
+      },
+      "petersen2024_parents": {
+        "root": "artifact",
+        "logical": "data/primary/petersen2024_parent_export/data/whitehead/petersen/original/AntibodySequences2.csv"
+      },
+      "petersen2024_coding_parents": {
+        "root": "artifact",
+        "logical": "data/primary/corrections/petersen/wt.csv"
+      },
+      "petersen2024_pooled": {
+        "root": "artifact",
+        "logical": "data/primary/petersen2024/41467_2024_48072_MOESM9_ESM.xlsx"
+      },
+      "alphabind_aab_pp489": {
+        "root": "artifact",
+        "logicals": [
+          "data/alphabind/manuscript/data/alphaseq/fine-tuning/aab-pp489_fine-tuning_alphaseq.csv",
+          "data/alphabind/manuscript/data/alphaseq/validation/aab-pp489_validation_alphaseq.csv"
+        ]
+      },
+      "alphabind_pembrolizumab": {
+        "root": "artifact",
+        "logicals": [
+          "data/alphabind/manuscript/data/alphaseq/fine-tuning/pembrolizumab-scfv_fine-tuning_alphaseq.csv",
+          "data/alphabind/manuscript/data/alphaseq/validation/pembrolizumab-scfv_validation_alphaseq.csv"
+        ]
+      },
+      "alphabind_vhh72": {
+        "root": "artifact",
+        "logicals": [
+          "data/alphabind/manuscript/data/alphaseq/fine-tuning/vhh72_fine-tuning_alphaseq.csv",
+          "data/alphabind/manuscript/data/alphaseq/validation/vhh72_validation_alphaseq.csv"
+        ]
+      }
+    },
+    "paths_note": "a source declared with 'logicals' is a LIST of members that are one population measured in two batches -- the non-HER2 AlphaSeq releases ship a fine-tuning file and a validation file of the same library. services.source_members resolves those; services.source_paths skips them, because a multi-member source has no one path.",
+    "her2_display": {
+      "enrolled": true,
+      "split": "train",
+      "positives_only": false,
+      "note": "all 367,042 sorted-bin training rows, held as arrays and materialised per drawn microbatch. A positives-only objective sees 120,504 rows and cannot learn the low-versus-mid ordering at all; positives_only=true is the matched control arm, not a cheaper option. The test split is never read: her2_data.load_split refuses it without a verified selection unlock and this campaign mints none."
+    },
+    "withheld": {
+      "parents": [
+        "MIT_95_HL_scFV"
+      ],
+      "studies": [
+        "koenig2017_g6_phage"
+      ],
+      "note": "Declared before any fit. MIT_95 is a withheld parent within the observed HR2 target and Assay2, which also measures MIT_91. This supports a background-transfer comparison without confounding a new assay and target. VHH72 remains enrolled for heavy-only coverage. Koenig is a withheld study: its historical fitness comparison qualifies positive log binding enrichment, not physical KD. Its two unseen assay identities use trained assay dropout; assay-specific separation is not identifiable there."
+    },
+    "li_targets": [
+      "MIT_Target"
+    ],
+    "li_targets_note": "the primary AlphaSeq release carries 1,259,700 measurement rows over four targets at 314,925 each: MIT_Target plus AlphaNeg1-3. Only the measured target is enrolled for affinity training. The three negative controls are counted in the inventory and are the only basis on which a later specificity panel could be supported; enrolling them as affinity rows would pool a target with its own negative controls.",
+    "cr9114_pins": {
+      "eligible": 50540,
+      "eligible_train": 38790,
+      "eligible_development": 11750,
+      "protected": 14996,
+      "eligible_file_sha256": "82fdd8f3d361cdf292544829e5888963e315d3c743b604ea0c56f7ad3a80263f",
+      "protected_sorted_newline_sha256": "3de5df07f586e92605ab45d2887e4adba6c5417f800a6a9a0bb2eb9dca0597dc",
+      "read_columns": [
+        "genotype",
+        "split"
+      ],
+      "note": "the whitelist is an explicit identity list read for two columns. Its complement -- 14,996 genotypes -- is protected: it is the union of the historical reserved block and the eligibility rejects, and separating them would need the H1 replicate columns this campaign never reads. The legacy sequence-only split alone excludes only 12,288, which is not conservative enough. The whitelist was itself selected on H1 eligibility, and that selection bias is disclosed in every transfer claim from this population."
+    },
+    "not_enrolled": {
+      "alphabind_her2_full": "88 length-compatible rows over 39 cores from a differently composed subset. Merging them into the specified CDR population is the composition change that would invalidate a frozen split. The exclusion closure covers them so a later amendment can enrol them without re-freezing.",
+      "absci_release": "38 verified-compatible cores total; diagnostic only, never a reserved population.",
+      "sabdab_libraseq": "not acquired. Teacher provenance would have to be retained, and no structural teacher is distilled without clearing its shuffled and position-only controls first."
+    }
+  },
+  "split": {
+    "seed": 20260927,
+    "novel_separation": 3,
+    "purge_radius": 2,
+    "test_target": 100,
+    "development_target": 100,
+    "batch_size": 50,
+    "batch_separation": 3,
+    "minimum_reserved": 100,
+    "assumed_rho": 0.5,
+    "ambition_target": 0.05,
+    "algorithm": "four seeded batches of fifty over the eligible candidates, TEST first: batches 1-2 are the reserved test, batches 3-4 are development. Every member of a batch is at least batch_separation edits from every member of every EARLIER batch, not merely from the earlier batch seeds. Then every remaining eligible core within purge_radius of any held-out core is excluded from training.",
+    "amendment_withdrawn": "an earlier revision enlarged the reserved panel to 'every remaining eligible core' with a declared minimum of 200. WITHDRAWN as arithmetically wrong. SE = (1 - rho^2)/sqrt(n-1) is 0.0754 at n=100 and 0.0419 at n=322; the 95% HALF-WIDTH is 1.96 times that, i.e. 0.148 and 0.082. The +0.05 ambition is unresolvable for a single Spearman at BOTH sizes, so the enlargement bought nothing it claimed to buy -- while the radius-2 purge around a larger held-out set removes novel adaptation cores the audited 100/100 design retains (1,934 after the radius exclusion at the audit seed). The panel is the plan's 100 test + 100 development and is not enlarged again.",
+    "novelty_population": "the FULL old display library -- train, validation and the test SEQUENCES via her2_data.test_sequences, whose usecols read cannot return a bin. The test outcomes stay sealed permanently. Novelty against the training split alone is not novelty to a parent that was selected on the validation split.",
+    "primary_endpoint": "the PAIRED per-core difference against the frozen control, bootstrapped over cores. The arms see identical cores, so the between-arm variance is far smaller than either arm's own sampling variance and the single-correlation half-width above does NOT bound it; its width is measured. Secondary: each arm's absolute Spearman with its interval, reported beside the arithmetic that says +0.05 is out of reach for a single correlation at this n.",
+    "batch_caveat": "the algorithm has no radius cap and audited batch diameters were 6-10 edits. Batches are not biological families and not bootstrap units; every batched result is reported beside its measured diameter."
+  },
+  "routes": {
+    "enabled": [
+      "ablang2_masked_editor",
+      "piggen_causal_infiller",
+      "dwjs_energy",
+      "dplm_150m_masked"
+    ],
+    "enabled_note": "the four routes of the admission phase, in the order the code requires. The route blocks are copied verbatim from the origin flights' configs apart from prose; the admitted routes are compared with the origin's by content on every load.",
+    "ablang2_masked_editor": {
+      "activation_checkpointing": true,
+      "updates": 20000,
+      "seed": 20260927,
+      "max_positions": 512,
+      "milestones": [
+        5000,
+        10000,
+        15000
+      ],
+      "why": "native paired masks and bidirectional context; infilling a short window in fixed paired context IS its pretraining objective, and it has twice p-IgGen's parameters. RECORDED PREDICTION: this route wins the bake-off."
+    },
+    "piggen_causal_infiller": {
+      "updates": 20000,
+      "seed": 20260927,
+      "max_positions": 400,
+      "milestones": [
+        5000,
+        10000,
+        15000
+      ],
+      "why": "already here and already tooled, and an autoregressive comparison with the same information. It must learn a new serialisation from scratch, which is the reason for the recorded prediction above."
+    },
+    "dwjs_energy": {
+      "window": 10,
+      "denoiser_updates": 4000,
+      "energy_updates": 8000,
+      "walk_steps": 100,
+      "profile_walk_steps": [
+        10,
+        50,
+        100
+      ],
+      "microbatch": 8,
+      "sigma": 1.0,
+      "sigma_note": "ONE declared noise level, shared by the denoiser's smoothing and the noisy space the energy is trained in. The pinned _noise_ebm computes a sigma_ebm/sigma_denoiser renormalisation through self.renorm_noise_factor, and the released _base.py -- now read -- does not define that attribute: it defines sample_noise = sigma * randn_like and nothing else. Rather than guess the ratio, this route carries matched noise, which is the only setting in which E(noisy real) and E(noisy fake) are energies of the same density. Recorded in her2_routes_energy.AMENDMENTS.",
+      "scale": 1.0,
+      "reg_l2_norm": 1.0,
+      "context_width": 64,
+      "seed": 20260927,
+      "why": "a direct HER2 HCDR3 precedent and a different model of useful-sequence density. The denoiser trains first and is FROZEN -- including its own independent context tower -- while the energy trains, which is the pinned upstream contract. The Langevin walk noises its seed before the chain and returns a DETACHED sample, both as upstream does; back-propagating through a retained chain is a different objective. No normalised discrete likelihood is claimed, so cross-route comparison uses ranking and raw-generation endpoints."
+    },
+    "dplm_150m_masked": {
+      "variant": "dplm_150m",
+      "activation_checkpointing": true,
+      "dropout": 0.1,
+      "base_dtype": "fp32",
+      "updates": 20000,
+      "seed": 20260927,
+      "max_positions": 512,
+      "milestones": [
+        5000,
+        10000,
+        15000
+      ],
+      "optimizer": {
+        "name": "adafactor",
+        "relative_step": false,
+        "scale_parameter": false,
+        "warmup_init": false,
+        "beta1": null,
+        "eps": [
+          1e-30,
+          0.001
+        ],
+        "clip_threshold": 1.0,
+        "decay_rate": -0.8,
+        "weight_decay": 0.0
+      },
+      "objective": {
+        "reconstruction": "diffusion"
+      },
+      "diffusion": {
+        "num_timesteps": 500,
+        "weighting": "constant",
+        "decode_steps": 20,
+        "decoding_strategy": "reparam-uncond-deterministic-linear"
+      },
+      "gate_generation_strategy": "diffusion_reparam",
+      "why": "full fine-tuning of the pretrained 150M DPLM. Adafactor (transformers.optimization.Adafactor with fixed-LR options, factored second moments and no first moment) is what brings the persistent state under the card: fp32 weights + gradients + factored moments is roughly 1.2 GiB of persistent state before activations. That is arithmetic, not a measurement, and the WDDM-reported budget is not physical capacity; whether this route fits this GPU is unqualified and is decided by the profile stage. Reconstruction is trained with sampled-timestep absorbing-state corruption (T=500) as DPLM was; the functional, local and head tasks keep their masked-window semantics. decode_steps=20 covers a ten-site window with two steps per site; a longer schedule costs proportionally more forwards and is not free.",
+      "compute_note": "diffusion decoding costs decode_steps denoiser forwards per draw batch plus a fixed-order rescoring of every final window. The profile forecast covers TRAINING only and says so in its per-route 'excludes' list; the decoding stage reports its own measured forward counts."
+    },
+    "excluded": {
+      "iglm_13m": "its native interface is single-chain, and the plan itself requires justifying any paired extension. Recorded as excluded with the reason rather than dropped.",
+      "dplm_note": "the base config's measured exclusion of dplm_150m (fp32 Adam at 16 B/param does not fit) does not apply here: the 150M route trains with Adafactor and the 650M route with LoRA over a frozen base, which is a changed comparison that the qualification run tests rather than assumes.",
+      "dplm_650m_lora_masked": "tabled by the owner on 2026-10-05: its training was stopped at update 1,500 of 20,000 (a truncation record sits beside its run root), so it has no finished checkpoint to admit."
+    }
+  },
+  "curriculum": {
+    "shares": {
+      "paired_reconstruction": 0.25,
+      "measured_local_effects": 0.28125,
+      "whole_window_generation": 0.28125,
+      "observation_heads": 0.1875
+    },
+    "family_mix": {
+      "her2": 0.5,
+      "other_functional": 0.25,
+      "paired_replay": 0.25
+    },
+    "joint_mixture_amendment": "Unlabelled replay can only train reconstruction. A 20% reconstruction share with 25% replay is impossible. Retain 25% replay and the 3:3:2 relative functional-task allocation, giving 25/28.125/28.125/18.75 percent tasks, sampled jointly per microbatch. Realized presentations and forwards are counted separately.",
+    "her2_head_display_probability": 0.5,
+    "weights": {
+      "reconstruction": 1.0,
+      "local_effect": 1.0,
+      "whole_window": 1.0,
+      "heads": 0.5
+    },
+    "mask_fraction": 0.15,
+    "max_contrast_sites": 2,
+    "max_contrasts_per_background": 4096,
+    "max_contrasts_per_context": 32,
+    "max_quartets_per_background": 512,
+    "local_quartet_probability": 0.25,
+    "contrast_refresh_updates": 2500,
+    "contrast_refresh_note": "The bounded pair/quartet reservoirs are rebuilt with a predetermined epoch seed every 2500 updates, exposing additional measured contexts without fabricating measurements. Caps currently apply per assay/target/chain-length group; their historical configuration names are retained as aliases. Quartet anchor probes are randomized and bounded at 512 per anchor. Local batches count endpoint rows, so one quartet replaces two pairs.",
+    "max_query_sites": 48,
+    "masked_progressive_probability": 0.5,
+    "region_sampling": "One uniformly drawn declared tile per row presentation. All tiles remain eligible. Half the masked-editor whole-window views reveal a random nonempty prefix and mask the remainder; half mask the complete tile. Evaluation reports the declared-order sequential joint, not simultaneous masked marginals.",
+    "preference_weight": 1.0,
+    "local_reconstruction_weight": 0.25,
+    "interaction_weight": 0.5,
+    "max_joint_per_update": 1,
+    "contrast_rule": "masked-context neighbour indexing inside one (study, assay, target, chain lengths) group: for every varying column the constructs are bucketed by their residues at the other varying columns, and every pair in a bucket differs at that column alone. That is the exact single-substitution neighbour graph over EVERY measured background, which is where the contextual signal lives -- an earlier revision anchored on one modal wild type and discarded every background more than two substitutions from it, which deletes exactly the measurement this campaign exists to learn and skipped whole families that measured no exact wild type. Quartets are four-cycles of that graph anchored at a reference background, with a per-background probe budget. No all-pairs table exists: in a single-parent scan almost every pair of single mutants is already at distance two, so the complete pair table is quadratic in its OUTPUT. Every cap is a reservoir sample and the dropped count is reported.",
+    "objective_rule": "preference_weight scales the whole-window conditional preference (softplus of the assigned-bin minus contrast-bin window log-probability difference, same row, same targets). local_reconstruction_weight retains the alternatives' likelihood beside the absolute log-odds fit, without which the fit can be satisfied by moving both conditionals apart. interaction_weight scales the coupled-quartet joint term, capped at max_joint_per_update quartets because each one costs 1 + 20 scored rows. max_query_sites tiles a region wider than the query budget into declared tiles with the full construct visible in each.",
+    "oas_rows": 200000,
+    "oas_splits": [
+      "train",
+      "val"
+    ],
+    "kappa": 2.0,
+    "status": "sweep centres, not literature-derived optima. Amended from measured development learning curves and from the recorded per-task GRADIENT fractions, never from a borrowed token percentage. A task with 30% of the updates and 3% of the gradient is not contributing 30%. mask_fraction still governs the masked-window views of every task; the DPLM routes replace it with sampled-timestep corruption for the RECONSTRUCTION task only, through routes.<route>.objective.reconstruction."
+  },
+  "optimization": {
+    "learning_rate": 3e-05,
+    "betas": [
+      0.9,
+      0.999
+    ],
+    "weight_decay": 0.01,
+    "gradient_clip": 1.0,
+    "warmup": 500,
+    "microbatch": 4,
+    "accumulation": 16,
+    "effective_batch": 64,
+    "eval_every": 250,
+    "save_every": 100,
+    "save_every_note": "the LAST checkpoint's cadence. A full Adam state per update is hundreds of megabytes of I/O per step and dominates a small model's step time; writing it once per interval bounds the replayed work to that interval instead. Best is written on improvement and the declared milestones are separate.",
+    "plateau_delta": 0.001,
+    "plateau_patience_evaluations": 4,
+    "selection_metric": "negative development affinity Spearman under the high-affinity condition",
+    "plateau_factor": 0.3,
+    "max_plateau_reductions": 2,
+    "shape_note": "microbatch and accumulation are DECLARED here and OVERRIDDEN by whatever the profile accepted. services.selected_shapes is the one place either is read and it records which it used. The 150M route inherits learning_rate; the 650M LoRA route names its own in routes.<route>.optimizer.",
+    "exposure_note": "20,000 updates x 64 effective batch = 1,280,000 ROW PRESENTATIONS. That is one of six counters and is not an 'exposure' total: a local contrast and a preference pair each consume two student forwards, so the forward count is strictly larger, and additional masks of one row create additional supervised targets and no additional measurements. The forecast multiplies each counter separately from a measured forwards-per-row ratio."
+  },
+  "smoke": {
+    "updates": 6,
+    "trajectory_tolerance": 0.0001,
+    "rule": "a miniature end-to-end run against the PRODUCTION curriculum stream and the production objectives, so all four tasks and all three families are exercised. It asserts that the resumed trajectory matches the uninterrupted one step for step, not only that it reaches the same step count: a resume that re-seeded its masking reaches a similar place by a different path. The tolerance is above float32 reduction noise and far below any real divergence."
+  },
+  "profile": {
+    "probe_lr": 1e-05,
+    "probe_seed": 7,
+    "microbatches": [
+      1,
+      2,
+      4
+    ],
+    "steps": 4,
+    "min_free_vram_mib": 256,
+    "max_peak_mib": 2300,
+    "max_per_row_slowdown": 1.5,
+    "energy_microbatches": [
+      1,
+      2,
+      4,
+      8
+    ],
+    "acceptance_note": "a microbatch is accepted only when EVERY profiled task accepted it, and the profiled computation is the real objective set with the heads -- a coupled contrast with a sequentially revealed joint, a head batch over a full unmasked paired construct, and the widest common region any enrolled source declares. An earlier profiler measured masked_nll on a ten-site HER2 window, which is the cheapest thing the loop ever runs.",
+    "three_signal_rule": "driver free VRAM AND allocator peak AND per-row step time. On this box CUDA spills to system RAM instead of raising -- a 5.6 GB configuration once returned ok=True on a 4 GB card -- so the absence of an OutOfMemoryError is not evidence that a configuration fits. 4,096 MiB total with about 1.7 GiB already occupied leaves about 2.3 GiB, which is where max_peak_mib comes from."
+  },
+  "gates": {
+    "delta": 0.05,
+    "margins": {
+      "backbone": 0.02,
+      "distance": 0.02,
+      "generation": 0.0
+    },
+    "generation_draws": 512,
+    "retention_rows": 128,
+    "local_pairs": 256,
+    "readout_tolerance": 0.25,
+    "generation_endpoint": "the mean independently assessed predicted quality of the route's own raw draws minus the same for its frozen zero-shot backbone, with novelty and duplicate rates beside it. The assessor is the inherited additive site model fitted on the display training split -- independent in parameters and objective, NOT in data, which is stated wherever it is used. The earlier endpoint was the negated development NLL against a threshold of zero; a positive loss negated is always below zero, so that gate could never pass. The raw-generation endpoint for the DPLM routes draws with their native iterative decoder, for the trained model and its frozen backbone alike.",
+    "criterion": "G1 is Pareto and predeclared: a route advances only if it beats its own frozen zero-shot backbone AND the -Hamming distance-only control on a ranking endpoint AND a raw-generation endpoint, and is not dominated by more than delta by the best discriminative comparator. 'Beat every discriminative comparator simultaneously' is the wrong gate for a generator -- a CNN can out-rank a decoder without the decoder being bad, and a classifier has no raw-generation distribution to compare. SPR-152 is reported beside this decision and never gated on."
+  },
+  "decoding": {
+    "strategies": [
+      "declared",
+      "random",
+      "easy_first",
+      "hard_first",
+      "remask",
+      "diffusion_reparam"
+    ],
+    "draws": 100000,
+    "draw_prefixes": [
+      10000,
+      100000
+    ],
+    "remask_rounds": 2,
+    "remask_fraction": 0.3,
+    "planner_weights": [
+      0.0,
+      0.5
+    ],
+    "cluster_radius": 1,
+    "cluster_separation": 3,
+    "seed": 20260927,
+    "confidence_note": "easy_first and hard_first read the model's own conditional ENTROPY at every step. An earlier implementation passed rng.random() as the confidence, which made the two a single random order under two labels and the comparison between them a comparison of two seeds. The autoregressive route expands each draw over its remaining coordinates in one forward, because an AR decoder's conditional depends on the pointer it is given and cannot be read off a single pass.",
+    "bank_note": "the nearest-training bank and the frozen training medoids come from the eligible measured ADAPTATION bank -- training partition, closure-filtered. The earlier stage used the development panel for both, so 'distance to training' was distance to the held-out panel and the frozen medoids were that panel's own members.",
+    "scale_note": "100,000 draws and a 367,042-row library. The greedy clustering and the nearest-training query are deletion-key hash operations, exact at the declared radius; the pairwise forms are quadratic and do not finish inside a stage. diffusion_reparam is the native DPLM decoder and is skipped for a route that has none; at decode_steps=20 it is a long stage whose cost is not in the training forecast.",
+    "reporting_functional": "the fixed declared-order joint, temperature 1, fixed length, no filtering, no deduplication. A declared mixture of orders is also a distribution and is reported under its own name; an average of log probabilities is not a distribution and is named differently. Ranking across windows uses the MEAN log probability, never the raw sum. The diffusion decoder's trajectory has no normalized log probability and none is reported; its recorded value is a fixed-order rescoring of the final window.",
+    "clustering_rule": "one global assignment, built once from the pooled unassigned unique raw candidates of every preregistered arm at the maximum draw count, sorted lexicographically, greedily assigned at radius one, then reused for every arm and every nested draw prefix. Rebuilding per sample count changes the measurement."
+  },
+  "runtime": {
+    "cpu_threads": 4,
+    "deterministic_algorithms": true,
+    "determinism_note": "Strict CUDA resume reproducibility, with CUBLAS_WORKSPACE_CONFIG=:4096:8 set before torch import. The GPU probe exposed nondeterministic p-IgGen gradient reductions even before the interruption; do not loosen the resume tolerance to conceal them. Not verified for the DPLM routes on CUDA.",
+    "reserve_hours": 4.0,
+    "soft_cap_hours": 24.0,
+    "target_hours": 240.0,
+    "drop_order": [],
+    "scope_rule": "No component is dropped to meet a runtime target. The user withdrew the overnight deadline and explicitly requires the complete campaign. Report the measured cost and retain all supported components.",
+    "extension_rule": "extend a branch in 5,000-update increments while the declared development metric improves by more than the declared plateau delta; two learning-rate reductions maximum; best checkpoint kept. The soft cap is per route and is extensible by a recorded amendment. There is no overnight deadline.",
+    "no_deadline": "the user withdrew the overnight assumption. A forecast is reported whether or not it fits, and an incomplete flight is never relabelled complete."
+  },
+  "storage": {
+    "min_free_bytes": 42949672960,
+    "bytes_per_checkpoint": 800000000,
+    "note": "40 GiB against the checkpoint and bank budget, leaving room for the transient second copy an atomic write needs. Sized for the largest checkpoint of the five routes: the 150M DPLM full state (fp32 weights, about 0.6 GB) plus its factored Adafactor state. The 650M LoRA checkpoint holds only adapters, condition tables and heads plus AdamW moments. Neither DPLM figure has been measured on a real run."
+  },
+  "tolerances": {
+    "sum_log_probability_atol": 5e-05,
+    "sum_log_probability_rtol": 2e-06,
+    "conditional_sum_atol": 1e-05,
+    "sinkhorn_tolerance": 1e-06,
+    "basis": "the sum-log-probability tolerances are the repository's own MEASURED figures from her2_policy, taken over 10,000 native draws. They are not widened here; a residual above them is a numerical investigation and a recorded amendment."
+  },
+  "admission_phase": {
+    "phase_id": "admitted_route_gate",
+    "kind": "admission",
+    "admission": "route_gate_only",
+    "routes": [
+      "ablang2_masked_editor",
+      "piggen_causal_infiller",
+      "dwjs_energy",
+      "dplm_150m_masked"
+    ],
+    "admitted_routes": [
+      "ablang2_masked_editor",
+      "piggen_causal_infiller",
+      "dplm_150m_masked"
+    ],
+    "trained_routes": [
+      "dwjs_energy"
+    ],
+    "rule": "best",
+    "stages": [
+      "acquire",
+      "preflight",
+      "split",
+      "sources",
+      "profile",
+      "smoke",
+      "freeze",
+      "bakeoff",
+      "route_gate"
+    ],
+    "held_stages": [
+      "controls",
+      "priors",
+      "posttrain",
+      "decoding",
+      "confirmation_freeze",
+      "confirm",
+      "report",
+      "verify"
+    ],
+    "gates": {
+      "delta": 0.05,
+      "readout_tolerance": 0.25,
+      "generation_draws": 512,
+      "retention_rows": 128,
+      "local_pairs": 256,
+      "margins": {
+        "backbone": 0.02,
+        "distance": 0.02,
+        "generation": 0.0
+      }
+    },
+    "expected_split_sha256": "3955a5981c225e94ba2b08e97e90175b5a3b6cf35393adea9b018c5542fd5d49",
+    "expected_sequence_sha256": "a742b610f1ea120a8d669b2d240252cb11c185dd4574978cea13314b8a575b73"
+  },
+  "admission": {
+    "ablang2_masked_editor": {
+      "origin_flight": "F:\\smallAntibodyGen\\her2_generative_routes_20260927\\runs\\t1_rev01\\flight",
+      "origin_config": "configs/experiments/her2_generative_routes.json",
+      "origin_config_sha256": "de53c20814fb3cfea50afdc706272955750817b1f93260854629e3cc3ff7071c",
+      "origin_snapshot_sha256": "ebbe18bac6b2d726dd7bb52d7beffaed0a0bebfc11a211f4a4c466e2932cc6e5",
+      "origin_external_sha256": "e745dfc162013f924cc0cf4a00b239a515d16292b061ab42efb4c0a2b5d91b0f",
+      "arm": "full",
+      "seed": 20260927,
+      "schedule_sha256": null,
+      "checkpoint_sha256": "496aec4ce97b5918798ce59ec159d164cb25b8fed4d86d0c3c767953b2e037d9",
+      "checkpoint_bytes": 617099713,
+      "checkpoint_step": 9500,
+      "block_digests": {
+        "route": "f0ff79f7fa35cc4f04d2261b1357cdeb00c3c6efcd2cb88f1dcf87450c50b174",
+        "her2": "dc0d8773ecb48d2eaeec9e536f1b1f617dac6f1815da963b1f2f735af962b60a"
+      },
+      "selector": "development_affinity_spearman_high"
+    },
+    "piggen_causal_infiller": {
+      "origin_flight": "F:\\smallAntibodyGen\\her2_generative_routes_20260927\\runs\\t1_rev01\\flight",
+      "origin_config": "configs/experiments/her2_generative_routes.json",
+      "origin_config_sha256": "de53c20814fb3cfea50afdc706272955750817b1f93260854629e3cc3ff7071c",
+      "origin_snapshot_sha256": "ebbe18bac6b2d726dd7bb52d7beffaed0a0bebfc11a211f4a4c466e2932cc6e5",
+      "origin_external_sha256": "e745dfc162013f924cc0cf4a00b239a515d16292b061ab42efb4c0a2b5d91b0f",
+      "arm": "full",
+      "seed": 20260927,
+      "schedule_sha256": null,
+      "checkpoint_sha256": "1a54d37e6dc721908e972e5db101202d134366a6bb50361513229a800501a4c8",
+      "checkpoint_bytes": 291812723,
+      "checkpoint_step": 2000,
+      "block_digests": {
+        "route": "ecffee224b6f31499e238d900118bf6fdefeba2991872803c0b8525d3be0b371",
+        "her2": "dc0d8773ecb48d2eaeec9e536f1b1f617dac6f1815da963b1f2f735af962b60a"
+      },
+      "selector": "development_affinity_spearman_high"
+    },
+    "dplm_150m_masked": {
+      "origin_flight": "F:\\smallAntibodyGen\\her2_generative_routes_20260927\\runs\\dplm_train_rev01\\flight_dplm_train",
+      "origin_config": "configs/experiments/her2_generative_routes_dplm_train.json",
+      "origin_config_sha256": "c68d8d84f2f2ca19e6a6d625b9602d0144b0910902251e3451d76da802e4a8e6",
+      "origin_snapshot_sha256": "e9cf9c6732cae66b07051352740844826ce6fe60969214fb8b4b0c64b1b3e9a6",
+      "origin_external_sha256": "26e90330ec98e666f30e1b5f1535cc53f022266666a97175464c3db5a8c83def",
+      "arm": "full",
+      "seed": 20260927,
+      "schedule_sha256": null,
+      "checkpoint_sha256": "283512124fef12b93ded9938408cd826cf158d238a19e824a06b49a9ffc8fe17",
+      "checkpoint_bytes": 707684222,
+      "checkpoint_step": 15500,
+      "block_digests": {
+        "route": "97eefd56cfcb4b19da1a7731e5a46ce2f9a6be4add0b5f0fe0e871d0aaf3727f",
+        "her2": "dc0d8773ecb48d2eaeec9e536f1b1f617dac6f1815da963b1f2f735af962b60a",
+        "dplm": "ca1b3c9333d2a10b284f8ab5da7a945320cde1227b6c390030f5dfd97f821295"
+      },
+      "selector": "hr17_fixed_path_high_minus_null_negative_spearman"
+    }
+  }
+}

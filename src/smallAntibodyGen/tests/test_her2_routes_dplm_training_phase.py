@@ -1062,4 +1062,6 @@ def test_verify_fails_on_an_invalid_declaration_and_claims_nothing_complete(harn
 
 def test_the_completed_phase_status_word_is_not_completed():
     assert campaign.STATUS_TRAINING_PHASE_COMPLETED != campaign.STATUS_COMPLETED
-    assert set(campaign.SUCCESS_STATUSES) == {"completed", "training_phase_completed"}
+    # The admission phase adds its own, equally distinct word (test_her2_routes_admission_phase).
+    assert set(campaign.SUCCESS_STATUSES) == {"completed", "training_phase_completed",
+                                              "admission_phase_completed"}
