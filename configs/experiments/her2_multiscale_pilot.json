@@ -1,0 +1,35 @@
+{
+  "schema_version": "her2-multiscale-pilot/1",
+  "pilot_id": "her2_multiscale_pilot_dplm150_20261012",
+  "note": "Opt-in pilot of mixed adaptation of the native DPLM 150M route: whole-window masks that hide a variable number of sites (suffix or subset), and measured endpoint pairs at Hamming distance 1-3 in place of a share of HER2 pair-only local draws. Bounded and fresh-run-only: no resume, no guided sampler, no biological-improvement claim. Every route, optimizer, learning-rate, weight and shape setting is the base config's; this file declares only what the pilot adds.",
+  "base": {
+    "config": "configs/experiments/her2_generative_routes_dplm_train.json",
+    "sha256": "28ba8b6b3505b89514d94dc77c08ea9013074a8dd5e48ed66f2b96d66876f7f7"
+  },
+  "route": "dplm_150m_masked",
+  "arm": "combined",
+  "updates": 1000,
+  "seed": 20261012,
+  "local": {
+    "replacement_probability": 0.5,
+    "distance_weights": {"1": 0.5, "2": 0.3, "3": 0.2},
+    "reservoir_capacity": 8192
+  },
+  "inputs": {
+    "bin_policy": "current_exact_training",
+    "expected_counts": {
+      "candidates": 3619,
+      "development": 100,
+      "reserved": 100,
+      "excluded": 1273,
+      "retained_for_training": 2146
+    }
+  },
+  "diagnostics": {
+    "batch_size": 4,
+    "completion_rows": 100,
+    "completion_counts": [1, 3, 5, 7, 10],
+    "order_rows": 100,
+    "fit_pairs_per_distance": 64
+  }
+}
