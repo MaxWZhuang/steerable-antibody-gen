@@ -1,0 +1,20 @@
+{
+  "schema": "aa-qualification/1",
+  "qualification_id": "antibody-antigen-qualification-example",
+  "max_tokens": 1024,
+  "ridge_alpha": 1.0,
+  "evaluate_test": false,
+  "diagnostics": {
+    "seed": 0,
+    "partitions": ["development"],
+    "mask_counts": [1, 2, 3, "full"],
+    "geometries": ["suffix", "subset"],
+    "max_examples": 32,
+    "max_forwards": 20000,
+    "local_gap": {
+      "enabled": true,
+      "max_pairs": 32,
+      "kappa": 1.0
+    }
+  }
+}
