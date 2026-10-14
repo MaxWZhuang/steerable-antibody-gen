@@ -14,8 +14,11 @@ from smallAntibodyGen.models.antibody_antigen.denoising import sequential_log_pr
 from smallAntibodyGen.models.antibody_antigen.views import (
     mask_complete, MaskedTargets, VisibleView,
 )
+from smallAntibodyGen.models.antibody_antigen.dynamic_context import DynamicContextProvider
+from smallAntibodyGen.models.antibody_antigen.esm_ppi import FrozenESMPPI
 from smallAntibodyGen.experiments.trastuzumab_poc.objectives import (
     draw_mask, whole_core_scores, ordering_loss,
+    UniformMaskSpec, UniformMaskDraw, draw_mask_uniform,
 )
 
 IDENTITY = {
@@ -288,3 +291,222 @@ def test_ordering_loss_rejects_nonpositive_margin():
         ordering_loss(scores, [(0, 1)], margin=0.0)
     with pytest.raises(ValueError):
         ordering_loss(scores, [(0, 1)], margin=-0.5)
+
+
+# ── draw_mask_uniform tests ───────────────────────────────────────────────────
+
+SMALL_UNION = [("H", 0), ("H", 1), ("H", 2)]
+
+
+def test_uniform_mask_default_produces_uniform_k_kind():
+    rng = random.Random(0)
+    draws = [draw_mask_uniform(SMALL_UNION, rng) for _ in range(200)]
+    assert all(d.kind == "uniform_k" for d in draws)
+
+
+def test_uniform_mask_count_in_range():
+    rng = random.Random(1)
+    for _ in range(200):
+        d = draw_mask_uniform(SMALL_UNION, rng)
+        assert 1 <= d.count <= len(SMALL_UNION)
+        assert d.count == len(d.sites)
+        assert d.eligible_count == len(SMALL_UNION)
+
+
+def test_uniform_mask_sites_within_union():
+    rng = random.Random(2)
+    universe = set(map(tuple, SMALL_UNION))
+    for _ in range(200):
+        d = draw_mask_uniform(SMALL_UNION, rng)
+        assert all(s in universe for s in d.sites)
+
+
+def test_uniform_mask_full_coverage_reachable():
+    """K=N (full mask) must be reachable within a reasonable number of draws."""
+    rng = random.Random(3)
+    n = len(SMALL_UNION)
+    full_seen = False
+    for _ in range(500):
+        d = draw_mask_uniform(SMALL_UNION, rng)
+        if d.count == n:
+            full_seen = True
+            break
+    assert full_seen, "full-mask (K=N) was never drawn in 500 attempts"
+
+
+def test_uniform_mask_analytical_marginal_small_n():
+    """For N=3, the marginal probability each site is masked equals (N+1)/(2N) = 2/3.
+
+    The exact marginal for uniform K from {1..N} then uniform K-subset:
+    P(site i masked) = sum_{k=1}^{N} (1/N) * (k/N) = (N+1)/(2N)
+
+    With N=3: 4/6 = 2/3.  Enumerate all possible (K, subset) draws analytically.
+    """
+    from itertools import combinations
+    n = len(SMALL_UNION)
+    expected_marginal = (n + 1) / (2 * n)  # 2/3 for n=3
+    # Count (K, subset) draws weighted by their probability: all 1/(n * C(n,k)).
+    # Sum probability that each site appears.
+    total_prob = 0.0
+    site_prob = {s: 0.0 for s in SMALL_UNION}
+    for k in range(1, n + 1):
+        prob_k = 1.0 / n
+        subsets = list(combinations(SMALL_UNION, k))
+        prob_subset_given_k = 1.0 / len(subsets)
+        for subset in subsets:
+            p = prob_k * prob_subset_given_k
+            total_prob += p
+            for s in subset:
+                site_prob[s] += p
+    assert abs(total_prob - 1.0) < 1e-10, "probabilities must sum to 1"
+    for s, p in site_prob.items():
+        assert abs(p - expected_marginal) < 1e-10, \
+            f"site {s} marginal {p:.4f} != expected {expected_marginal:.4f}"
+
+
+def test_uniform_mask_validation_precedes_rng():
+    rng = random.Random(0)
+    state_before = rng.getstate()
+    with pytest.raises(ValueError, match="duplicate"):
+        draw_mask_uniform([("H", 0), ("H", 0)], rng)
+    assert rng.getstate() == state_before
+
+
+def test_uniform_mask_rejects_empty_union():
+    with pytest.raises(ValueError):
+        draw_mask_uniform([], random.Random(0))
+
+
+def test_uniform_mask_rejects_ag_coord():
+    with pytest.raises(ValueError, match="H/L"):
+        draw_mask_uniform([("Ag", 0)], random.Random(0))
+
+
+def test_uniform_mask_spec_invalid_weights():
+    with pytest.raises(ValueError):
+        UniformMaskSpec(span_weight=0.6, full_region_weight=0.6)
+
+
+def test_uniform_mask_spec_weight_requires_region():
+    with pytest.raises(ValueError, match="span_region"):
+        UniformMaskSpec(span_weight=0.3)
+
+
+def test_uniform_mask_span_component():
+    region = tuple(SMALL_UNION)  # H:0, H:1, H:2 - all contiguous
+    spec = UniformMaskSpec(span_region=region, span_weight=1.0)
+    rng = random.Random(7)
+    for _ in range(100):
+        d = draw_mask_uniform(SMALL_UNION, rng, spec)
+        assert d.kind == "span"
+        assert d.eligible_count == len(region)
+        # Span sites must be contiguous H positions.
+        if len(d.sites) > 1:
+            indices = sorted(i for _, i in d.sites)
+            for a, b in zip(indices, indices[1:]):
+                assert b == a + 1, f"span not contiguous: {d.sites}"
+
+
+def test_uniform_mask_full_region_component():
+    region = tuple(SMALL_UNION[:2])  # H:0, H:1
+    spec = UniformMaskSpec(full_region_coords=region, full_region_weight=1.0)
+    rng = random.Random(8)
+    for _ in range(50):
+        d = draw_mask_uniform(SMALL_UNION, rng, spec)
+        assert d.kind == "full_region"
+        assert set(d.sites) == set(region)
+        assert d.eligible_count == len(region)
+
+
+def test_uniform_mask_region_coords_must_be_in_union():
+    spec = UniformMaskSpec(span_region=(("H", 99),), span_weight=0.5)
+    with pytest.raises(ValueError, match="not in the editable union"):
+        draw_mask_uniform(SMALL_UNION, random.Random(0), spec)
+
+
+def test_uniform_mask_span_does_not_bridge_gap():
+    """span_region coords with a gap must produce contiguous sub-spans within runs."""
+    region = (("H", 0), ("H", 1), ("H", 5), ("H", 6))  # gap between 1 and 5
+    union = list(region) + [("H", 2)]
+    spec = UniformMaskSpec(span_region=region, span_weight=1.0)
+    rng = random.Random(9)
+    for _ in range(300):
+        d = draw_mask_uniform(union, rng, spec)
+        if len(d.sites) > 1:
+            indices = sorted(i for _, i in d.sites)
+            for a, b in zip(indices, indices[1:]):
+                assert b == a + 1, f"span bridged a gap: {d.sites}"
+
+
+# ── dynamic whole_core_scores tests ──────────────────────────────────────────
+
+class _FakeAlphabet:
+    cls_idx, eos_idx, mask_idx = 0, 2, 32
+    def get_idx(self, r):
+        return 4 + "ACDEFGHIKLMNPQRSTVWY".index(r)
+
+
+class _SpyNative(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.embedding = torch.nn.Embedding(33, 8)
+        self.num_layers = 2
+        self.alphabet = _FakeAlphabet()
+        self.seen_masks: list = []
+    def forward(self, tokens, **kwargs):
+        self.seen_masks.append(int(tokens.eq(32).sum()))
+        x = self.embedding(tokens)
+        return {"representations": {2: x}}
+
+
+def make_dynamic_policy():
+    torch.manual_seed(55)
+    cfg = DPLMConfig(
+        hidden_size=16, num_hidden_layers=2, num_attention_heads=2,
+        intermediate_size=32, max_position_embeddings=64,
+    )
+    native = NativeDPLM.random_init(cfg, seed=11, std=0.1)
+    policy = FusedDPLM(
+        native, IDENTITY,
+        FusionConfig(context_dim=8, bottleneck=6, lora_rank=2, lora_alpha=4),
+    )
+    return policy
+
+
+def test_dynamic_whole_core_scores_encoder_masked_count_decreases():
+    """Encoder must see decreasing mask counts as positions are revealed."""
+    native_spy = _SpyNative()
+    encoder = FrozenESMPPI(native_spy, IDENTITY)
+    policy = make_dynamic_policy()
+    policy.eval()
+
+    ref_view, _ = mask_complete({"H": "ACDEFG", "L": "HIK"}, [("H", 2), ("H", 3)])
+    provider = DynamicContextProvider(encoder, ref_view)
+    ab_view, _ = mask_complete({"H": "ACDEFG", "L": "HIK"}, [("H", 2), ("H", 3)])
+    targets = [MaskedTargets.from_mapping({("H", 2): "D", ("H", 3): "E"})]
+    order = (("H", 2), ("H", 3))
+
+    native_spy.seen_masks.clear()
+    whole_core_scores(policy, provider, ab_view, targets, order, state_microbatch=1)
+
+    # 2 steps: first has 2 masks, second has 1 mask.
+    assert native_spy.seen_masks[0] > native_spy.seen_masks[1]
+
+
+def test_dynamic_whole_core_scores_scores_are_finite():
+    """Dynamic whole_core_scores must return finite per-core scores."""
+    native_spy = _SpyNative()
+    encoder = FrozenESMPPI(native_spy, IDENTITY)
+    policy = make_dynamic_policy()
+    policy.eval()
+
+    ref_view, _ = mask_complete({"H": "ACDEFG", "L": "HIK"}, [("H", 2), ("H", 3)])
+    provider = DynamicContextProvider(encoder, ref_view)
+    ab_view, _ = mask_complete({"H": "ACDEFG", "L": "HIK"}, [("H", 2), ("H", 3)])
+    targets = [MaskedTargets.from_mapping({("H", 2): "D", ("H", 3): "E"}),
+               MaskedTargets.from_mapping({("H", 2): "F", ("H", 3): "G"})]
+    order = (("H", 2), ("H", 3))
+
+    scores = whole_core_scores(policy, provider, ab_view, targets, order)
+    assert scores.shape == (2,)
+    assert torch.isfinite(scores).all()

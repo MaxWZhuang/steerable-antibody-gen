@@ -19,6 +19,9 @@ from smallAntibodyGen.models.dplm_policy import (
 )
 from smallAntibodyGen.models.antibody_antigen.denoising import BackendOutput
 from smallAntibodyGen.models.antibody_antigen.static_context import StaticContext
+from smallAntibodyGen.models.antibody_antigen.dynamic_context import DynamicContextProvider
+from smallAntibodyGen.models.antibody_antigen.exact_view_features import ExactViewFeatures
+from smallAntibodyGen.models.antibody_antigen.precision import compute_context, validate_compute
 from smallAntibodyGen.models.antibody_antigen.views import (
     CANONICAL_RESIDUES, RESIDUE_INDEX, VisibleView,
 )
@@ -32,6 +35,8 @@ class FusionConfig:
     lora_alpha: float = 16.0
     lora_dropout: float = 0.0
     activation_checkpointing: bool = True
+    update_mode: str = "lora"      # "lora" | "full"
+    compute_dtype: str = "float32"  # "float32" | "bfloat16"
 
     def __post_init__(self):
         for value in (self.context_dim, self.bottleneck, self.lora_rank):
@@ -41,6 +46,41 @@ class FusionConfig:
             raise ValueError("invalid LoRA alpha or dropout")
         if type(self.activation_checkpointing) is not bool:
             raise ValueError("activation_checkpointing must be boolean")
+        if self.update_mode not in ("lora", "full"):
+            raise ValueError("update_mode must be 'lora' or 'full'")
+        if self.compute_dtype not in ("float32", "bfloat16"):
+            raise ValueError("compute_dtype must be 'float32' or 'bfloat16'")
+
+
+def _tokens_to_ab_view(tokens_1d: torch.Tensor, original_view: VisibleView,
+                       mapping: dict) -> VisibleView:
+    """Reconstruct a VisibleView for H/L from a row of native DPLM token ids.
+
+    ``mapping`` maps ``(role, index)`` -> native sequence slot (from ``dplm_positions``).
+    Slots holding ``DPLM_MASK_ID`` become ``None``; canonical residue ids are decoded via
+    ``DPLM_VOCAB``.  Only H and L are reconstructed; Ag is never in the native layout.
+    One CPU transfer covers all residues.
+    """
+    # Single host transfer; avoids one CUDA→CPU sync per residue.
+    token_list = tokens_1d.cpu().tolist()
+    canonical_set = frozenset(int(x) for x in DPLM_CANONICAL_IDS)
+    ab_roles = tuple(r for r in original_view.roles if r != "Ag")
+    new_chains = []
+    for role in ab_roles:
+        chain = []
+        for i in range(len(original_view.chain(role))):
+            slot = mapping[(role, i)]
+            tok_id = token_list[slot]
+            if tok_id == DPLM_MASK_ID:
+                chain.append(None)
+            elif tok_id not in canonical_set:
+                raise ValueError(
+                    f"unexpected non-canonical token id {tok_id} at {(role, i)!r}"
+                )
+            else:
+                chain.append(DPLM_VOCAB[tok_id])
+        new_chains.append(tuple(chain))
+    return VisibleView(ab_roles, tuple(new_chains))
 
 
 def serialize_antibody(view: VisibleView):
@@ -63,9 +103,33 @@ class FusedDPLM(nn.Module):
         self.backbone = native.model
         if self.backbone.lora_modules():
             raise ValueError("supply a base DPLM without existing adapters")
-        self.backbone.freeze_base()
-        self.backbone.attach_lora(rank=config.lora_rank, alpha=config.lora_alpha,
-                                  dropout=config.lora_dropout)
+        if config.update_mode == "full":
+            # Preflight: refuse half-storage before mutating requires_grad flags.
+            storage_dtype = self.base_identity.get("storage_dtype", "torch.float32")
+            if storage_dtype not in ("torch.float32", "float32"):
+                raise ValueError(
+                    f"update_mode='full' requires float32 base storage; "
+                    f"this model has storage_dtype={storage_dtype!r}. "
+                    "Load the checkpoint in float32 or use update_mode='lora'."
+                )
+            # Validate actual parameter dtypes (not just identity metadata).
+            non_fp32 = [
+                n for n, p in self.backbone.named_parameters()
+                if p.is_floating_point() and p.dtype != torch.float32
+            ]
+            if non_fp32:
+                raise ValueError(
+                    f"update_mode='full' requires all backbone floating-point parameters "
+                    f"to be float32; non-fp32 params: {non_fp32[:3]!r}"
+                    + (" ..." if len(non_fp32) > 3 else "")
+                )
+            # Ensure gradients are enabled even if caller froze the bare native model.
+            self.backbone.requires_grad_(True)
+            # All native DPLM parameters train; no freeze, no LoRA.
+        else:
+            self.backbone.freeze_base()
+            self.backbone.attach_lora(rank=config.lora_rank, alpha=config.lora_alpha,
+                                      dropout=config.lora_dropout)
         hidden = native.config.hidden_size
         self.norm = nn.LayerNorm(hidden, dtype=torch.float32)
         self.down = nn.Linear(hidden + config.context_dim, config.bottleneck, dtype=torch.float32)
@@ -84,26 +148,49 @@ class FusedDPLM(nn.Module):
         return self.up.weight.device
 
     def identity(self):
-        return {"schema": "dplm-static-fusion/1", "base": copy.deepcopy(self.base_identity),
+        return {"schema": "dplm-visible-fusion/2", "base": copy.deepcopy(self.base_identity),
                 "encoder": copy.deepcopy(self.encoder_identity), "fusion": asdict(self.config),
-                "compute_dtype": "float32", "serialization": "native-dplm-paired/1"}
+                "compute_dtype": self.config.compute_dtype,
+                "update_mode": self.config.update_mode,
+                "serialization": "native-dplm-paired/1"}
 
-    def prepare(self, views, contexts):
+    def preflight(self, views, contexts):
+        """Validate the entire query batch before any dynamic extraction."""
         if not views or len(views) != len(contexts):
-            raise ValueError("one static context is required per nonempty query batch")
+            raise ValueError("one context is required per nonempty query batch")
+        validate_compute(self.config.compute_dtype, self.device)
         serial = []
         for view, context in zip(views, contexts):
-            context.check_query(view)
+            if not isinstance(context, (StaticContext, ExactViewFeatures, DynamicContextProvider)):
+                raise TypeError("unsupported context type")
             if context.encoder_identity != self.encoder_identity:
-                raise ValueError("static encoder identity differs from the fused policy")
+                raise ValueError("encoder identity differs from the fused policy")
             tokens, mapping = serialize_antibody(view)
-            features = context.query_ab_features(view)
-            if features.shape[1] != self.config.context_dim:
-                raise ValueError("context feature width does not match fusion configuration")
+            if len(tokens) > self.backbone.config.max_position_embeddings:
+                raise ValueError("antibody exceeds native position limit; no truncation is allowed")
+            context.check_query(view)
+            features = None
+            if not isinstance(context, DynamicContextProvider):
+                features = context.query_ab_features(view)
+                if features.shape[1] != self.config.context_dim:
+                    raise ValueError("context feature width does not match fusion configuration")
             serial.append((tokens, mapping, features))
+        return serial
+
+    def prepare(self, views, contexts):
+        serial = self.preflight(views, contexts)
+        resolved = []
+        for view, context, (tokens, mapping, features) in zip(views, contexts, serial):
+            if isinstance(context, DynamicContextProvider):
+                exact = context.get_context(view)
+                if exact.encoder_identity != self.encoder_identity:
+                    raise ValueError("extracted encoder identity differs from the fused policy")
+                features = exact.query_ab_features(view)
+                if features.shape[1] != self.config.context_dim:
+                    raise ValueError("context feature width does not match fusion configuration")
+            resolved.append((tokens, mapping, features))
+        serial = resolved
         length = max(len(item[0]) for item in serial)
-        if length > self.backbone.config.max_position_embeddings:
-            raise ValueError("antibody exceeds native position limit; no truncation is allowed")
         ids = torch.full((len(views), length), DPLM_PAD_ID, dtype=torch.long, device=self.device)
         features = torch.zeros((len(views), length, self.config.context_dim),
                                device=self.device, dtype=torch.float32)
@@ -116,13 +203,15 @@ class FusedDPLM(nn.Module):
         return ids, features, residue_mask, [item[1] for item in serial]
 
     def _forward_tensors(self, ids, context_features, residue_mask):
-        with torch.autocast(device_type=self.device.type, enabled=False):
+        with compute_context(self.config.compute_dtype, self.device):
             hidden = self.backbone(ids, activation_checkpointing=self.config.activation_checkpointing)[
                 "last_hidden_state"]
             residual = self.up(torch.nn.functional.gelu(
                 self.down(torch.cat((self.norm(hidden), context_features), dim=-1))))
             fused = hidden + residual * residue_mask.unsqueeze(-1)
-            return self.backbone.lm_head(fused), fused
+            logits = self.backbone.lm_head(fused)
+        # Probability normalization and loss always operate in FP32.
+        return logits.float(), fused.float()
 
     def forward_views(self, views, contexts):
         ids, features, mask, mappings = self.prepare(views, contexts)
@@ -191,18 +280,60 @@ class FusedDPLM(nn.Module):
         return loss(*args)
 
     @torch.no_grad()
-    def generate(self, view: VisibleView, context: StaticContext, *, steps=20,
+    def generate(self, view: VisibleView, context, *, steps=20,
                  strategy="reparam-uncond-deterministic-linear", generator=None):
+        """Generate a fully revealed view.  ``context`` is a StaticContext or DynamicContextProvider.
+
+        When a DynamicContextProvider is supplied, frozen encoder features are re-extracted
+        from the currently visible token state at every decode step.  No clean sequence or
+        prior-step context is reused.
+        """
         if self.training:
             raise ValueError("generation requires evaluation mode")
-        ids, features, mask, mappings = self.prepare([view], [context])
-        immutable = ids.ne(DPLM_MASK_ID)
-        result = iterative_reparam_decode(
-            lambda tokens: self._forward_tensors(tokens, features, mask)[0],
-            ids, immutable, steps=steps, strategy=strategy, generator=generator,
-            canonical_ids=self.canonical_ids)
-        values = {coord: DPLM_VOCAB[int(result.native_tokens[0, slot])]
-                  for coord, slot in mappings[0].items()}
+        if not isinstance(context, (StaticContext, DynamicContextProvider)):
+            raise TypeError("generation requires StaticContext or DynamicContextProvider; exact-view features cannot be reused across decoding states")
+        is_dynamic = isinstance(context, DynamicContextProvider)
+        if is_dynamic:
+            provider = context
+            # Build the native token layout from the view (no encoder call yet).
+            raw_tokens, mapping, _ = self.preflight([view], [provider])[0]
+            length = len(raw_tokens)
+            if length > self.backbone.config.max_position_embeddings:
+                raise ValueError("antibody exceeds native position limit; no truncation is allowed")
+            ids = torch.full((1, length), DPLM_PAD_ID, dtype=torch.long, device=self.device)
+            ids[0, :length] = torch.tensor(raw_tokens, device=self.device)
+            immutable = ids.ne(DPLM_MASK_ID)
+
+            def _dynamic_logits(tokens):
+                # Refresh context from the current token state; supports zero-hidden views.
+                ab_view = _tokens_to_ab_view(tokens[0], view, mapping)
+                # Route through prepare() for unified identity check and feature assembly.
+                fresh_ids, fresh_features, fresh_mask, _ = self.prepare(
+                    [ab_view], [provider]
+                )
+                return self._forward_tensors(fresh_ids, fresh_features, fresh_mask)[0]
+
+            result = iterative_reparam_decode(
+                _dynamic_logits, ids, immutable, steps=steps, strategy=strategy,
+                generator=generator, canonical_ids=self.canonical_ids)
+            mappings = [mapping]
+        else:
+            ids, features, mask, mappings = self.prepare([view], [context])
+            immutable = ids.ne(DPLM_MASK_ID)
+            result = iterative_reparam_decode(
+                lambda tokens: self._forward_tensors(tokens, features, mask)[0],
+                ids, immutable, steps=steps, strategy=strategy, generator=generator,
+                canonical_ids=self.canonical_ids)
+        # One CPU transfer covers all residues; validate each is canonical.
+        final_tok_list = result.native_tokens[0].cpu().tolist()
+        values = {}
+        for coord, slot in mappings[0].items():
+            tok_id = final_tok_list[slot]
+            if tok_id not in DPLM_CANONICAL_IDS:
+                raise ValueError(
+                    f"decoded token {tok_id} at {coord!r} is not in the canonical vocabulary"
+                )
+            values[coord] = DPLM_VOCAB[tok_id]
         return VisibleView(view.roles, tuple(tuple(values[(role, i)] for i in range(len(chain)))
                                             for role, chain in zip(view.roles, view.chains)))
 

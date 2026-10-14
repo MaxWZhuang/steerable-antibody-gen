@@ -83,10 +83,12 @@ def import_native_esm2(source_root, source_pins):
         sys.dont_write_bytecode = old_bytecode
 
 
-def serialize_visible(view: VisibleView, alphabet, *, device="cpu"):
+def serialize_visible(view: VisibleView, alphabet, *, device="cpu", allow_unmasked=False):
     """Upstream BOS + concatenated chains + EOS, with genuine masks and visible-only IDs."""
-    if "H" not in view.roles or not view.hidden_sites():
-        raise ValueError("ESM-PPI context needs H and a nonempty hidden editable union")
+    if "H" not in view.roles:
+        raise ValueError("ESM-PPI context needs H")
+    if not allow_unmasked and not view.hidden_sites():
+        raise ValueError("ESM-PPI context needs a nonempty hidden editable union")
     # Equality groups use only visible chains. A hidden identity never determines an entity ID.
     strings = ["".join("-" if r is None else r for r in chain) for chain in view.chains]
     entities = sorted(set(strings))
@@ -105,15 +107,20 @@ def serialize_visible(view: VisibleView, alphabet, *, device="cpu"):
 
 class FrozenESMPPI(nn.Module):
     """Batch size one is intentional: native chain-relative bias mixes batch statistics."""
-    def __init__(self, native_model, encoder_identity, *, max_tokens=1024):
+    def __init__(self, native_model, encoder_identity, *, max_tokens=1024,
+                 compute_dtype="float32"):
         super().__init__()
         if type(max_tokens) is not int or max_tokens < 3:
             raise ValueError("max_tokens must be an integer >=3")
+        from smallAntibodyGen.models.antibody_antigen.precision import validate_compute
+        validate_compute(compute_dtype, next(native_model.parameters()).device)
         self.model = native_model
         self.encoder_identity = dict(encoder_identity)
-        if self.encoder_identity.get("precision") != "float32" or any(
-                p.is_floating_point() and p.dtype != torch.float32 for p in self.model.parameters()):
-            raise ValueError("frozen ESM-PPI extraction requires float32 parameters and identity")
+        if self.encoder_identity.get("precision") != compute_dtype or any(
+                p.is_floating_point() and p.dtype != torch.float32
+                for p in (*self.model.parameters(), *self.model.buffers())):
+            raise ValueError("frozen ESM-PPI requires float32 storage and matching compute identity")
+        self.compute_dtype = compute_dtype
         self.max_tokens = max_tokens
         self.model.requires_grad_(False)
         self.train(False)
@@ -122,25 +129,67 @@ class FrozenESMPPI(nn.Module):
         super().train(False)
         return self
 
-    @torch.no_grad()
-    def extract(self, view: VisibleView):
-        self.train(False)
+    def validate_view(self, view, *, allow_unmasked=False):
+        """Cheap preflight, with no encoder inference or RNG consumption."""
+        from smallAntibodyGen.models.antibody_antigen.precision import validate_compute
+        if not isinstance(view, VisibleView) or not view.has_role("H"):
+            raise ValueError("ESM-PPI context requires an antibody H chain")
+        if not allow_unmasked and not view.hidden_sites():
+            raise ValueError("ESM-PPI context needs a nonempty hidden editable union")
         if len(view.coords()) + 2 > self.max_tokens:
             raise ValueError("joint sequence exceeds context limit; no truncation is allowed")
+        if self.encoder_identity.get("precision") != self.compute_dtype:
+            raise ValueError("encoder precision identity drift")
+        validate_compute(self.compute_dtype, next(self.model.parameters()).device)
+
+    def runtime_identity(self):
+        return {"encoder": dict(self.encoder_identity), "storage_dtype": "float32",
+                "compute_dtype": self.compute_dtype, "native_batch_size": 1,
+                "normalization_implementations": sorted({
+                    type(module).__module__ + "." + type(module).__qualname__
+                    for module in self.model.modules()
+                    if "norm" in type(module).__name__.lower()})}
+
+    def _run_encoder(self, view: VisibleView, *, allow_unmasked: bool = False):
+        """Shared encoder forward (always eval/no_grad, autocast-isolated)."""
+        from smallAntibodyGen.models.antibody_antigen.precision import compute_context
+        self.validate_view(view, allow_unmasked=allow_unmasked)
+        self.train(False)
         device = next(self.model.parameters()).device
-        tokens, asym, enty = serialize_visible(view, self.model.alphabet, device=device)
-        # Keep a surrounding trainer's autocast context out of this fixed-precision cache.
-        with torch.autocast(device_type=device.type, enabled=False):
-            output = self.model(tokens, asym_ids=asym, enty_ids=enty,
-                                repr_layers=[self.model.num_layers], need_head_weights=False,
-                                return_contacts=False)
-        features = output["representations"][self.model.num_layers][0, 1:-1].detach().cpu()
-        return StaticContext(view, features, self.encoder_identity)
+        tokens, asym, enty = serialize_visible(
+            view, self.model.alphabet, device=device, allow_unmasked=allow_unmasked
+        )
+        with torch.no_grad(), compute_context(self.compute_dtype, device):
+            output = self.model(
+                tokens, asym_ids=asym, enty_ids=enty,
+                repr_layers=[self.model.num_layers],
+                need_head_weights=False, return_contacts=False,
+            )
+        with torch.no_grad():
+            features = output["representations"][self.model.num_layers][0, 1:-1].detach()
+        return features, device
+
+    @torch.no_grad()
+    def extract(self, view: VisibleView) -> StaticContext:
+        """Extract features for a view with at least one masked site; returns a CPU StaticContext."""
+        features, _ = self._run_encoder(view, allow_unmasked=False)
+        # Move to CPU; StaticContext.__init__ clones internally.
+        return StaticContext(view, features.cpu(), self.encoder_identity)
+
+    @torch.no_grad()
+    def extract_exact(self, view: VisibleView) -> "ExactViewFeatures":
+        """Extract features for any view (including zero-hidden); returns a device-resident ExactViewFeatures."""
+        from smallAntibodyGen.models.antibody_antigen.exact_view_features import ExactViewFeatures
+        features, _ = self._run_encoder(view, allow_unmasked=True)
+        # Pass raw detached tensor; ExactViewFeatures.__init__ clones internally.
+        return ExactViewFeatures(view, features, self.encoder_identity)
 
 
 def load_released_encoder(source_root, source_pins, checkpoint_path, checkpoint_sha256,
-                          *, device="cpu", max_tokens=1024):
+                          *, device="cpu", max_tokens=1024, compute_dtype="float32"):
     """Strictly load the released 33-layer/1280-wide antibody ESM-PPI checkpoint."""
+    from smallAntibodyGen.models.antibody_antigen.precision import validate_compute
+    validate_compute(compute_dtype, device)
     if file_sha256(checkpoint_path) != checkpoint_sha256:
         raise ValueError("ESM-PPI checkpoint SHA256 mismatch")
     native_class = import_native_esm2(source_root, source_pins)
@@ -176,5 +225,5 @@ def load_released_encoder(source_root, source_pins, checkpoint_path, checkpoint_
     model.to(device)
     identity = {"source_sha256": source_digest(source_pins["files"]),
                 "checkpoint_sha256": checkpoint_sha256, "extraction_layer": "layer_33",
-                "precision": "float32", "tokenizer": "ESM-1b", "eval_mode": "true"}
-    return FrozenESMPPI(model, identity, max_tokens=max_tokens)
+                "precision": compute_dtype, "tokenizer": "ESM-1b", "eval_mode": "true"}
+    return FrozenESMPPI(model, identity, max_tokens=max_tokens, compute_dtype=compute_dtype)

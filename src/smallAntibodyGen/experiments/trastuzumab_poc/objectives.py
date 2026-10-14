@@ -2,19 +2,23 @@
 
 Exports
 -------
-draw_mask         -- random mask over an editable union (four equally-likely modes)
-whole_core_scores -- per-core mean log probability under an explicit reveal order
-ordering_loss     -- mean squared hinge on measured better/worse pairs
+draw_mask            -- legacy random mask (four equally-likely modes)
+UniformMaskSpec      -- config for the clean uniform-K sampler
+UniformMaskDraw      -- result of draw_mask_uniform
+draw_mask_uniform    -- uniform-K mask sampler matching the mean-site NLL objective
+whole_core_scores    -- per-core mean log probability (static or dynamic context)
+ordering_loss        -- mean squared hinge on measured better/worse pairs
 """
 from __future__ import annotations
 
 import random
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple, Union
 
 import torch
 
+from smallAntibodyGen.models.antibody_antigen.dynamic_context import DynamicContextProvider
 from smallAntibodyGen.models.antibody_antigen.fusion import FusedDPLM
 from smallAntibodyGen.models.antibody_antigen.static_context import StaticContext
 from smallAntibodyGen.models.antibody_antigen.views import (
@@ -117,9 +121,150 @@ def draw_mask(union: Sequence[Coord], rng: random.Random) -> MaskDraw:
     return MaskDraw(mode=mode, sites=sites)
 
 
+# ---------------------------------------------------------------------------
+# Uniform-K masking (clean sampler matching the mean-site NLL objective)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class UniformMaskSpec:
+    """Configuration for the clean uniform-K sampler.
+
+    Base component (mixture weight = 1 - span_weight - full_region_weight):
+        K ~ Uniform{1, ..., N} where N = len(union);
+        sites ~ Uniform over all C(N, K) K-subsets of union.
+
+    The base component estimates mean sequential reconstruction NLL averaged over
+    uniformly random reveal orders: each remaining-set size K occurs once per
+    order, its subset is uniform, and its next revealed site is uniform within K.
+    Conditionals change with the visible subset. This is not the likelihood of
+    the iterative generation sampler.
+
+    Optional auxiliary components have declared mixture weights and declared region coords.
+    When auxiliary components are active the overall draw is a MIXTURE, not the same
+    unbiased estimator as the base alone; the mean-NLL objective changes accordingly.
+    Span draws a contiguous same-chain run within ``span_region``; full_region masks all
+    of ``full_region_coords``.
+
+    Region coordinates are validated against the union at draw time in
+    :func:`draw_mask_uniform`, but structural checks (nonempty, H/L only, no duplicates
+    within the region) run on every call regardless of whether the component weight is
+    zero, so malformed input cannot hide behind a disabled weight.
+    """
+    span_region: Optional[Tuple[Coord, ...]] = None
+    span_weight: float = 0.0
+    full_region_coords: Optional[Tuple[Coord, ...]] = None
+    full_region_weight: float = 0.0
+
+    def __post_init__(self):
+        for attr, val in (("span_weight", self.span_weight),
+                          ("full_region_weight", self.full_region_weight)):
+            if isinstance(val, bool) or not isinstance(val, (int, float)):
+                raise TypeError(
+                    f"{attr} must be a numeric float, got {type(val).__name__}"
+                )
+            # val != val catches NaN; explicit inf check catches ±inf.
+            if val != val or val == float("inf") or val == float("-inf"):
+                raise ValueError(f"{attr} must be finite")
+        if self.span_weight < 0.0 or self.span_weight > 1.0:
+            raise ValueError("span_weight must be in [0, 1]")
+        if self.full_region_weight < 0.0 or self.full_region_weight > 1.0:
+            raise ValueError("full_region_weight must be in [0, 1]")
+        if self.span_weight + self.full_region_weight > 1.0:
+            raise ValueError("span_weight + full_region_weight must be <= 1.0")
+        if self.span_weight > 0.0 and not self.span_region:
+            raise ValueError("span_weight > 0 requires span_region")
+        if self.full_region_weight > 0.0 and not self.full_region_coords:
+            raise ValueError("full_region_weight > 0 requires full_region_coords")
+
+
+@dataclass(frozen=True)
+class UniformMaskDraw:
+    kind: str              # "uniform_k" | "span" | "full_region"
+    sites: Tuple[Coord, ...]
+    count: int             # == len(sites)
+    eligible_count: int    # union size for uniform_k; region size for span/full_region
+
+
+def _validate_region(region: object, name: str, union_set: set) -> Tuple[Coord, ...]:
+    """Validate and return a region tuple; all coords must be H/L, in union, and non-duplicate."""
+    coords = tuple(region)  # type: ignore[arg-type]
+    if not coords:
+        raise ValueError(f"{name} must be nonempty")
+    seen: set = set()
+    result: List[Coord] = []
+    for c in coords:
+        coord = validate_coord(c)
+        if coord[0] not in ("H", "L"):
+            raise ValueError(f"{name} coord {coord!r} has role {coord[0]!r}; only H/L allowed")
+        if coord in seen:
+            raise ValueError(f"duplicate coord {coord!r} in {name}")
+        seen.add(coord)
+        if coord not in union_set:
+            raise ValueError(f"{name} coord {coord!r} is not in the editable union")
+        result.append(coord)
+    return tuple(result)
+
+
+def draw_mask_uniform(
+    union: Sequence[Coord],
+    rng: random.Random,
+    spec: Optional[UniformMaskSpec] = None,
+) -> UniformMaskDraw:
+    """Draw a mask under the uniform-K objective, with optional auxiliary components.
+
+    Validates all inputs (including spec region bounds) before consuming *rng*.
+
+    Base component:
+        K ~ Uniform{1, ..., N}; sites ~ Uniform K-subset of union.
+
+    With auxiliary components, a single ``rng.random()`` draw selects the component:
+        [0, span_weight)         -> span draw
+        [span_weight, span+full) -> full_region draw
+        otherwise                -> base uniform_k draw
+
+    Span: one contiguous same-chain run drawn from ``spec.span_region`` (no gap bridging).
+    Full region: all coords in ``spec.full_region_coords``.
+    """
+    coords = _validate_union(union)
+    union_set = set(coords)
+    n = len(coords)
+    spec = spec or UniformMaskSpec()
+
+    # Validate ALL provided regions before any RNG, even when their weight is zero,
+    # so malformed auxiliary input cannot hide behind a disabled component.
+    span_region: Optional[Tuple[Coord, ...]] = None
+    full_region: Optional[Tuple[Coord, ...]] = None
+    if spec.span_region is not None:
+        span_region = _validate_region(spec.span_region, "span_region", union_set)
+    if spec.full_region_coords is not None:
+        full_region = _validate_region(spec.full_region_coords, "full_region_coords", union_set)
+
+    # Select component.
+    threshold = rng.random()
+    if span_region is not None and threshold < spec.span_weight:
+        # Span draw within the declared region (no chain-gap bridging).
+        span_runs = _chain_runs(span_region)
+        candidates: List[Tuple[Coord, ...]] = []
+        for run in span_runs:
+            for slen in range(1, len(run) + 1):
+                for start in range(len(run) - slen + 1):
+                    candidates.append(tuple(span_region[run[start + j]] for j in range(slen)))
+        sites = rng.choice(candidates)
+        return UniformMaskDraw(kind="span", sites=sites, count=len(sites),
+                               eligible_count=len(span_region))
+    if full_region is not None and threshold < spec.span_weight + spec.full_region_weight:
+        return UniformMaskDraw(kind="full_region", sites=full_region, count=len(full_region),
+                               eligible_count=len(full_region))
+
+    # Base uniform-K draw.
+    k = rng.randint(1, n)
+    sites = tuple(rng.sample(coords, k))
+    return UniformMaskDraw(kind="uniform_k", sites=sites, count=k, eligible_count=n)
+
+
 def whole_core_scores(
     policy: FusedDPLM,
-    context: StaticContext,
+    context: Union[StaticContext, DynamicContextProvider],
     fully_masked_ab_view: VisibleView,
     targets: Sequence[MaskedTargets],
     order: Sequence[Coord],
@@ -127,17 +272,17 @@ def whole_core_scores(
 ) -> torch.Tensor:
     """Per-core mean log probability under an explicit reveal order.
 
-    For each core (endpoint in *targets*), teacher-forces the gold predecessors
-    along *order* and queries each position in turn.  All K query steps across
-    all cores are flattened and dispatched in bounded microbatches via
-    ``policy.queried_log_probs``, which checkpoints the entire fused model call.
+    *context* is either a :class:`StaticContext` (one set of pre-extracted features shared
+    across all states) or a :class:`DynamicContextProvider` (frozen encoder re-run on the
+    current view at every teacher-forcing step).
 
     Returns a ``[ncores]`` tensor with intact gradients.
 
-    Constraints enforced:
-    - *fully_masked_ab_view* masks **exactly** ``context.hidden_union`` (no Ag).
-    - *order* is a permutation of ``context.hidden_union``.
-    - Every target covers exactly ``context.hidden_union``.
+    Constraints enforced (all checked before any forward):
+    - *fully_masked_ab_view* masks **exactly** the hidden union (no Ag).
+    - *order* is a permutation of the hidden union.
+    - Every target covers exactly the hidden union.
+    - For a dynamic provider, its encoder_identity must match the policy's.
     """
     if not targets:
         raise ValueError("targets must be nonempty")
@@ -146,25 +291,42 @@ def whole_core_scores(
     if "Ag" in fully_masked_ab_view.roles:
         raise ValueError("Ag must not appear in the antibody query view")
 
-    hidden_union_set = set(context.hidden_union)
-    view_hidden = set(fully_masked_ab_view.hidden_sites())
-    if view_hidden != hidden_union_set:
-        raise ValueError(
-            "fully_masked_ab_view must mask exactly context.hidden_union; "
-            f"extra masked: {view_hidden - hidden_union_set}, "
-            f"not masked: {hidden_union_set - view_hidden}"
-        )
-    context.check_query(fully_masked_ab_view)
+    is_dynamic = isinstance(context, DynamicContextProvider)
+    if is_dynamic:
+        provider = context
+        if provider.encoder_identity != policy.encoder_identity:
+            raise ValueError(
+                "DynamicContextProvider encoder_identity differs from the policy's encoder_identity"
+            )
+        hidden_union = context.hidden_union
+        hidden_union_set = set(hidden_union)
+        if not hidden_union_set:
+            raise ValueError("fully_masked_ab_view must have at least one masked position")
+        if set(fully_masked_ab_view.hidden_sites()) != hidden_union_set:
+            raise ValueError("fully_masked_ab_view must mask exactly provider.hidden_union")
+        provider.check_query(fully_masked_ab_view)
+    else:
+        hidden_union_set = set(context.hidden_union)
+        view_hidden = set(fully_masked_ab_view.hidden_sites())
+        if view_hidden != hidden_union_set:
+            raise ValueError(
+                "fully_masked_ab_view must mask exactly context.hidden_union; "
+                f"extra masked: {view_hidden - hidden_union_set}, "
+                f"not masked: {hidden_union_set - view_hidden}"
+            )
+        context.check_query(fully_masked_ab_view)
 
     ordered = tuple(order)
     if len(ordered) != len(hidden_union_set) or set(ordered) != hidden_union_set:
-        raise ValueError("order must be a permutation of context.hidden_union")
+        raise ValueError("order must be a permutation of the hidden union")
 
     for i, tgt in enumerate(targets):
         if set(tgt.coords()) != hidden_union_set:
             raise ValueError(
-                f"targets[{i}] coordinates must exactly match context.hidden_union"
+                f"targets[{i}] coordinates must exactly match the hidden union"
             )
+
+    policy.preflight([fully_masked_ab_view], [context])
 
     n_cores = len(targets)
     K = len(ordered)
@@ -186,9 +348,10 @@ def whole_core_scores(
     log_prob_parts: List[torch.Tensor] = []
     for start in range(0, total, state_microbatch):
         end = min(start + state_microbatch, total)
+        batch_contexts = [context] * (end - start)
         lp = policy.queried_log_probs(
             all_states[start:end],
-            [context] * (end - start),
+            batch_contexts,
             all_coords[start:end],
             all_residues[start:end],
         )
