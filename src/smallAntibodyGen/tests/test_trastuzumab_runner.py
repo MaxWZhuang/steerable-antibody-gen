@@ -176,6 +176,10 @@ def test_post_training_uses_only_selected_endpoints_and_preserves_encoder(tmp_pa
     assert run.counters["ties"] == (2 if ties else 0)
     assert run.counters["teacher_forced_states"] == (0 if ties else 40)
     assert set(run.progress()["seen"]["endpoints"]) <= set(run.post_data.budget.selected_ids)
+    seen = run.progress()["seen"]
+    assert set(seen["endpoints"]) == set(seen["reconstruction_endpoints"]) | set(seen["ordering_endpoints"])
+    assert len(seen["ordering_endpoints"]) >= 2
+    assert bool(seen["informative_ordering_endpoints"]) is not ties
     equal(encoder_state, run.encoder.state_dict())
     assert all(p.grad is None and not p.requires_grad for p in run.encoder.parameters())
     ck.save_checkpoint(run, tmp_path / "post.pt")
@@ -204,9 +208,37 @@ def test_inference_load_does_not_require_training_files(tmp_path):
     trained.step()
     artifact = ck.save_checkpoint(trained, tmp_path / "checkpoint.pt")
     fresh = make()
-    ck.load_inference_checkpoint(fresh.policy, artifact["path"], expected_sha256=artifact["sha256"],
+    ck.load_inference_checkpoint(fresh.policy, artifact["path"], encoder=fresh.encoder, expected_sha256=artifact["sha256"],
                                 source_identity={"source": "synthetic"})
     equal(trained.policy.state_dict(), fresh.policy.state_dict())
+
+
+def test_inference_rejects_runtime_drift_before_loading_weights(tmp_path):
+    trained = make()
+    trained.step()
+    artifact = ck.save_checkpoint(trained, tmp_path / "checkpoint.pt")
+    fresh = make()
+    before = copy.deepcopy(fresh.policy.state_dict())
+    fresh.encoder.max_tokens += 1
+    with pytest.raises(ValueError, match="encoder runtime"):
+        ck.load_inference_checkpoint(fresh.policy, artifact["path"], encoder=fresh.encoder,
+                                    expected_sha256=artifact["sha256"], source_identity={"source": "synthetic"})
+    equal(before, fresh.policy.state_dict())
+
+
+def test_post_optimizer_nonfinite_state_fails_closed(tmp_path, monkeypatch):
+    run = make()
+    original = run.optimizer.step
+    def poison():
+        original()
+        with torch.no_grad():
+            run.parameters[-1][1].flatten()[0] = float("inf")
+    monkeypatch.setattr(run.optimizer, "step", poison)
+    with pytest.raises(FloatingPointError, match="after optimizer"):
+        run.step()
+    assert run.failed and run.next_update == 0
+    with pytest.raises(ValueError):
+        ck.save_checkpoint(run, tmp_path / "bad.pt")
 
 
 @pytest.mark.parametrize("field", ["schema", "selection", "optimizer"])
@@ -221,7 +253,7 @@ def test_inference_checkpoint_rejects_invalid_recipe_metadata(tmp_path, field):
     fresh = make()
     before = copy.deepcopy(fresh.policy.state_dict())
     with pytest.raises(ValueError):
-        ck.load_inference_checkpoint(fresh.policy, path, expected_sha256=ck.file_digest(path),
+        ck.load_inference_checkpoint(fresh.policy, path, encoder=fresh.encoder, expected_sha256=ck.file_digest(path),
                                     source_identity={"source": "synthetic"})
     equal(before, fresh.policy.state_dict())
 

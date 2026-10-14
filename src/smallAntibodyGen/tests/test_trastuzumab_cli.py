@@ -42,14 +42,20 @@ def run(*args):
 
 
 def mid_config(tmp_path, *, updates=3):
-    write(tmp_path / "pairs.json", _broad_document())
+    broad = _broad_document()
+    broad["records"][0]["Ag"] = "WVW"  # Distinct from the held-out target.
+    write(tmp_path / "pairs.json", broad)
+    write(tmp_path / "endpoints.json", _endpoint_document())
     config = {
         "schema": "trastuzumab-run/1", "model": {"kind": "tiny"},
         "fusion": {"context_dim": 8, "bottleneck": 6, "lora_rank": 2, "lora_alpha": 4,
                    "lora_dropout": 0.1, "activation_checkpointing": False},
         "training": {"stage": "mid", "arm": "paired", "seed": 17, "total_updates": updates,
                      "examples_per_update": 2, "learning_rate": 0.002, "schedule": "cosine"},
-        "data": {"pairs_path": "pairs.json"}, "initialization": {"kind": "release"}, "device": "cpu",
+        "data": {"pairs_path": "pairs.json", "transfer_guard": {
+            "endpoint_manifest_path": "endpoints.json", "excluded_antibody_families": ["heldout-ab"],
+            "excluded_target_families": ["heldout-target"]}},
+        "initialization": {"kind": "release"}, "device": "cpu",
     }
     return write(tmp_path / "config.json", config), config
 
@@ -222,3 +228,48 @@ def test_existing_cli_output_is_refused_without_reading_config_or_building_model
     with pytest.raises(ValueError, match="output already exists"):
         run(*run_args)
     assert marker.read_text(encoding="utf-8") == "unchanged"
+
+
+def test_mid_plan_binds_holdout_without_models_and_rejects_overlap(tmp_path, monkeypatch):
+    path, config = mid_config(tmp_path)
+    monkeypatch.setattr(cli, "models", lambda *a: pytest.fail("planning constructed models"))
+    output = tmp_path / "plan.json"
+    run("plan", "--config", path, "--output", output)
+    plan = read_json(output)
+    assert plan["transfer_certificate"]["endpoint_manifest_digest"]
+    assert plan["coverage"]["sampling"]["algorithm"] == "family_first_v1"
+    broad = read_json(tmp_path / "pairs.json")
+    broad["records"][0]["Ag"] = "HIK"
+    write(tmp_path / "pairs.json", broad)
+    with pytest.raises(ValueError, match="downstream antigen"):
+        run("train", "--config", path, "--output", tmp_path / "rejected")
+    assert not (tmp_path / "rejected").exists()
+
+
+def test_post_plan_and_coverage_gate_precede_labels_and_models(tmp_path, monkeypatch):
+    path, config = mid_config(tmp_path)
+    endpoints = _endpoint_document()
+    endpoints["entries"][2]["role"] = "post_pool"
+    write(tmp_path / "endpoints.json", endpoints)
+    config["training"] = dict(stage="post", total_updates=1, examples_per_update=1, ordering_weight=1.0)
+    config["data"] = dict(endpoint_manifest_path="endpoints.json", selected_labels_path="MISSING_LABELS.json",
+                          budget_n=3, budget_seed="shared")
+    write(path, config)
+    monkeypatch.setattr(cli, "models", lambda *a: pytest.fail("planning constructed models"))
+    output = tmp_path / "plan.json"
+    run("plan", "--config", path, "--output", output)
+    plan = read_json(output)
+    assert not plan["coverage_requirement_met"]
+    assert plan["exposure"]["pair_labels"]["seen_endpoint_count"] == 2
+    with pytest.raises(ValueError, match="declared horizon compares only"):
+        run("train", "--config", path, "--output", tmp_path / "rejected")
+    assert not (tmp_path / "rejected").exists()
+
+
+def test_released_mid_configuration_requires_transfer_guard(tmp_path):
+    path, config = mid_config(tmp_path)
+    config["model"] = {"kind": "released"}
+    del config["data"]["transfer_guard"]
+    write(path, config)
+    with pytest.raises(ValueError, match="transfer_guard"):
+        cli.load_config(path)

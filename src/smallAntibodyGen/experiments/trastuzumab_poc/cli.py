@@ -14,13 +14,15 @@ from smallAntibodyGen.experiments.trastuzumab_poc.checkpoint import (
     load_inference_checkpoint, resume_checkpoint, save_checkpoint,
 )
 from smallAntibodyGen.experiments.trastuzumab_poc.factory import build_models
+from smallAntibodyGen.experiments.trastuzumab_poc.exposure import plan_post_exposure
 from smallAntibodyGen.experiments.trastuzumab_poc.inputs import (
     coverage_report, load_broad, load_endpoint_manifest, load_post, record, source_identity,
 )
 from smallAntibodyGen.experiments.trastuzumab_poc.parent import export_parent
 from smallAntibodyGen.experiments.trastuzumab_poc.profiling import profile_updates
 from smallAntibodyGen.experiments.trastuzumab_poc.protocol import select_budget
-from smallAntibodyGen.experiments.trastuzumab_poc.runner import StageTrainer, TrainingConfig
+from smallAntibodyGen.experiments.trastuzumab_poc.transfer_guard import qualify_transfer
+from smallAntibodyGen.experiments.trastuzumab_poc.runner import StageTrainer, TrainingConfig, check_exposure_plan
 from smallAntibodyGen.models.antibody_antigen.fusion import FusionConfig
 
 
@@ -33,15 +35,25 @@ def load_config(path):
     record(FusionConfig, config["fusion"])
     train = record(TrainingConfig, config["training"])
     data = config["data"]
-    require_keys(data, ("pairs_path",) if train.stage == "mid" else
-                 ("endpoint_manifest_path", "selected_labels_path", "budget_n", "budget_seed"), "data config")
     if not isinstance(config["model"], dict) or not isinstance(config["initialization"], dict):
         raise ValueError("model and initialization must be objects")
+    if train.stage == "mid":
+        keys = ("pairs_path", "transfer_guard") if "transfer_guard" in data else ("pairs_path",)
+        require_keys(data, keys, "data config")
+        if "transfer_guard" not in data and config["model"].get("kind") != "tiny":
+            raise ValueError("released midtraining requires an outcome-free transfer_guard")
+        if "transfer_guard" in data:
+            require_keys(data["transfer_guard"], ("endpoint_manifest_path", "excluded_antibody_families",
+                                                 "excluded_target_families"), "transfer guard config")
+    else:
+        require_keys(data, ("endpoint_manifest_path", "selected_labels_path", "budget_n", "budget_seed"),
+                     "data config")
     # Resolve only explicitly declared paths relative to the configuration file.
     for section, keys in ((config["model"], ("weights_dir", "pins_path", "encoder_source_root",
                                            "encoder_source_pins_path", "encoder_checkpoint")),
                           (config["initialization"], ("path",)),
-                          (data, ("pairs_path", "endpoint_manifest_path", "selected_labels_path"))):
+                          (data, ("pairs_path", "endpoint_manifest_path", "selected_labels_path")),
+                          (data.get("transfer_guard", {}), ("endpoint_manifest_path",))):
         for key in keys:
             if key in section:
                 value = section[key]
@@ -63,14 +75,55 @@ def trainer(config):
     if training.stage == "mid":
         population, data_identity = load_broad(config["data"]["pairs_path"])
         data = {"population": population}
+        guard = config["data"].get("transfer_guard")
+        if guard is not None:
+            data["transfer_certificate"] = qualify_transfer(
+                population, load_endpoint_manifest(guard["endpoint_manifest_path"]),
+                excluded_antibody_families=guard["excluded_antibody_families"],
+                excluded_target_families=guard["excluded_target_families"])
     else:
         spec = config["data"]
+        # Inspect the exact schedule before opening labels or constructing models.
+        manifest, budget, plan = post_plan(config)
+        check_exposure_plan(plan, training)
         restricted, data_identity = load_post(spec["endpoint_manifest_path"], spec["selected_labels_path"],
                                                budget_n=spec["budget_n"], budget_seed=spec["budget_seed"])
+        if restricted.budget != budget:
+            raise ValueError("endpoint manifest changed after exposure planning")
         data = {"post_data": restricted}
     policy, encoder, initialization = models(config)
     return StageTrainer(policy, encoder, training, **data, data_identity=data_identity,
                         source_identity=source_identity(), initialization_identity=initialization)
+
+
+def post_plan(config):
+    training = record(TrainingConfig, config["training"])
+    spec = config["data"]
+    manifest = load_endpoint_manifest(spec["endpoint_manifest_path"])
+    budget = select_budget(manifest, spec["budget_n"], spec["budget_seed"])
+    by_id = {entry.endpoint_id: entry for entry in manifest.entries}
+    plan = plan_post_exposure([by_id[eid] for eid in budget.selected_ids], training)
+    return manifest, budget, plan
+
+
+def plan_inputs(config):
+    """No model/weight/measurement access; report corpus or schedule qualification."""
+    training = record(TrainingConfig, config["training"])
+    if training.stage == "mid":
+        population, identity = load_broad(config["data"]["pairs_path"])
+        report = {"coverage": coverage_report(population), "input": identity, "transfer_certificate": None}
+        guard = config["data"].get("transfer_guard")
+        if guard is not None:
+            report["transfer_certificate"] = qualify_transfer(
+                population, load_endpoint_manifest(guard["endpoint_manifest_path"]),
+                excluded_antibody_families=guard["excluded_antibody_families"],
+                excluded_target_families=guard["excluded_target_families"])
+    else:
+        _, budget, plan = post_plan(config)
+        report = {"budget": asdict(budget), "exposure": plan,
+                  "coverage_requirement_met": not training.ordering_weight or
+                      plan["pair_labels"]["fraction_of_selected"] >= training.minimum_ordering_endpoint_coverage}
+    return {"schema": "trastuzumab-input-plan/1", "training": asdict(training), **report}
 
 
 def write_new_json(path, document):
@@ -89,7 +142,7 @@ def parser():
     select.add_argument("--budget", required=True, type=int)
     select.add_argument("--budget-seed", required=True)
     select.add_argument("--output", required=True)
-    for name in ("train", "profile", "score", "generate", "export-parent"):
+    for name in ("plan", "train", "profile", "score", "generate", "export-parent"):
         command = commands.add_parser(name)
         command.add_argument("--config", required=True)
         command.add_argument("--output", required=True)
@@ -101,7 +154,7 @@ def parser():
         elif name == "profile":
             command.add_argument("--warmup-updates", type=int, default=3)
             command.add_argument("--measured-updates", type=int, default=10)
-        else:
+        elif name != "plan":
             command.add_argument("--checkpoint", required=True)
             command.add_argument("--checkpoint-sha256", required=True)
             if name != "export-parent":
@@ -135,6 +188,9 @@ def main(argv=None):
         write_new_json(args.output, {"schema": "trastuzumab-budget/1", **asdict(budget)})
         return
     config = load_config(args.config)
+    if args.command == "plan":
+        write_new_json(args.output, plan_inputs(config))
+        return
     if args.command in ("train", "profile"):
         if args.command == "train":
             positive_count(args.checkpoint_every, "checkpoint_every")
@@ -164,6 +220,8 @@ def main(argv=None):
         destination.mkdir(parents=True, exist_ok=False)
         write_new_json(destination / "config.json", config)
         write_new_json(destination / "identity.json", run.identity)
+        if run.exposure_plan is not None:
+            write_new_json(destination / "exposure-plan.json", run.exposure_plan)
         with (destination / "metrics.jsonl").open("x", encoding="utf-8") as log:
             def completed(current, metrics):
                 log.write(canonical_bytes(metrics).decode("ascii") + "\n")
@@ -191,6 +249,7 @@ def main(argv=None):
                                         editable_count=args.editable_count)
     policy, encoder, _ = models(config)
     provenance = load_inference_checkpoint(policy, args.checkpoint,
+                                           encoder=encoder,
                                            expected_sha256=args.checkpoint_sha256,
                                            source_identity=source_identity())
     if args.command == "export-parent":

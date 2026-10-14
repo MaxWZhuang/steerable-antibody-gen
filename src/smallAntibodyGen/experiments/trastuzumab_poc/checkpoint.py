@@ -71,9 +71,10 @@ def _validate(payload, policy, *, expected_identity=None):
     identity = payload["identity"]
     require_keys(identity, ("schema", "config", "model", "encoder_runtime", "data", "input", "source",
                             "initialization", "rng", "runtime", "optimizer", "selection",
-                            "parameter_names"), "training identity")
+                            "parameter_names", "transfer_certificate", "ordering_readout"), "training identity")
     canonical_bytes(identity)
     if (identity["schema"] != "trastuzumab-training/1" or identity["selection"] != "fixed-last"
+            or identity["ordering_readout"] != "dropout-disabled-with-checkpointing/1"
             or identity["optimizer"] != {"kind": "AdamW", "betas": [0.9, 0.999], "eps": 1e-8,
                                          "foreach": False, "fused": False, "capturable": False}):
         raise ValueError("unsupported training schema, selection or optimizer recipe")
@@ -111,7 +112,9 @@ def _validate(payload, policy, *, expected_identity=None):
             or counters["teacher_forced_states"] != 20 * counters["informative_pairs"]
             or (update == 0 and any(counters.values()))):
         raise ValueError("inconsistent training counters")
-    seen_keys = ("records", "antibody_families", "target_families", "sources", "endpoints")
+    endpoint_keys = ("endpoints", "reconstruction_endpoints", "ordering_endpoints",
+                     "informative_ordering_endpoints")
+    seen_keys = ("records", "antibody_families", "target_families", "sources", *endpoint_keys)
     require_keys(progress["seen"], seen_keys, "seen IDs")
     require_keys(progress["unique"], seen_keys, "unique counts")
     for key in seen_keys:
@@ -123,11 +126,18 @@ def _validate(payload, policy, *, expected_identity=None):
             raise ValueError("invalid observed-ID counters")
     available = _nonnegative(progress["fitting_endpoints_available"], "fitting endpoints")
     if (progress["selection_labels"] != 0 or type(progress["selection_labels"]) is not int
-            or (config.stage == "mid" and (available or progress["seen"]["endpoints"]))
+            or (config.stage == "mid" and (available or any(progress["seen"][key] for key in endpoint_keys)))
             or (config.stage == "post" and (not available or
-                any(progress["seen"][key] for key in seen_keys if key != "endpoints")))
+                any(progress["seen"][key] for key in seen_keys if key not in endpoint_keys)))
             or len(progress["seen"]["endpoints"]) > available):
         raise ValueError("invalid endpoint exposure counters")
+    seen = {key: set(progress["seen"][key]) for key in endpoint_keys}
+    if (seen["endpoints"] != seen["reconstruction_endpoints"] | seen["ordering_endpoints"]
+            or not seen["informative_ordering_endpoints"] <= seen["ordering_endpoints"]
+            or len(seen["reconstruction_endpoints"]) > examples
+            or len(seen["ordering_endpoints"]) > 2 * draws
+            or len(seen["informative_ordering_endpoints"]) > 2 * counters["informative_pairs"]):
+        raise ValueError("inconsistent reconstruction and measurement exposure")
     canonical_bytes(progress)
     optimizer = torch.optim.AdamW([p for _, p in parameters], lr=config.learning_rate,
                                    weight_decay=config.weight_decay, foreach=False, fused=False, capturable=False)
@@ -213,12 +223,14 @@ def resume_checkpoint(trainer, path, *, expected_sha256=None):
     return trainer.progress()
 
 
-def load_inference_checkpoint(policy, path, *, expected_sha256, source_identity):
+def load_inference_checkpoint(policy, path, *, encoder, expected_sha256, source_identity):
     """Load inference weights without reopening any training measurement file."""
     payload = read_checkpoint(path, expected_sha256=expected_sha256)
     _validate(payload, policy)
     if payload["identity"]["source"] != source_identity:
         raise ValueError("checkpoint source identity mismatch")
+    if payload["identity"]["encoder_runtime"] != encoder.runtime_identity():
+        raise ValueError("checkpoint encoder runtime mismatch")
     policy.load_trainable_state(payload["weights"])
     return {"checkpoint_sha256": expected_sha256, "training": payload["identity"],
             "progress": payload["progress"]}

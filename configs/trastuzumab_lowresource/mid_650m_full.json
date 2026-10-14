@@ -38,7 +38,12 @@
     "full_region_weight": 0
   },
   "data": {
-    "pairs_path": "REPLACE/qualified_pairs.json"
+    "pairs_path": "REPLACE/qualified_pairs.json",
+    "transfer_guard": {
+      "endpoint_manifest_path": "REPLACE/endpoints.json",
+      "excluded_antibody_families": ["REPLACE_WITH_CURATED_TRASTUZUMAB_FAMILY_IDS"],
+      "excluded_target_families": ["REPLACE_WITH_CURATED_HER2_FAMILY_IDS"]
+    }
   },
   "initialization": {
     "kind": "release"

@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import importlib.machinery
+import importlib.metadata
 import importlib.util
 import json
 import os
@@ -37,6 +39,80 @@ def source_digest(files):
 def source_sha256(path):
     """Source pins are portable across Git's LF/CRLF checkout conventions."""
     return hashlib.sha256(Path(path).read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
+def _normalization_identity(module, device, cache):
+    """Describe the dispatch used by pinned tFold without importing optional kernels.
+
+    Its LayerNorm class can select PyTorch or Apex internally. Inspect the forward
+    function's bound globals, not sys.modules: Apex imports its CUDA extension lazily,
+    and that incidental import must not change identity after the first forward.
+    """
+    cls = type(module)
+    name = cls.__module__ + "." + cls.__qualname__
+    forward = cls.forward
+    backend, function, extension = "module_forward", forward, None
+    flags = {}
+    if name == "tfold.model.layer.layer_norm.LayerNorm":
+        namespace = forward.__globals__
+        flags = {"elementwise_affine": bool(module.elementwise_affine),
+                 "persist_layer_norm": bool(module.persist_layer_norm),
+                 "tracing": bool(torch.jit.is_tracing()), "scripting": bool(torch.jit.is_scripting())}
+        if (namespace.get("fused_layer_norm") is None or torch.device(device).type != "cuda"
+                or flags["tracing"] or flags["scripting"]):
+            backend, function = "torch.layer_norm", namespace["F"].layer_norm
+        elif flags["elementwise_affine"] and flags["persist_layer_norm"]:
+            backend, function, extension = "apex.fast_layer_norm", namespace["fast_layer_norm"], "fast_layer_norm"
+        else:
+            key = "fused_layer_norm_affine" if flags["elementwise_affine"] else "fused_layer_norm"
+            backend, function, extension = "apex." + key, namespace[key], "fused_layer_norm_cuda"
+    elif isinstance(module, nn.LayerNorm) and forward is nn.LayerNorm.forward:
+        backend, function = "torch.layer_norm", torch.nn.functional.layer_norm
+        flags = {"elementwise_affine": bool(module.elementwise_affine)}
+    if not callable(function):
+        raise RuntimeError(f"selected normalization backend is unavailable: {backend}")
+    key = (function, extension)
+    if key not in cache:
+        package = "apex" if extension is not None else function.__module__.split(".")[0]
+        try:
+            version = importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError:
+            version = None  # Source-tree Apex installs may have no distribution metadata.
+        code = getattr(function, "__code__", None)
+        source = Path(code.co_filename) if code is not None else None
+        implementation = {"module": function.__module__, "function": function.__qualname__,
+                          "package": package, "package_version": version,
+                          "source_sha256": file_sha256(source) if source is not None and source.is_file() else None}
+        # Some Apex releases expose FastLayerNormFN.apply, whose method body lives
+        # in torch.autograd. Bind the actual Apex autograd forward as well.
+        owner = getattr(function, "__self__", None)
+        if isinstance(owner, type) and issubclass(owner, torch.autograd.Function):
+            owner_code = getattr(owner.forward, "__code__", None)
+            owner_source = Path(owner_code.co_filename) if owner_code is not None else None
+            implementation["autograd_owner"] = {
+                "class": owner.__module__ + "." + owner.__qualname__,
+                "source_sha256": file_sha256(owner_source)
+                    if owner_source is not None and owner_source.is_file() else None,
+            }
+        if extension is not None:
+            # PathFinder bypasses sys.modules and never imports the extension. Both
+            # standard Apex kernels are top-level modules, so no parent import occurs.
+            spec = importlib.machinery.PathFinder.find_spec(extension)
+            binary = Path(spec.origin) if spec is not None and spec.origin else None
+            implementation["native_extension"] = {
+                "module": extension,
+                "file": binary.name if binary is not None else None,
+                "sha256": file_sha256(binary) if binary is not None and binary.is_file() else None,
+                "discovery": "hashed" if binary is not None and binary.is_file()
+                    else "not discoverable without import",
+            }
+        cache[key] = implementation
+    result = {"class": name, "backend": backend, "flags": flags, "implementation": cache[key]}
+    if hasattr(module, "normalized_shape"):
+        result["normalized_shape"] = list(module.normalized_shape)
+    if hasattr(module, "eps"):
+        result["eps"] = float(module.eps)
+    return result
 
 
 def import_native_esm2(source_root, source_pins):
@@ -143,12 +219,16 @@ class FrozenESMPPI(nn.Module):
         validate_compute(self.compute_dtype, next(self.model.parameters()).device)
 
     def runtime_identity(self):
+        device = next(self.model.parameters()).device
+        cache = {}
+        normalizations = {
+            json.dumps(_normalization_identity(module, device, cache), sort_keys=True)
+            for module in self.model.modules() if "norm" in type(module).__name__.lower()
+        }
         return {"encoder": dict(self.encoder_identity), "storage_dtype": "float32",
                 "compute_dtype": self.compute_dtype, "native_batch_size": 1,
-                "normalization_implementations": sorted({
-                    type(module).__module__ + "." + type(module).__qualname__
-                    for module in self.model.modules()
-                    if "norm" in type(module).__name__.lower()})}
+                "max_tokens": self.max_tokens,
+                "normalization_implementations": [json.loads(item) for item in sorted(normalizations)]}
 
     def _run_encoder(self, view: VisibleView, *, allow_unmasked: bool = False):
         """Shared encoder forward (always eval/no_grad, autocast-isolated)."""

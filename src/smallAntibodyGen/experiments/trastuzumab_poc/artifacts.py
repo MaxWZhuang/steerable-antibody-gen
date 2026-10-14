@@ -176,6 +176,9 @@ def inference_metadata(policy, encoder, panel, checkpoint_identity, arm):
     canonical_bytes(checkpoint_identity)
     if encoder.encoder_identity != policy.encoder_identity:
         raise ValueError("encoder and policy identity differ")
+    if "training" in checkpoint_identity and (
+            checkpoint_identity["training"].get("encoder_runtime") != encoder.runtime_identity()):
+        raise ValueError("checkpoint encoder runtime differs from inference")
     view, _ = panel.masked("A" * 10, arm)
     provider = DynamicContextProvider(encoder, view)
     policy.preflight([view.without_ag()], [provider])

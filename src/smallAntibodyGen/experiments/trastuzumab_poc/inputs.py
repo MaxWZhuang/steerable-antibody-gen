@@ -97,12 +97,70 @@ def load_post(manifest_path, labels_path, *, budget_n, budget_seed):
 
 
 def coverage_report(population):
+    """Report corpus counts and the actual family-first training distribution.
+
+    Probabilities are analytic, not row fractions or Monte Carlo estimates. The
+    mask reference applies only to the uniform-count/subset objective: region
+    mixtures are run settings and cannot be inferred from this input document.
+    """
+    from fractions import Fraction
+
+    from smallAntibodyGen.experiments.trastuzumab_poc.sampling import FamilyFirstSampler
+
+    if FamilyFirstSampler.ALGORITHM != "family_first_v1":
+        raise ValueError("coverage probability calculation must match the active sampler")
+    train = population.train_records()
+    groups = {}
+    for row in train:
+        groups.setdefault(row.antibody_family, {}).setdefault(row.owning_source_id, []).append(row)
+    distributions = {name: {} for name in ("target_family", "owning_source", "antibody_family",
+                                           "antibody_format", "eligible_residue_count")}
+    for family, sources in sorted(groups.items()):
+        for source, rows in sorted(sources.items()):
+            # Exactly the three uniform choices made by FamilyFirstSampler._draw_one.
+            probability = Fraction(1, len(groups) * len(sources) * len(rows))
+            for row in rows:
+                values = {"target_family": row.target_family, "owning_source": source,
+                          "antibody_family": family, "antibody_format": row.antibody_format,
+                          "eligible_residue_count": len(row.eligible_union())}
+                for name, value in values.items():
+                    bucket = distributions[name]
+                    bucket[value] = bucket.get(value, Fraction(0)) + probability
+    targets = distributions["target_family"]
+    eligible = distributions["eligible_residue_count"]
+    expected_eligible = sum((count * mass for count, mass in eligible.items()), Fraction(0))
+    mask_mass = {}
+    cumulative = Fraction(0)
+    # P(K=k) = sum_{N>=k} P(eligible count=N)/N for uniform K in 1..N.
+    for count in range(max(eligible, default=0), 0, -1):
+        cumulative += eligible.get(count, Fraction(0)) / count
+        mask_mass[count] = cumulative
+    sampling = {
+        "algorithm": FamilyFirstSampler.ALGORITHM,
+        "scope": "qualified_train_partition",
+        "status": "available" if train else "no_train_records",
+        "probability_measure": "per qualified-pair draw: uniform antibody family, then owning source within family, then unique pair",
+        "train_records": len(train),
+        "train_unique_antibodies": len({(row.H, row.L) for row in train}),
+        "train_unique_antigens": len({row.Ag for row in train}),
+        **{"probability_mass_by_" + name: {str(key): float(mass) for key, mass in sorted(values.items())}
+           for name, values in distributions.items()},
+        "effective_target_families": float(1 / sum((p * p for p in targets.values()), Fraction(0))) if targets else None,
+        "maximum_target_family_probability": float(max(targets.values())) if targets else None,
+        "expected_eligible_residues": float(expected_eligible) if train else None,
+        "uniform_masking_reference": {
+            "assumption": "uniform mask count and subset; span_weight=full_region_weight=0",
+            "mask_count_probability_mass": {str(k): float(p) for k, p in sorted(mask_mass.items())},
+            "expected_masked_residues": float((expected_eligible + 1) / 2) if train else None,
+        },
+    }
     return {"schema": "trastuzumab-coverage/1",
             "manifest_digest": population.manifest_digest,
             "population_digest": population.population_digest,
             "coverage": asdict(population.coverage),
             "excluded": [asdict(r) for r in population.excluded],
-            "qualification": "caller-declared positive evidence and biological groups; not independently verified"}
+            "qualification": "caller-declared positive evidence and biological groups; not independently verified",
+            "sampling": sampling}
 
 
 def source_identity():
