@@ -1,0 +1,52 @@
+{
+  "schema": "trastuzumab-run/1",
+  "model": {
+    "kind": "released",
+    "variant": "dplm_650m",
+    "weights_dir": "REPLACE/dplm_650m",
+    "pins_path": "REPLACE/dplm_pins.json",
+    "encoder_source_root": "REPLACE/tfold",
+    "encoder_source_pins_path": "REPLACE/esm_ppi_source_pins.json",
+    "encoder_checkpoint": "REPLACE/esm_ppi_650m_ab.pth",
+    "encoder_checkpoint_sha256": "REPLACE_WITH_VERIFIED_SHA256",
+    "encoder_max_tokens": 1024
+  },
+  "fusion": {
+    "context_dim": 1280,
+    "bottleneck": 128,
+    "lora_rank": 32,
+    "lora_alpha": 64,
+    "lora_dropout": 0,
+    "activation_checkpointing": true,
+    "update_mode": "lora",
+    "compute_dtype": "bfloat16"
+  },
+  "training": {
+    "stage": "post",
+    "arm": "paired",
+    "seed": 0,
+    "total_updates": 500,
+    "examples_per_update": 2,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01,
+    "gradient_clip": 1,
+    "schedule": "constant",
+    "reconstruction_weight": 1,
+    "ordering_weight": 1,
+    "ordering_margin": 0.1,
+    "span_weight": 0,
+    "full_region_weight": 0
+  },
+  "data": {
+    "endpoint_manifest_path": "REPLACE/endpoints.json",
+    "selected_labels_path": "REPLACE/selected_labels.json",
+    "budget_n": 32,
+    "budget_seed": "shared-budget-v1"
+  },
+  "initialization": {
+    "kind": "parent",
+    "path": "REPLACE/parent.pt",
+    "sha256": "REPLACE_WITH_VERIFIED_SHA256"
+  },
+  "device": "cuda"
+}
