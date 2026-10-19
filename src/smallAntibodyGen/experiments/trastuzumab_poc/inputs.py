@@ -9,6 +9,12 @@ from smallAntibodyGen.experiments.trastuzumab_poc.data import (
     GroupingDeclaration, InputRecord, ManifestDeclaration, QualificationRule,
     SourceDeclaration, qualify_manifest,
 )
+from smallAntibodyGen.experiments.trastuzumab_poc.functional_data import (
+    load_functional_constructs, qualify_functional,
+)
+from smallAntibodyGen.experiments.trastuzumab_poc.functional_protocol import (
+    load_restricted_measurements, select_functional_budget,
+)
 from smallAntibodyGen.experiments.trastuzumab_poc.protocol import (
     EndpointConstruct, EndpointEntry, EndpointManifest, MeasuredEndpoint,
     RestrictedPostData, SelectionAllowance, select_budget,
@@ -43,7 +49,12 @@ def coords(value):
     return None if value is None else tuple(sequence(c) for c in sequence(value))
 
 
-def load_broad(path):
+def load_broad_context(path):
+    """Declaration, ALL raw input rows (excluded ones included), population and identity.
+
+    ``load_broad`` is this function without the first two results; functional
+    qualification needs the raw rows because a population forgets why a row was excluded.
+    """
     document = read_json(path)
     require_keys(document, ("schema", "declaration", "records"), "paired data")
     if document["schema"] != "trastuzumab-pairs/1":
@@ -65,7 +76,30 @@ def load_broad(path):
     population = qualify_manifest(declaration, records)
     identity = {"input_sha256": file_digest(path), "declaration": population.manifest_digest,
                 "population": population.population_digest}
+    return declaration, records, population, identity
+
+
+def load_broad(path):
+    _, _, population, identity = load_broad_context(path)
     return population, identity
+
+
+def qualify_functional_inputs(spec, declaration, records, population):
+    """Outcome-free: qualify the functional document against ALL raw broad rows, fix the budget.
+
+    No measurement file is opened here.  Returns ``(qualified, budget, identity)`` where
+    ``identity`` carries the informational file digest of the constructs document.
+    """
+    document = load_functional_constructs(spec["constructs_path"])
+    qualified = qualify_functional(document, declaration, records, population=population)
+    budget = select_functional_budget(qualified, spec["budget_n"], spec["budget_seed"])
+    return qualified, budget, {"functional_constructs_sha256": file_digest(spec["constructs_path"])}
+
+
+def load_functional_measurements(spec, qualified, budget):
+    """Open the measurements file for a budget that is already fixed; returns data and file digest."""
+    data = load_restricted_measurements(spec["measurements_path"], qualified, budget)
+    return data, {"functional_measurements_sha256": file_digest(spec["measurements_path"])}
 
 
 def load_endpoint_manifest(path):

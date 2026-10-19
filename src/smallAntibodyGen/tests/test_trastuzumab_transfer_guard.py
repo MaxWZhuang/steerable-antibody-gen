@@ -70,13 +70,15 @@ def _parent(mode="lora"):
     certificate = _qualify()
     source = {"base": release.base_identity, "update_mode": mode}
     training = {
-        "schema": "trastuzumab-training/1", "selection": "fixed-last",
+        "schema": "trastuzumab-training/2", "selection": "fixed-last",
         "config": {"stage": "mid", "total_updates": 2}, "model": copy.deepcopy(source),
-        "initialization": origin, "transfer_certificate": certificate,
+        "initialization": origin, "transfer_certificate": certificate, "functional": None,
         "data": {"manifest": certificate["declaration_digest"], "population": certificate["population_digest"]},
+        # A schema-2 midtraining identity always carries the derived records, null without the arm.
+        "input": {"budget": None, "functional": None},
     }
     progress = {"next_update": 2, "fitting_endpoints_available": 0,
-                "selection_labels": 0, "inherited_exposure": None}
+                "selection_labels": 0, "inherited_exposure": None, "functional": None}
     base = {"variant": "materialized-parent", "parent_sha256": "a" * 64,
             "source_policy_identity": source,
             "parent_provenance": {"checkpoint_sha256": "b" * 64,

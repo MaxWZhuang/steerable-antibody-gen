@@ -47,7 +47,7 @@ def mid_config(tmp_path, *, updates=3):
     write(tmp_path / "pairs.json", broad)
     write(tmp_path / "endpoints.json", _endpoint_document())
     config = {
-        "schema": "trastuzumab-run/1", "model": {"kind": "tiny"},
+        "schema": "trastuzumab-run/2", "model": {"kind": "tiny"}, "functional": None,
         "fusion": {"context_dim": 8, "bottleneck": 6, "lora_rank": 2, "lora_alpha": 4,
                    "lora_dropout": 0.1, "activation_checkpointing": False},
         "training": {"stage": "mid", "arm": "paired", "seed": 17, "total_updates": updates,

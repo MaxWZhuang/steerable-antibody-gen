@@ -14,7 +14,8 @@ from smallAntibodyGen.experiments.trastuzumab_poc.artifacts import digest, file_
 
 PINNED_DIRECTORIES = ("experiments/trastuzumab_poc", "models/antibody_antigen")
 PINNED_FILES = ("models/dplm_policy.py",)
-FUNCTIONAL_MODULES = ("functional_data.py", "functional_protocol.py", "functional_train.py")
+FUNCTIONAL_MODULES = ("functional_data.py", "functional_protocol.py", "functional_train.py",
+                      "functional_checkpoint.py", "post_budget.py")
 
 
 def package_root() -> Path:

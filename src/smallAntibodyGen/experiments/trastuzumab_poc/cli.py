@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict
+from dataclasses import asdict, fields
 import json
 from pathlib import Path
 
@@ -15,8 +15,16 @@ from smallAntibodyGen.experiments.trastuzumab_poc.checkpoint import (
 )
 from smallAntibodyGen.experiments.trastuzumab_poc.factory import build_models
 from smallAntibodyGen.experiments.trastuzumab_poc.exposure import plan_post_exposure
+from smallAntibodyGen.experiments.trastuzumab_poc.functional_checkpoint import (
+    FunctionalRun, check_functional_exposure, functional_coverage_met,
+)
+from smallAntibodyGen.experiments.trastuzumab_poc.functional_protocol import (
+    functional_budget_identity, functional_exposure_plan,
+)
+from smallAntibodyGen.experiments.trastuzumab_poc.functional_train import FunctionalConfig
 from smallAntibodyGen.experiments.trastuzumab_poc.inputs import (
-    coverage_report, load_broad, load_endpoint_manifest, load_post, record, source_identity,
+    coverage_report, load_broad, load_broad_context, load_endpoint_manifest,
+    load_functional_measurements, load_post, qualify_functional_inputs, record, source_identity,
 )
 from smallAntibodyGen.experiments.trastuzumab_poc.parent import export_parent
 from smallAntibodyGen.experiments.trastuzumab_poc.profiling import profile_updates
@@ -29,14 +37,28 @@ from smallAntibodyGen.models.antibody_antigen.fusion import FusionConfig
 def load_config(path):
     path = Path(path).resolve()
     config = read_json(path)
-    require_keys(config, ("schema", "model", "fusion", "training", "data", "initialization", "device"), "run config")
-    if config["schema"] != "trastuzumab-run/1":
+    require_keys(config, ("schema", "model", "fusion", "training", "data", "initialization", "device",
+                          "functional"), "run config")
+    if config["schema"] != "trastuzumab-run/2":
         raise ValueError("unsupported run schema")
     record(FusionConfig, config["fusion"])
     train = record(TrainingConfig, config["training"])
     data = config["data"]
     if not isinstance(config["model"], dict) or not isinstance(config["initialization"], dict):
         raise ValueError("model and initialization must be objects")
+    functional = config["functional"]
+    if functional is not None:
+        # All of it or none of it; the arm exists only in midtraining.
+        if train.stage != "mid":
+            raise ValueError("functional supervision is midtraining-only; a post configuration "
+                             "must declare functional: null")
+        require_keys(functional, ("config", "constructs_path", "measurements_path", "budget_n",
+                                  "budget_seed"), "functional config")
+        require_keys(functional["config"], [f.name for f in fields(FunctionalConfig)],
+                     "functional training config")
+        record(FunctionalConfig, functional["config"])
+        positive_count(functional["budget_n"], "functional budget_n")
+        text_value(functional["budget_seed"], "functional budget_seed")
     if train.stage == "mid":
         keys = ("pairs_path", "transfer_guard") if "transfer_guard" in data else ("pairs_path",)
         require_keys(data, keys, "data config")
@@ -53,7 +75,8 @@ def load_config(path):
                                            "encoder_source_pins_path", "encoder_checkpoint")),
                           (config["initialization"], ("path",)),
                           (data, ("pairs_path", "endpoint_manifest_path", "selected_labels_path")),
-                          (data.get("transfer_guard", {}), ("endpoint_manifest_path",))):
+                          (data.get("transfer_guard", {}), ("endpoint_manifest_path",)),
+                          (functional or {}, ("constructs_path", "measurements_path"))):
         for key in keys:
             if key in section:
                 value = section[key]
@@ -70,17 +93,45 @@ def models(config):
                         initialization=config["initialization"])
 
 
+def functional_inputs(config, declaration, records, population):
+    """Outcome-free functional plan, shared by ``plan`` and ``train``.
+
+    Qualifies the constructs document against ALL raw broad rows, fixes the canonical budget
+    and replays the pair schedule.  No measurement file is opened and no model is built.
+    """
+    spec = config["functional"]
+    training = record(TrainingConfig, config["training"])
+    settings = record(FunctionalConfig, spec["config"])
+    qualified, budget, files = qualify_functional_inputs(spec, declaration, records, population)
+    plan = functional_exposure_plan(qualified, budget, seed=training.seed,
+                                    pairs_per_update=settings.pairs_per_update,
+                                    total_updates=training.total_updates)
+    return settings, qualified, budget, plan, files
+
+
 def trainer(config):
     training = record(TrainingConfig, config["training"])
+    planned = None
     if training.stage == "mid":
-        population, data_identity = load_broad(config["data"]["pairs_path"])
+        declaration, records, population, data_identity = load_broad_context(config["data"]["pairs_path"])
         data = {"population": population}
+        if config["functional"] is not None:
+            planned = functional_inputs(config, declaration, records, population)
+            # The coverage gate, like the transfer guard, precedes every measurement and model.
+            check_functional_exposure(planned[3], planned[0])
         guard = config["data"].get("transfer_guard")
         if guard is not None:
             data["transfer_certificate"] = qualify_transfer(
                 population, load_endpoint_manifest(guard["endpoint_manifest_path"]),
                 excluded_antibody_families=guard["excluded_antibody_families"],
-                excluded_target_families=guard["excluded_target_families"])
+                excluded_target_families=guard["excluded_target_families"],
+                functional=None if planned is None else planned[1])
+        if planned is not None:
+            settings, qualified, budget, _, files = planned
+            measurements, measurement_files = load_functional_measurements(
+                config["functional"], qualified, budget)
+            data["functional"] = FunctionalRun(settings, qualified, measurements)
+            data_identity = {**data_identity, **files, **measurement_files}
     else:
         spec = config["data"]
         # Inspect the exact schedule before opening labels or constructing models.
@@ -92,8 +143,11 @@ def trainer(config):
             raise ValueError("endpoint manifest changed after exposure planning")
         data = {"post_data": restricted}
     policy, encoder, initialization = models(config)
-    return StageTrainer(policy, encoder, training, **data, data_identity=data_identity,
-                        source_identity=source_identity(), initialization_identity=initialization)
+    run = StageTrainer(policy, encoder, training, **data, data_identity=data_identity,
+                       source_identity=source_identity(), initialization_identity=initialization)
+    if planned is not None and run.functional_plan != planned[3]:
+        raise ValueError("functional exposure plan changed after planning")
+    return run
 
 
 def post_plan(config):
@@ -110,20 +164,28 @@ def plan_inputs(config):
     """No model/weight/measurement access; report corpus or schedule qualification."""
     training = record(TrainingConfig, config["training"])
     if training.stage == "mid":
-        population, identity = load_broad(config["data"]["pairs_path"])
-        report = {"coverage": coverage_report(population), "input": identity, "transfer_certificate": None}
+        declaration, records, population, identity = load_broad_context(config["data"]["pairs_path"])
+        report = {"coverage": coverage_report(population), "input": identity,
+                  "transfer_certificate": None, "functional": None}
+        qualified = None
+        if config["functional"] is not None:
+            settings, qualified, budget, plan, files = functional_inputs(config, declaration, records, population)
+            report["functional"] = {
+                "qualified": qualified.report(), "budget": functional_budget_identity(budget),
+                "exposure": plan, "coverage_requirement_met": functional_coverage_met(plan, settings),
+                "input": files}
         guard = config["data"].get("transfer_guard")
         if guard is not None:
             report["transfer_certificate"] = qualify_transfer(
                 population, load_endpoint_manifest(guard["endpoint_manifest_path"]),
                 excluded_antibody_families=guard["excluded_antibody_families"],
-                excluded_target_families=guard["excluded_target_families"])
+                excluded_target_families=guard["excluded_target_families"], functional=qualified)
     else:
         _, budget, plan = post_plan(config)
-        report = {"budget": asdict(budget), "exposure": plan,
+        report = {"budget": asdict(budget), "exposure": plan, "functional": None,
                   "coverage_requirement_met": not training.ordering_weight or
                       plan["pair_labels"]["fraction_of_selected"] >= training.minimum_ordering_endpoint_coverage}
-    return {"schema": "trastuzumab-input-plan/1", "training": asdict(training), **report}
+    return {"schema": "trastuzumab-input-plan/2", "training": asdict(training), **report}
 
 
 def write_new_json(path, document):
@@ -222,6 +284,8 @@ def main(argv=None):
         write_new_json(destination / "identity.json", run.identity)
         if run.exposure_plan is not None:
             write_new_json(destination / "exposure-plan.json", run.exposure_plan)
+        if run.functional_plan is not None:
+            write_new_json(destination / "functional-exposure-plan.json", run.functional_plan)
         with (destination / "metrics.jsonl").open("x", encoding="utf-8") as log:
             def completed(current, metrics):
                 log.write(canonical_bytes(metrics).decode("ascii") + "\n")

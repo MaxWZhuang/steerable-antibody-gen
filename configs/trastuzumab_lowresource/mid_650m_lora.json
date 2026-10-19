@@ -1,5 +1,5 @@
 {
-  "schema": "trastuzumab-run/1",
+  "schema": "trastuzumab-run/2",
   "model": {
     "kind": "released",
     "variant": "dplm_650m",
@@ -48,5 +48,6 @@
   "initialization": {
     "kind": "release"
   },
-  "device": "cuda"
+  "device": "cuda",
+  "functional": null
 }

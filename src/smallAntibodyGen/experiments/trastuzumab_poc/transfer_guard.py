@@ -10,14 +10,23 @@ import copy
 
 from smallAntibodyGen.experiments.trastuzumab_poc.artifacts import digest, require_keys
 from smallAntibodyGen.experiments.trastuzumab_poc.data import QualifiedPopulation
+from smallAntibodyGen.experiments.trastuzumab_poc.functional_checkpoint import validate_functional_training
+from smallAntibodyGen.experiments.trastuzumab_poc.functional_data import QualifiedFunctional
 from smallAntibodyGen.experiments.trastuzumab_poc.protocol import EndpointManifest, RestrictedPostData
 
 
-_SCHEMA = "trastuzumab-transfer-qualification/1"
+# The training-identity version that this lineage guard accepts for a parent.
+TRAINING_SCHEMA = "trastuzumab-training/2"
+_SCHEMA = "trastuzumab-transfer-qualification/2"
 _CERTIFICATE_KEYS = (
     "schema", "population_digest", "declaration_digest", "endpoint_manifest_digest",
-    "excluded_antibody_families", "excluded_target_families", "coverage", "certificate_sha256",
+    "excluded_antibody_families", "excluded_target_families", "coverage", "functional",
+    "certificate_sha256",
 )
+_FUNCTIONAL_DIGESTS = ("qualified_digest", "contract_digest", "declaration_digest",
+                       "population_digest", "broad_input_digest")
+_FUNCTIONAL_KEYS = (*_FUNCTIONAL_DIGESTS, "train_constructs", "train_unique_antibodies",
+                    "train_unique_antigens", "train_antibody_families", "train_target_families")
 
 
 def _families(values, name):
@@ -35,17 +44,40 @@ def _sha(value, name):
         raise ValueError(f"{name} must be a lowercase SHA256")
 
 
+def functional_binding(qualified):
+    """The part of a certificate that binds one functional qualification, budget-independently."""
+    train = qualified.train_constructs()
+    return {
+        "qualified_digest": qualified.digest, "contract_digest": qualified.contract_digest,
+        "declaration_digest": qualified.declaration_digest,
+        "population_digest": qualified.population_digest,
+        "broad_input_digest": qualified.broad_input_digest,
+        "train_constructs": len(train),
+        "train_unique_antibodies": len({(c.H, c.L) for c in train}),
+        "train_unique_antigens": len({c.Ag for c in train}),
+        "train_antibody_families": sorted({c.antibody_family for c in train}),
+        "train_target_families": sorted({c.target_family for c in train}),
+    }
+
+
 def qualify_transfer(population, endpoint_manifest, *, excluded_antibody_families,
-                     excluded_target_families):
+                     excluded_target_families, functional=None):
     """Reject downstream leakage in the actual broad TRAIN population.
 
     All endpoint roles protect their exact H/L construct and antigen sequence.
     Explicit family exclusions additionally protect unlisted variants and target
     fragments when curators have assigned their families consistently. Previously
     excluded records and validation/test records are not training exposure.
+
+    ``functional`` (a ``QualifiedFunctional``) extends the same checks to EVERY functional
+    train construct, selected for the observation budget or not, so the certificate does not
+    depend on which budget is drawn.  The certificate then binds the full functional
+    qualification identity.  The denoising population is never touched by it.
     """
     if not isinstance(population, QualifiedPopulation) or not isinstance(endpoint_manifest, EndpointManifest):
         raise TypeError("transfer qualification requires a qualified population and endpoint manifest")
+    if functional is not None and not isinstance(functional, QualifiedFunctional):
+        raise TypeError("functional must be a QualifiedFunctional")
     ab_families = _families(excluded_antibody_families, "excluded_antibody_families")
     ag_families = _families(excluded_target_families, "excluded_target_families")
     protected_antibodies = {(e.construct.full_heavy(), e.construct.light) for e in endpoint_manifest.entries}
@@ -62,6 +94,23 @@ def qualify_transfer(population, endpoint_manifest, *, excluded_antibody_familie
             raise ValueError(f"excluded downstream antibody family appears in broad training: {row.record_id}")
         if row.target_family in ag_families:
             raise ValueError(f"excluded downstream target family appears in broad training: {row.record_id}")
+    binding = None
+    if functional is not None:
+        if (functional.declaration_digest != population.manifest_digest
+                or functional.population_digest != population.population_digest):
+            raise ValueError("functional qualification belongs to a different broad population")
+        if not functional.train_constructs():
+            raise ValueError("functional qualification has no training construct")
+        for item in functional.train_constructs():
+            if (item.H, item.L) in protected_antibodies:
+                raise ValueError(f"downstream antibody construct appears in functional training: {item.construct_id}")
+            if item.Ag in protected_antigens:
+                raise ValueError(f"downstream antigen sequence appears in functional training: {item.construct_id}")
+            if item.antibody_family in ab_families:
+                raise ValueError(f"excluded downstream antibody family appears in functional training: {item.construct_id}")
+            if item.target_family in ag_families:
+                raise ValueError(f"excluded downstream target family appears in functional training: {item.construct_id}")
+        binding = functional_binding(functional)
     eligible = [len(row.eligible_union()) for row in train]
     certificate = {
         "schema": _SCHEMA,
@@ -83,9 +132,30 @@ def qualify_transfer(population, endpoint_manifest, *, excluded_antibody_familie
             "records_with_aux_region": sum(bool(r.aux_region) for r in train),
             "protected_endpoint_roles": sorted({e.role for e in endpoint_manifest.entries}),
         },
+        "functional": binding,
     }
     certificate["certificate_sha256"] = digest(certificate)
     return certificate
+
+
+def _functional_binding(value, certificate):
+    if value is None:
+        return
+    require_keys(value, _FUNCTIONAL_KEYS, "functional transfer binding")
+    for name in _FUNCTIONAL_DIGESTS:
+        _sha(value[name], name)
+    if (value["declaration_digest"] != certificate["declaration_digest"]
+            or value["population_digest"] != certificate["population_digest"]):
+        raise ValueError("functional binding does not match the certificate's broad population")
+    for name in ("train_constructs", "train_unique_antibodies", "train_unique_antigens"):
+        if type(value[name]) is not int or value[name] < 1:
+            raise ValueError("functional binding counts must be positive integers")
+    if (value["train_unique_antibodies"] > value["train_constructs"]
+            or value["train_unique_antigens"] > value["train_constructs"]):
+        raise ValueError("inconsistent functional binding")
+    for name in ("train_antibody_families", "train_target_families"):
+        if value[name] != _families(value[name], name):
+            raise ValueError("functional binding families must be canonical sorted lists")
 
 
 def _certificate(value):
@@ -122,10 +192,42 @@ def _certificate(value):
     if (not isinstance(roles, list) or not roles or roles != sorted(set(roles))
             or any(r not in ("post_pool", "development", "reserved") for r in roles)):
         raise ValueError("invalid protected endpoint roles")
-    unsigned = {k: v for k, v in value.items() if k != "certificate_sha256"}
+    _functional_binding(value["functional"], value)
+    unsigned ={k: v for k, v in value.items() if k != "certificate_sha256"}
     if digest(unsigned) != value["certificate_sha256"]:
         raise ValueError("transfer certificate digest mismatch")
     return copy.deepcopy(value)
+
+
+def _parent_functional(training, progress, certificate):
+    """A parent's functional records are explicit, internally consistent and certified.
+
+    The derived ``input`` records are required even without a functional arm: a midtraining
+    parent has no post fitting budget, and an absent arm is ``null`` in the identity, the
+    progress, the input AND the certificate (never merely some of them).  Other keys of
+    ``input`` are informational and are not constrained here.
+    """
+    recorded_input = training.get("input")
+    if ("functional" not in training or "functional" not in progress
+            or not isinstance(recorded_input, dict)
+            or not {"budget", "functional"} <= set(recorded_input)):
+        raise ValueError("parent training records lack the explicit budget and functional fields")
+    if recorded_input["budget"] is not None:
+        raise ValueError("midtraining parent records a post fitting budget")
+    try:
+        functional = validate_functional_training(training, progress)
+    except (KeyError, TypeError) as error:
+        raise ValueError(f"parent functional records are malformed: {error!r}") from error
+    binding = certificate["functional"]
+    if functional is None:
+        if binding is not None:
+            raise ValueError("parent certificate binds a functional qualification that its "
+                             "identity does not declare")
+        return
+    recorded = recorded_input["functional"]["budget"]
+    if (binding is None or binding["qualified_digest"] != recorded["qualified_digest"]
+            or binding["contract_digest"] != recorded["contract_digest"]):
+        raise ValueError("parent transfer certificate does not bind its functional qualification")
 
 
 def _release_origin(origin, base):
@@ -139,12 +241,17 @@ def _release_origin(origin, base):
 
 
 def validate_stage_lineage(policy, config, initialization_identity, *, transfer_certificate=None,
-                           post_data=None):
+                           post_data=None, functional=None):
     """Validate this experiment's ancestry, returning its qualification certificate.
 
     Generic parent exports remain reusable elsewhere. This experiment permits
     only release -> mid -> post or release -> direct post. A measured parent must
     never masquerade as a smaller fresh measurement budget.
+
+    ``functional`` is the ``QualifiedFunctional`` of a midtraining run; its certificate must
+    bind exactly that qualification.  Post-training takes no functional supervision, and a
+    functional parent must carry a certificate that binds the functional qualification
+    recorded in its own training identity.
     """
     base = policy.base_identity
     if not isinstance(initialization_identity, dict) or initialization_identity.get("base") != base:
@@ -152,13 +259,20 @@ def validate_stage_lineage(policy, config, initialization_identity, *, transfer_
     kind = initialization_identity.get("kind")
     if config.stage not in ("mid", "post"):
         raise ValueError("unsupported transfer stage")
+    if functional is not None and not isinstance(functional, QualifiedFunctional):
+        raise TypeError("functional must be a QualifiedFunctional")
     if config.stage == "mid":
         _release_origin(initialization_identity, base)
         if transfer_certificate is None:
             if base.get("variant") != "synthetic-test-only":
                 raise ValueError("released midtraining requires transfer qualification")
             return None
-        return _certificate(transfer_certificate)
+        certificate = _certificate(transfer_certificate)
+        if certificate["functional"] != (None if functional is None else functional_binding(functional)):
+            raise ValueError("transfer certificate does not bind this run's functional qualification")
+        return certificate
+    if functional is not None:
+        raise ValueError("post-training takes no functional supervision")
     if not isinstance(post_data, RestrictedPostData):
         raise TypeError("post-training lineage requires restricted selected data")
     if kind == "release":
@@ -183,7 +297,7 @@ def validate_stage_lineage(policy, config, initialization_identity, *, transfer_
     if not isinstance(source, dict) or training.get("model") != source:
         raise ValueError("parent training model differs from the materialized source policy")
     parent_config = training.get("config")
-    if (training.get("schema") != "trastuzumab-training/1"
+    if (training.get("schema") != TRAINING_SCHEMA
             or training.get("selection") != "fixed-last"
             or not isinstance(parent_config, dict) or parent_config.get("stage") != "mid"):
         raise ValueError("post-training requires a midtraining parent, never a measured post-training parent")
@@ -203,6 +317,7 @@ def validate_stage_lineage(policy, config, initialization_identity, *, transfer_
         raise ValueError("parent transfer certificate does not bind its actual training population")
     if certificate["endpoint_manifest_digest"] != post_data.budget.manifest_digest:
         raise ValueError("parent transfer qualification protects a different endpoint manifest")
+    _parent_functional(training, progress, certificate)
     if transfer_certificate is not None and _certificate(transfer_certificate) != certificate:
         raise ValueError("requested transfer certificate differs from the trained parent")
     return certificate

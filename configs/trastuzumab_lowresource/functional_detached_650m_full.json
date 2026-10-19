@@ -1,0 +1,68 @@
+{
+  "schema": "trastuzumab-run/2",
+  "model": {
+    "kind": "released",
+    "variant": "dplm_650m",
+    "weights_dir": "REPLACE/dplm_650m",
+    "pins_path": "REPLACE/dplm_pins.json",
+    "encoder_source_root": "REPLACE/tfold",
+    "encoder_source_pins_path": "REPLACE/esm_ppi_source_pins.json",
+    "encoder_checkpoint": "REPLACE/esm_ppi_650m_ab.pth",
+    "encoder_checkpoint_sha256": "REPLACE_WITH_VERIFIED_SHA256",
+    "encoder_max_tokens": 1024
+  },
+  "fusion": {
+    "context_dim": 1280,
+    "bottleneck": 128,
+    "lora_rank": 32,
+    "lora_alpha": 64,
+    "lora_dropout": 0,
+    "activation_checkpointing": true,
+    "update_mode": "full",
+    "compute_dtype": "bfloat16"
+  },
+  "training": {
+    "stage": "mid",
+    "arm": "paired",
+    "seed": 0,
+    "total_updates": 62500,
+    "examples_per_update": 16,
+    "learning_rate": 0.00002,
+    "weight_decay": 0.01,
+    "gradient_clip": 1,
+    "schedule": "constant",
+    "reconstruction_weight": 1,
+    "ordering_weight": 0,
+    "ordering_margin": 0.1,
+    "span_weight": 0,
+    "full_region_weight": 0
+  },
+  "data": {
+    "pairs_path": "REPLACE/qualified_pairs.json",
+    "transfer_guard": {
+      "endpoint_manifest_path": "REPLACE/endpoints.json",
+      "excluded_antibody_families": ["REPLACE_WITH_CURATED_TRASTUZUMAB_FAMILY_IDS"],
+      "excluded_target_families": ["REPLACE_WITH_CURATED_HER2_FAMILY_IDS"]
+    }
+  },
+  "initialization": {
+    "kind": "release"
+  },
+  "device": "cuda",
+  "functional": {
+    "config": {
+      "gradient_mode": "detached",
+      "weight": 1.0,
+      "pairs_per_update": 2,
+      "margin": 0.1,
+      "head_lr_scale": 1.0,
+      "head_weight_decay": 0.0,
+      "head_gradient_clip": 1.0,
+      "minimum_compared_fraction": 1.0
+    },
+    "constructs_path": "REPLACE/functional_constructs.json",
+    "measurements_path": "REPLACE/functional_measurements.json",
+    "budget_n": 32,
+    "budget_seed": "REPLACE_WITH_FUNCTIONAL_BUDGET_SEED"
+  }
+}
