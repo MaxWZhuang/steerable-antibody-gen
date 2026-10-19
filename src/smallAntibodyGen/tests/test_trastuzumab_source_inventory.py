@@ -45,6 +45,13 @@ def test_the_functional_modules_are_inventoried():
     assert recursive_inventory() >= {f"experiments/trastuzumab_poc/{name}" for name in FUNCTIONAL_MODULES}
 
 
+def test_the_retention_module_is_inventoried():
+    # Checkpoints record this identity, so a retention readout is tied to the exact evaluator source.
+    relative = "experiments/trastuzumab_poc/retention.py"
+    assert relative in inputs.source_identity()["files"]
+    assert relative in recursive_inventory()
+
+
 def test_inventory_digests_are_the_current_file_bytes():
     identity = inputs.source_identity()
     package = package_root()

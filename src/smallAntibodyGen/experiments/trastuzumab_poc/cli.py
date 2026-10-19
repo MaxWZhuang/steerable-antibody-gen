@@ -28,6 +28,7 @@ from smallAntibodyGen.experiments.trastuzumab_poc.inputs import (
 )
 from smallAntibodyGen.experiments.trastuzumab_poc.parent import export_parent
 from smallAntibodyGen.experiments.trastuzumab_poc.profiling import profile_updates
+from smallAntibodyGen.experiments.trastuzumab_poc import retention
 from smallAntibodyGen.experiments.trastuzumab_poc.protocol import select_budget
 from smallAntibodyGen.experiments.trastuzumab_poc.transfer_guard import qualify_transfer
 from smallAntibodyGen.experiments.trastuzumab_poc.runner import StageTrainer, TrainingConfig, check_exposure_plan
@@ -204,6 +205,13 @@ def parser():
     select.add_argument("--budget", required=True, type=int)
     select.add_argument("--budget-seed", required=True)
     select.add_argument("--output", required=True)
+    plan_retention = commands.add_parser("plan-retention")
+    plan_retention.add_argument("--spec", required=True)
+    plan_retention.add_argument("--output", required=True)
+    evaluate_retention = commands.add_parser("evaluate-retention")
+    for flag in ("--config", "--plan", "--checkpoint", "--checkpoint-sha256", "--output"):
+        evaluate_retention.add_argument(flag, required=True)
+    evaluate_retention.add_argument("--arm", choices=("paired", "abonly"), required=True)
     for name in ("plan", "train", "profile", "score", "generate", "export-parent"):
         command = commands.add_parser(name)
         command.add_argument("--config", required=True)
@@ -248,6 +256,20 @@ def main(argv=None):
     if args.command == "select-budget":
         budget = select_budget(load_endpoint_manifest(args.manifest), args.budget, args.budget_seed)
         write_new_json(args.output, {"schema": "trastuzumab-budget/1", **asdict(budget)})
+        return
+    if args.command == "plan-retention":
+        write_new_json(args.output, retention.plan_retention(args.spec))
+        return
+    if args.command == "evaluate-retention":
+        # The plan is validated before any model or checkpoint is opened; no training input is read.
+        plan = retention.load_plan(args.plan)
+        policy, encoder, _ = models(load_config(args.config))
+        provenance = load_inference_checkpoint(policy, args.checkpoint, encoder=encoder,
+                                               expected_sha256=args.checkpoint_sha256,
+                                               source_identity=source_identity())
+        result = retention.evaluate_retention(policy, encoder, plan, arm=args.arm, provenance=provenance)
+        write_new_json(args.output, result)
+        print(json.dumps({"status": result["status"], "output": args.output}))
         return
     config = load_config(args.config)
     if args.command == "plan":

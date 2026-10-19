@@ -1,0 +1,20 @@
+{
+  "schema": "trastuzumab-retention-spec/1",
+  "pairs_path": "REPLACE/qualified_pairs.json",
+  "functional_constructs_path": null,
+  "protected": {
+    "endpoint_manifest_path": "REPLACE/endpoints.json",
+    "excluded_antibody_families": ["REPLACE_WITH_CURATED_TRASTUZUMAB_FAMILY_IDS"],
+    "excluded_target_families": ["REPLACE_WITH_CURATED_HER2_FAMILY_IDS"],
+    "family_axes": ["antibody_family", "target_family"]
+  },
+  "selection": {
+    "partitions": ["val", "test"],
+    "record_ids": null,
+    "limit": null
+  },
+  "masks": {
+    "seed": 0,
+    "per_record": 4
+  }
+}
