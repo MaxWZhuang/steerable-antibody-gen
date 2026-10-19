@@ -1,6 +1,8 @@
 """Standalone scalar head, antibody pooling and pair loss for functional transfer (M1).
 
-Nothing here is wired into the trainer, checkpoint or CLI yet.  The pieces are:
+``runner.StageTrainer`` drives these pieces during functional midtraining (enabled by a
+``functional`` section in a ``trastuzumab-run/2`` configuration), and the checkpoint and CLI
+carry them.  The pieces are:
 
 * :class:`ObservationHead` -- bias-free ``Linear(H, 1)`` in FP32, initialized
   ``Normal(0, H ** -0.5)`` on CPU under a purpose-keyed isolated RNG, then moved to the
@@ -23,7 +25,7 @@ policy features are detached before the head; it changes no data and no draw.
 
 Clean (dropout-free) ordering features are the caller's responsibility: wrap the forward
 AND the backward in ``runner.deterministic_ordering``.  This module cannot import that
-context manager (``runner`` will import this module), so :func:`endpoint_features` instead
+context manager (``runner`` imports this module), so :func:`endpoint_features` instead
 refuses to run while any active dropout would make the feature noisy.
 
 ``construct`` arguments are read through ``.H``, ``.L`` and ``.Ag`` only: identifiers,

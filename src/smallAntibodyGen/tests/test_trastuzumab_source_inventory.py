@@ -52,6 +52,13 @@ def test_the_retention_module_is_inventoried():
     assert relative in recursive_inventory()
 
 
+def test_the_study_module_is_inventoried():
+    # Study exports are bound to the checkpoint's recorded source identity, so the selector's own source counts.
+    relative = "experiments/trastuzumab_poc/study.py"
+    assert relative in inputs.source_identity()["files"]
+    assert relative in recursive_inventory()
+
+
 def test_inventory_digests_are_the_current_file_bytes():
     identity = inputs.source_identity()
     package = package_root()

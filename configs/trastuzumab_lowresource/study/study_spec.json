@@ -1,0 +1,155 @@
+{
+  "schema": "trastuzumab-study-spec/1",
+  "study_id": "REPLACE_WITH_STUDY_ID",
+  "endpoint_manifest_path": "REPLACE/endpoints.json",
+  "development": {
+    "assay_id": "REPLACE_WITH_DEVELOPMENT_ASSAY",
+    "orientation": "higher_better"
+  },
+  "query": {
+    "protocol_id": "REPLACE_WITH_PROTOCOL_ID",
+    "scorer_id": "whole-core",
+    "context_arm": "paired",
+    "order_seed": 0,
+    "orders": 4
+  },
+  "recipe": {
+    "training": {
+      "stage": "post",
+      "arm": "paired",
+      "total_updates": 500,
+      "examples_per_update": 2,
+      "weight_decay": 0.01,
+      "gradient_clip": 1,
+      "schedule": "constant",
+      "reconstruction_weight": 1,
+      "ordering_weight": 1,
+      "ordering_margin": 0.1,
+      "minimum_ordering_endpoint_coverage": 1.0,
+      "span_weight": 0,
+      "full_region_weight": 0
+    },
+    "fusion": {
+      "context_dim": 1280,
+      "bottleneck": 128,
+      "lora_rank": 32,
+      "lora_alpha": 64,
+      "lora_dropout": 0,
+      "activation_checkpointing": true,
+      "update_mode": "lora",
+      "compute_dtype": "bfloat16"
+    },
+    "boundaries": [50, 100, 250, 500],
+    "learning_rates": [0.00003, 0.0001, 0.0003],
+    "prospective_learning_rate": 0.0001,
+    "post_seeds": [0, 1, 2]
+  },
+  "budgets": {
+    "budget_seed": "shared-budget-v1",
+    "entries": [
+      {
+        "budget_n": 8,
+        "selected_data_sha256": "000000000000000000000000000000000000000000000000000000000000a001",
+        "selected_labels_sha256": "000000000000000000000000000000000000000000000000000000000000b001"
+      },
+      {
+        "budget_n": 16,
+        "selected_data_sha256": "000000000000000000000000000000000000000000000000000000000000a002",
+        "selected_labels_sha256": "000000000000000000000000000000000000000000000000000000000000b002"
+      },
+      {
+        "budget_n": 32,
+        "selected_data_sha256": "000000000000000000000000000000000000000000000000000000000000a003",
+        "selected_labels_sha256": "000000000000000000000000000000000000000000000000000000000000b003"
+      }
+    ]
+  },
+  "identity": {
+    "release_base_sha256": "0000000000000000000000000000000000000000000000000000000000000c01",
+    "source_sha256": "0000000000000000000000000000000000000000000000000000000000000c02",
+    "encoder": {
+      "identity": {
+        "source_sha256": "0000000000000000000000000000000000000000000000000000000000000c03",
+        "checkpoint_sha256": "0000000000000000000000000000000000000000000000000000000000000c04",
+        "extraction_layer": "REPLACE_WITH_LAYER",
+        "precision": "bfloat16",
+        "tokenizer": "REPLACE_WITH_TOKENIZER",
+        "eval_mode": "true"
+      },
+      "runtime": {
+        "encoder": {
+          "source_sha256": "0000000000000000000000000000000000000000000000000000000000000c03",
+          "checkpoint_sha256": "0000000000000000000000000000000000000000000000000000000000000c04",
+          "extraction_layer": "REPLACE_WITH_LAYER",
+          "precision": "bfloat16",
+          "tokenizer": "REPLACE_WITH_TOKENIZER",
+          "eval_mode": "true"
+        },
+        "storage_dtype": "float32",
+        "compute_dtype": "bfloat16",
+        "native_batch_size": 1,
+        "max_tokens": 1024,
+        "normalization_implementations": []
+      }
+    },
+    "execution": {
+      "hardware": {"device": "cuda", "cuda": true, "name": "REPLACE_WITH_QUALIFIED_GPU"},
+      "software": {"python": "REPLACE", "torch": "REPLACE", "cuda": "REPLACE", "cudnn": 0,
+                   "deterministic_algorithms": false, "matmul_precision": "highest", "allow_tf32": false},
+      "parameters": {"total": 0, "trainable": 0, "frozen_encoder": 0}
+    }
+  },
+  "arms": [
+    {
+      "arm_id": "release",
+      "kind": "release",
+      "functional_mode": null,
+      "origins": [{"origin_id": "release"}]
+    },
+    {
+      "arm_id": "mid-denoising-only",
+      "kind": "mid",
+      "functional_mode": null,
+      "origins": [
+        {"origin_id": "mid-0",
+         "parent_sha256": "0000000000000000000000000000000000000000000000000000000000000d01",
+         "parent_checkpoint_sha256": "0000000000000000000000000000000000000000000000000000000000000d02",
+         "parent_provenance_sha256": "0000000000000000000000000000000000000000000000000000000000000d03"},
+        {"origin_id": "mid-1",
+         "parent_sha256": "0000000000000000000000000000000000000000000000000000000000000d04",
+         "parent_checkpoint_sha256": "0000000000000000000000000000000000000000000000000000000000000d05",
+         "parent_provenance_sha256": "0000000000000000000000000000000000000000000000000000000000000d06"}
+      ]
+    },
+    {
+      "arm_id": "mid-functional-detached",
+      "kind": "mid",
+      "functional_mode": "detached",
+      "origins": [
+        {"origin_id": "mid-0",
+         "parent_sha256": "0000000000000000000000000000000000000000000000000000000000000e01",
+         "parent_checkpoint_sha256": "0000000000000000000000000000000000000000000000000000000000000e02",
+         "parent_provenance_sha256": "0000000000000000000000000000000000000000000000000000000000000e03"},
+        {"origin_id": "mid-1",
+         "parent_sha256": "0000000000000000000000000000000000000000000000000000000000000e04",
+         "parent_checkpoint_sha256": "0000000000000000000000000000000000000000000000000000000000000e05",
+         "parent_provenance_sha256": "0000000000000000000000000000000000000000000000000000000000000e06"}
+      ]
+    },
+    {
+      "arm_id": "mid-functional-shared",
+      "kind": "mid",
+      "functional_mode": "shared",
+      "origins": [
+        {"origin_id": "mid-0",
+         "parent_sha256": "0000000000000000000000000000000000000000000000000000000000000f01",
+         "parent_checkpoint_sha256": "0000000000000000000000000000000000000000000000000000000000000f02",
+         "parent_provenance_sha256": "0000000000000000000000000000000000000000000000000000000000000f03"},
+        {"origin_id": "mid-1",
+         "parent_sha256": "0000000000000000000000000000000000000000000000000000000000000f04",
+         "parent_checkpoint_sha256": "0000000000000000000000000000000000000000000000000000000000000f05",
+         "parent_provenance_sha256": "0000000000000000000000000000000000000000000000000000000000000f06"}
+      ]
+    }
+  ]
+}

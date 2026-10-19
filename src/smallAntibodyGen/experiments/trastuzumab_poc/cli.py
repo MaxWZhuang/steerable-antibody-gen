@@ -28,7 +28,7 @@ from smallAntibodyGen.experiments.trastuzumab_poc.inputs import (
 )
 from smallAntibodyGen.experiments.trastuzumab_poc.parent import export_parent
 from smallAntibodyGen.experiments.trastuzumab_poc.profiling import profile_updates
-from smallAntibodyGen.experiments.trastuzumab_poc import retention
+from smallAntibodyGen.experiments.trastuzumab_poc import retention, study
 from smallAntibodyGen.experiments.trastuzumab_poc.protocol import select_budget
 from smallAntibodyGen.experiments.trastuzumab_poc.transfer_guard import qualify_transfer
 from smallAntibodyGen.experiments.trastuzumab_poc.runner import StageTrainer, TrainingConfig, check_exposure_plan
@@ -212,6 +212,12 @@ def parser():
     for flag in ("--config", "--plan", "--checkpoint", "--checkpoint-sha256", "--output"):
         evaluate_retention.add_argument(flag, required=True)
     evaluate_retention.add_argument("--arm", choices=("paired", "abonly"), required=True)
+    plan_study = commands.add_parser("plan-study")
+    plan_study.add_argument("--spec", required=True)
+    plan_study.add_argument("--output", required=True)
+    select_study = commands.add_parser("select-study")
+    for flag in ("--plan", "--manifest", "--results", "--labels", "--output"):
+        select_study.add_argument(flag, required=True)
     for name in ("plan", "train", "profile", "score", "generate", "export-parent"):
         command = commands.add_parser(name)
         command.add_argument("--config", required=True)
@@ -259,6 +265,15 @@ def main(argv=None):
         return
     if args.command == "plan-retention":
         write_new_json(args.output, retention.plan_retention(args.spec))
+        return
+    if args.command == "plan-study":
+        # Specification and endpoint manifest only: no label, model or checkpoint.
+        write_new_json(args.output, study.plan_study(args.spec))
+        return
+    if args.command == "select-study":
+        # The artifact exists only after the plan, the inventory and every export validated; nothing is
+        # written before then, and the labels file is opened only after that validation.
+        write_new_json(args.output, study.select_study_files(args.plan, args.manifest, args.results, args.labels))
         return
     if args.command == "evaluate-retention":
         # The plan is validated before any model or checkpoint is opened; no training input is read.
